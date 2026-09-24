@@ -62,7 +62,7 @@ const SUMMARY_FORMAT = `Rédige le compte-rendu en Markdown, exactement dans ce 
 ## Questions ouvertes
 - <question restée sans réponse ou point à clarifier>
 
-Règles : sois fidèle et concret (chiffres, noms, dates exacts) ; pas de remplissage ; n’invente aucune action ni décision ; les moments marqués et les notes de l’utilisateur doivent apparaître.`;
+Règles : sois fidèle et concret (chiffres, noms, dates exacts) ; pas de remplissage ; n’invente aucune action ni décision ; n’ajoute aucun détail qui n’a pas été dit (pas de comparaison, de période ou de justification supposées) ; les moments marqués et les notes de l’utilisateur doivent apparaître.`;
 
 async function withRetry<T>(fn: () => Promise<T>, onWait: (s: string) => void, signal: AbortSignal): Promise<T> {
   for (let attempt = 0; ; attempt++) {
