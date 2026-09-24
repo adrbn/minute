@@ -131,18 +131,18 @@ test('question sur une longue réunion : retrouve les bons passages, même écri
     t1: i * 120_000 + 8_000,
     text: filler,
   }));
-  segments[40].text = 'Pour Culture Tech, c’est Laura qui reprend l’activation des comptes.';
+  segments[40].text = 'Pour Studio Nova, c’est Camille qui reprend l’activation des comptes.';
   segments[90].text = 'Le budget des inscriptions baisse de 12 % par rapport à l’an dernier.';
   // mot collé dans la question, séparé dans la transcription
-  const a = retrieve(meta, segments, 'on parle de culturetech ou pas ?', 2_000);
-  assert.ok(a && a.text.includes('Culture Tech') && a.text.includes('[1:20:00]'));
+  const a = retrieve(meta, segments, 'on parle de studionova ou pas ?', 2_000);
+  assert.ok(a && a.text.includes('Studio Nova') && a.text.includes('[1:20:00]'));
   assert.ok(!a.text.includes('Le budget'));
   // flexion : « inscrit » ≈ « inscriptions » ne compte pas, « inscription » oui
   const b = retrieve(meta, segments, 'qu’a-t-on dit sur l’inscription ?', 2_000);
   assert.ok(b && b.text.includes('12 %'));
   // faute de frappe sur un nom propre
-  const c = retrieve(meta, segments, 'que fait Lauraa ?', 2_000);
-  assert.ok(c && c.text.includes('Laura'));
+  const c = retrieve(meta, segments, 'que fait Camillle ?', 2_000);
+  assert.ok(c && c.text.includes('Camille'));
   // rien à voir avec la réunion
   assert.equal(retrieve(meta, segments, 'et la météo à Tokyo ?', 2_000), null);
   // budget respecté
@@ -180,15 +180,15 @@ test('voix : trois intervenants qui alternent sont séparés, nommés et gardés
   assert.equal(Object.keys(meta.voices!).length, 3);
   assert.equal(voiceLabel(meta, 'them', segs[0].spk), 'Participant A');
   // un nom donné s'applique à toute la réunion, et les tours changent à chaque changement de voix
-  meta.voices![segs[1].spk!].name = 'Laura';
-  assert.equal(voiceLabel(meta, 'them', segs[4].spk), 'Laura');
+  meta.voices![segs[1].spk!].name = 'Camille';
+  assert.equal(voiceLabel(meta, 'them', segs[4].spk), 'Camille');
   assert.equal(toTurns(segs).length, 12);
   // extrait trop court pour une empreinte, juste après : même personne qui continue
   const short: Segment = { id: 'x', ch: 'them', t0: 134_500, t1: 135_200, text: 'oui' };
   assert.equal(v.assign('m', short, undefined), segs[13].spk);
   // fin de réunion : rien ne bouge, le nom est conservé
   v.refine('m');
-  assert.equal(Object.values(meta.voices!).filter((x) => x.name === 'Laura').length, 1);
+  assert.equal(Object.values(meta.voices!).filter((x) => x.name === 'Camille').length, 1);
   assert.equal(new Set(segs.map((s) => s.spk)).size, 3);
 });
 
@@ -224,8 +224,8 @@ test('voix : une même personne découpée en deux groupes est réunie en fin de
 
 test('fusion : un enregistrement coupé puis relancé redevient une seule réunion', () => {
   const base = { speakers: { me: 'Moi', them: 'Participants' }, bookmarks: [], notes: '', hasAudio: true } as unknown as MeetingMeta;
-  const a = { ...base, id: 'a', title: 'Point DELF', startedAt: 1_000_000, durationMs: 60_000, notes: 'relancer Laura',
-    voices: { them1: { n: 1, name: 'Laura' }, me1: { n: 0, owner: true } } } as MeetingMeta;
+  const a = { ...base, id: 'a', title: 'Point DELF', startedAt: 1_000_000, durationMs: 60_000, notes: 'relancer Camille',
+    voices: { them1: { n: 1, name: 'Camille' }, me1: { n: 0, owner: true } } } as MeetingMeta;
   const b = { ...base, id: 'b', title: 'Réunion', startedAt: 1_000_000 + 90_000, durationMs: 30_000,
     bookmarks: [{ id: 'x', t: 5_000, label: 'budget' }],
     voices: { them1: { n: 1 }, me1: { n: 0, owner: true } } } as MeetingMeta;
@@ -233,13 +233,13 @@ test('fusion : un enregistrement coupé puis relancé redevient une seule réuni
   const plan = planMerge(a, [seg('a1', 0, 'them1'), seg('a2', 10_000, 'me1')], b, [seg('b1', 2_000, 'them1'), seg('b2', 8_000, 'me1')]);
   // la suite est placée 90 s plus loin, dans l'ordre
   assert.deepEqual(plan.segments.map((s) => [s.id, s.t0]), [['a1', 0], ['a2', 10_000], ['b1', 92_000], ['b2', 98_000]]);
-  // la voix « them1 » de b n'est pas Laura : elle devient une nouvelle lettre ; l'utilisateur reste une seule voix
+  // la voix « them1 » de b n'est pas Camille : elle devient une nouvelle lettre ; l'utilisateur reste une seule voix
   assert.equal(plan.segments[2].spk, 'them2');
   assert.equal(plan.segments[3].spk, 'me1');
   assert.equal(plan.patch.voices!.them2.n, 2);
   assert.equal(plan.patch.durationMs, 120_000);
   assert.equal(plan.patch.bookmarks![0].t, 95_000);
-  assert.equal(plan.patch.notes, 'relancer Laura');
+  assert.equal(plan.patch.notes, 'relancer Camille');
   assert.ok('summary' in plan.patch && plan.patch.summary === undefined);
 });
 
@@ -247,7 +247,7 @@ test('séparation : la phrase choisie ouvre une nouvelle réunion, horodatée de
   const meta = { id: 'm', title: 'Comité', startedAt: 5_000_000, durationMs: 100_000, notes: 'n', hasAudio: true,
     speakers: { me: 'Moi', them: 'Participants' },
     bookmarks: [{ id: 'k1', t: 10_000, label: 'a' }, { id: 'k2', t: 70_000, label: 'b' }],
-    voices: { them1: { n: 1, name: 'Laura' }, them2: { n: 2 } } } as unknown as MeetingMeta;
+    voices: { them1: { n: 1, name: 'Camille' }, them2: { n: 2 } } } as unknown as MeetingMeta;
   const segs: Segment[] = [
     { id: 's1', ch: 'them', t0: 0, t1: 4_000, text: 'un', spk: 'them1' },
     { id: 's2', ch: 'them', t0: 50_000, t1: 55_000, text: 'deux', spk: 'them2' },
@@ -270,9 +270,9 @@ test('mode confidentiel : seul l’ordinateur lui-même reste joignable', () => 
   for (const ko of ['https://api.groq.com/openai/v1/audio/transcriptions', 'https://www.googleapis.com/calendar/v3', 'http://192.168.1.10:8080/', 'https://127.0.0.1.evil.com/', 'pas une url'])
     assert.equal(isLocalUrl(ko), false, ko);
   // le message aux participants ne promet que ce que l'app garantit
-  assert.match(participantNotice(true, 'Stef'), /Stef utilise Minute.*sur son ordinateur.*aucun son ni aucun texte/);
+  assert.match(participantNotice(true, 'Camille'), /Camille utilise Minute.*sur son ordinateur.*aucun son ni aucun texte/);
   assert.match(participantNotice(false, 'Moi'), /^Pour information : J’utilise Minute.*service en ligne.*mon ordinateur/);
-  assert.doesNotMatch(participantNotice(false, 'Stef'), /audio/);
+  assert.doesNotMatch(participantNotice(false, 'Camille'), /audio/);
 });
 
 test('rapport de problème : dossiers, clés et e-mails sont masqués', () => {
