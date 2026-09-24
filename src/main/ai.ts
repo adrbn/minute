@@ -119,6 +119,8 @@ export async function runAi(req: AiRequest, emit: Emit): Promise<string> {
         throw new Error('Mode confidentiel : aucune IA locale détectée (Ollama ou LM Studio). La transcription, elle, fonctionne.');
       }
       const active = local ? { provider: 'openai' as const, model: local.model } : activeProvider();
+      // une IA locale peut mettre un moment à répondre : on le dit tout de suite
+      if (local) send('', false, { progress: `IA locale (${local.model}) : réponse en cours…` });
       if (!active) throw new Error('Ajoutez une clé d’IA (Groq suffit) dans les Réglages.');
       const { provider, model } = active;
       const segments = store.segments(req.meetingId).filter((s) => s.text);

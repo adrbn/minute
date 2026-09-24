@@ -7,7 +7,8 @@ import { SearchResults } from './components/SearchResults';
 import { SettingsSheet, type SettingsSection } from './components/SettingsSheet';
 import { Sidebar } from './components/Sidebar';
 import { StartView } from './components/StartView';
-import { useWidth } from './components/ui';
+import { UpdatePrompt, useWidth } from './components/ui';
+import { BugReport } from './components/BugReport';
 import { PanelLeft } from 'lucide-react';
 
 export function App() {
@@ -18,6 +19,15 @@ export function App() {
   const [selected, setSelected] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [showSettings, setShowSettings] = useState<SettingsSection | null>(null);
+  const [showReport, setShowReport] = useState(false);
+  useEffect(() => {
+    const open = () => {
+      setShowSettings(null);
+      setShowReport(true);
+    };
+    window.addEventListener('minute:report', open);
+    return () => window.removeEventListener('minute:report', open);
+  }, []);
   const [secrets, setSecrets] = useState<Record<SecretName, boolean> | null>(null);
   const [focusAt, setFocusAt] = useState<{ t: number; key: number } | null>(null);
   const [renameSignal, setRenameSignal] = useState(0);
@@ -61,6 +71,10 @@ export function App() {
           setQuery('');
         }
         if (t.view === 'settings') setShowSettings((t.section as SettingsSection) || 'general');
+        if (t.view === 'report') {
+          setShowSettings(null);
+          setShowReport(true);
+        }
         if (t.view === 'new') {
           setSelected(null);
           setQuery('');
@@ -167,6 +181,8 @@ export function App() {
           onOpenSettings={(section) => setShowSettings(section ?? 'general')}
         />
       )}
+      <UpdatePrompt recording={!!live?.meetingId} />
+      {showReport && <BugReport onClose={() => setShowReport(false)} />}
       {showSettings && (
         <SettingsSheet settings={settings} update={update} info={info} initial={showSettings} onClose={() => setShowSettings(null)} />
       )}

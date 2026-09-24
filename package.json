@@ -1,10 +1,16 @@
 {
   "name": "minute",
   "productName": "Minute",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Transcription de réunions en direct — Moi / Eux, copiable à tout moment.",
   "author": "Adrien Robino",
-  "license": "UNLICENSED",
+  "license": "MIT",
+  "homepage": "https://github.com/adrbn/minute",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/adrbn/minute.git"
+  },
+  "bugs": "https://github.com/adrbn/minute/issues",
   "private": true,
   "main": "dist/main/main.cjs",
   "type": "module",
@@ -27,6 +33,7 @@
     "docx": "^9.7.2",
     "electron": "^44.4.5",
     "electron-builder": "^26.15.3",
+    "electron-updater": "^6.8.9",
     "esbuild": "^0.28.2",
     "ical.js": "^2.2.1",
     "lucide-react": "^1.48.0",
@@ -63,6 +70,13 @@
       }
     ],
     "asar": true,
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "adrbn",
+        "repo": "minute"
+      }
+    ],
     "win": {
       "target": [
         {
@@ -73,7 +87,7 @@
         }
       ],
       "icon": "build/icon.ico",
-      "artifactName": "Minute-${version}-Windows.${ext}"
+      "artifactName": "Minute-Setup-Windows.${ext}"
     },
     "nsis": {
       "oneClick": true,
@@ -102,6 +116,7 @@
         }
       ],
       "category": "public.app-category.productivity",
+      "artifactName": "Minute-macOS-${arch}.${ext}",
       "icon": "build/icon.png",
       "minimumSystemVersion": "14.2",
       "hardenedRuntime": true,

@@ -101,7 +101,11 @@ function create(): BrowserWindow {
   const size = winSize(geo.shape);
   const saved = settings().appState<{ x: number; y: number }>('compactPos');
   const area = screen.getPrimaryDisplay().workArea;
-  const pos = saved && screen.getAllDisplays().some((d) => pointIn(saved, d.workArea)) ? saved : placeAt(geo.anchor, size, area);
+  const pos = process.env.MINUTE_OFFSCREEN
+    ? { x: -3000, y: 900 }
+    : saved && screen.getAllDisplays().some((d) => pointIn(saved, d.workArea))
+      ? saved
+      : placeAt(geo.anchor, size, area);
   win = new BrowserWindow({
     ...size,
     ...pos,

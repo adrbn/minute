@@ -93,13 +93,15 @@ export function createMain(): BrowserWindow {
   main = new BrowserWindow({
     width: bounds?.width ?? 1000,
     height: bounds?.height ?? 680,
-    x: bounds?.x,
-    y: bounds?.y,
+    x: process.env.MINUTE_OFFSCREEN ? -4000 : bounds?.x,
+    y: process.env.MINUTE_OFFSCREEN ? 40 : bounds?.y,
+    skipTaskbar: !!process.env.MINUTE_OFFSCREEN,
     minWidth: 600,
     minHeight: 460,
     show: false,
     title: 'Minute',
-    icon: isWin ? join(paths.icons(), 'app.png') : undefined,
+    // version installée : l'icône multi-tailles de Minute.exe ; développement : la même, en .ico
+    icon: isWin && !app.isPackaged ? join(app.getAppPath(), 'build', 'icon.ico') : undefined,
     backgroundColor: isMac || isWin11 ? '#00000000' : nativeTheme.shouldUseDarkColors ? '#1c1c1e' : '#f5f5f7',
     titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
     trafficLightPosition: { x: 18, y: 18 },
@@ -116,7 +118,7 @@ export function createMain(): BrowserWindow {
   });
   // Barre des tâches Windows : sans raccourci installé (lancement de développement via electron.exe),
   // Windows affiche l'icône d'Electron ; on lui donne explicitement celle de Minute.
-  if (isWin) {
+  if (isWin && app.isPackaged) {
     main.setAppDetails({
       appId: 'fr.minute.app',
       appIconPath: app.isPackaged ? process.execPath : join(app.getAppPath(), 'build', 'icon.ico'),
@@ -233,6 +235,7 @@ export interface TrayActions {
   bookmark: () => void;
   copy: () => void;
   mini: () => void;
+  report: () => void;
   quit: () => void;
 }
 
@@ -249,6 +252,7 @@ function trayImage(recording: boolean) {
 let trayActions: TrayActions | null = null;
 
 export function createTray(actions: TrayActions) {
+  if (process.env.MINUTE_OFFSCREEN) return; // captures de documentation : aucune trace à l'écran
   trayActions = actions;
   tray = new Tray(trayImage(false));
   tray.setToolTip('Minute');
@@ -280,6 +284,7 @@ export function refreshTray() {
       { label: 'Mode compact', type: 'checkbox', checked: a.compact(), accelerator: accel(sc.mini), registerAccelerator: false, click: a.mini },
       { type: 'separator' },
       { label: 'Ouvrir Minute', click: () => showMain() },
+      { label: 'Signaler un problème…', click: a.report },
       { label: 'Quitter Minute', click: a.quit },
     ]),
   );

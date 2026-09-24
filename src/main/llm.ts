@@ -98,8 +98,16 @@ export async function findLocalLlm(): Promise<{ base: string; model: string } | 
   return found;
 }
 
+/** Raisonnement affiché par certains modèles locaux (Qwen3, DeepSeek-R1…) : retiré de la réponse. */
+const stripThinking = (s: string) => s.replace(/<think>[\s\S]*?(<\/think>|$)/g, '').trimStart();
+
 export async function chatLocal(base: string, model: string, req: ChatRequest): Promise<string> {
-  return chatOpenAiCompatible('openai', '', model, req, true, base);
+  // Qwen3 : « /no_think » coupe le raisonnement, bien plus rapide sur un simple processeur
+  const user = /qwen3/i.test(model) ? `${req.user}
+
+/no_think` : req.user;
+  const out = await chatOpenAiCompatible('openai', '', model, { ...req, user, onText: (t) => req.onText?.(stripThinking(t)) }, true, base);
+  return stripThinking(out).trim();
 }
 
 async function chatOpenAiCompatible(

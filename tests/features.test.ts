@@ -4,6 +4,8 @@ import { test } from 'node:test';
 import { parseIcs } from '../src/main/calendar';
 import { planMerge, planSplit } from '../src/main/merge';
 import { isLocalUrl, participantNotice } from '../src/main/privacy';
+import { sanitize } from '../src/main/diag';
+import { homedir } from 'node:os';
 import { retrieve } from '../src/main/retrieval';
 import { Voices, type VoiceStore } from '../src/main/voices';
 import { toTurns, voiceLabel } from '../src/shared/transcript';
@@ -271,4 +273,12 @@ test('mode confidentiel : seul l’ordinateur lui-même reste joignable', () => 
   assert.match(participantNotice(true, 'Stef'), /Stef utilise Minute.*sur son ordinateur.*aucun son ni aucun texte/);
   assert.match(participantNotice(false, 'Moi'), /^Pour information : J’utilise Minute.*service en ligne.*mon ordinateur/);
   assert.doesNotMatch(participantNotice(false, 'Stef'), /audio/);
+});
+
+test('rapport de problème : dossiers, clés et e-mails sont masqués', () => {
+  const raw = `${homedir()}\Documents\Minute a échoué ; clé gsk_abcdefghijklmnopqrstu1234 ; sk-ant-api03-XYZxyz0123456789abc ; écrire à jean.dupont@exemple.fr ; Bearer abcdefghijklmnopqrs`;
+  const out = sanitize(raw);
+  assert.ok(out.startsWith('~'));
+  assert.doesNotMatch(out, /gsk_|sk-ant|jean\.dupont|abcdefghijklmnopqrs/);
+  assert.match(out, /<clé masquée>.*<clé masquée>.*<e-mail>.*Bearer <masqué>/);
 });

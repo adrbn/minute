@@ -20,7 +20,7 @@ import {
   X,
 } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
-import type { AppInfo, CalendarState, LlmProvider, LocalStatus, NativelyInfo, SecretName, Settings, Shortcuts } from '../../../shared/types';
+import type { AppInfo, CalendarState, LlmProvider, LocalStatus, NativelyInfo, SecretName, Settings, Shortcuts, UpdateState } from '../../../shared/types';
 import { minute, relativeTime, shortcutLabel } from '../api';
 import { AppGlyph, Switch, useAudioInputs, useToast } from './ui';
 
@@ -256,11 +256,16 @@ function Privacy({ settings, update }: { settings: Settings; update: (p: Partial
           <Row label={st.download ? `Téléchargement : ${st.download.what}` : 'Moteur whisper.cpp + modèle'} col>
             {st.download ? (
               <div className="progress">
-                <i style={{ width: `${st.download.total ? (100 * st.download.received) / st.download.total : 5}%` }} />
-                <span>
-                  {mo(st.download.received)}
-                  {st.download.total ? ` / ${mo(st.download.total)}` : ''}
-                </span>
+                <div className="progress-line">
+                  <span>{st.download.total ? `${Math.round((100 * st.download.received) / st.download.total)} %` : 'Téléchargement…'}</span>
+                  <span className="faint">
+                    {mo(st.download.received)}
+                    {st.download.total ? ` sur ${mo(st.download.total)}` : ''}
+                  </span>
+                </div>
+                <div className="progress-bar">
+                  <i style={{ width: `${st.download.total ? (100 * st.download.received) / st.download.total : 5}%` }} />
+                </div>
               </div>
             ) : (
               <button className="btn primary" onClick={() => void install()} disabled={busy}>
@@ -351,7 +356,64 @@ const OPEN_SOURCE: [string, string][] = [
   ['docx', 'MIT'],
 ];
 
-function About({ info }: { info: AppInfo }) {
+function UpdatesGroup({ settings, update }: { settings: Settings; update: (p: Partial<Settings>) => Promise<void> }) {
+  const [st, setSt] = useState<UpdateState | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    void minute.updates.state().then(setSt);
+    return minute.on('update', setSt);
+  }, []);
+  if (!st) return null;
+  const when = st.checkedAt ? ` (vérifié ${relativeTime(st.checkedAt)})` : '';
+  const line =
+    st.status === 'checking'
+      ? 'Recherche d’une nouvelle version…'
+      : st.status === 'downloading'
+        ? `Téléchargement de la version ${st.version}… ${st.percent ?? 0} %`
+        : st.status === 'ready'
+          ? `Version ${st.version} prête : redémarrez pour l’installer.`
+          : st.status === 'available'
+            ? `Version ${st.version} disponible.`
+            : st.status === 'none'
+              ? `Minute est à jour${when}.`
+              : st.status === 'error'
+                ? `Vérification impossible : ${st.error}`
+                : st.status === 'disabled'
+                  ? (st.reason ?? 'Mises à jour indisponibles')
+                  : 'Pas encore vérifié.';
+  return (
+    <Group title="Mises à jour">
+      <Row label={`Version ${st.current}`} hint={line}>
+        {st.status === 'ready' ? (
+          <button className="btn primary" onClick={() => void minute.updates.install()}>
+            Redémarrer
+          </button>
+        ) : st.status === 'available' && !st.canInstall ? (
+          <button className="btn primary" onClick={() => void minute.windows.openExternal(st.url)}>
+            Télécharger
+          </button>
+        ) : (
+          <button
+            className="btn"
+            disabled={busy || st.status === 'checking' || st.status === 'downloading' || st.status === 'disabled'}
+            onClick={async () => {
+              setBusy(true);
+              setSt(await minute.updates.check());
+              setBusy(false);
+            }}
+          >
+            {busy || st.status === 'checking' ? <Loader2 size={14} className="spin" /> : null} Rechercher
+          </button>
+        )}
+      </Row>
+      <Row label="Mettre à jour automatiquement" hint={st.canInstall ? 'Téléchargée en arrière-plan, installée quand vous le décidez (jamais pendant une réunion).' : 'Vous êtes prévenu quand une nouvelle version sort.'}>
+        <Switch on={settings.autoUpdate} onChange={(v) => void update({ autoUpdate: v })} />
+      </Row>
+    </Group>
+  );
+}
+
+function About({ info, settings, update }: { info: AppInfo; settings: Settings; update: (p: Partial<Settings>) => Promise<void> }) {
   const system = info.platform === 'darwin' ? 'macOS' : info.platform === 'win32' ? 'Windows' : 'Linux';
   return (
     <div className="about">
@@ -381,7 +443,15 @@ function About({ info }: { info: AppInfo }) {
           <ExternalLink size={14} className="go" />
         </button>
       </div>
-      <p className="about-by">Conçu et développé par adrbn.</p>
+      <p className="about-by">Conçu et développé par adrbn · logiciel libre et gratuit (licence MIT).</p>
+      <UpdatesGroup settings={settings} update={update} />
+      <Group title="Aide">
+        <Row label="Signaler un problème" hint="Un ticket GitHub pré-rempli, avec le journal technique (sans contenu de réunion).">
+          <button className="btn" onClick={() => window.dispatchEvent(new Event('minute:report'))}>
+            Signaler…
+          </button>
+        </Row>
+      </Group>
       <Group title="Composants open source" foot="Merci à leurs auteurs. Détails et licences complètes : THIRD_PARTY_NOTICES.md.">
         {OPEN_SOURCE.map(([name, lic]) => (
           <Row key={name} label={name}>
@@ -450,7 +520,7 @@ export function SettingsSheet({
             {section === 'compact' && <Compact {...props} />}
             {section === 'privacy' && <Privacy {...props} />}
             {section === 'data' && <Data {...props} />}
-            {section === 'about' && <About info={info} />}
+            {section === 'about' && <About info={info} settings={settings} update={update} />}
           </div>
         </div>
       </div>
@@ -558,6 +628,45 @@ function Transcription({ settings, update }: P) {
             <option value="de">Deutsch</option>
           </select>
         </Row>
+        {settings.language === 'auto' && (
+          <Row
+            label="Langues parlées dans vos réunions"
+            hint="Une autre langue détectée est traitée comme un bruit mal compris (Whisper « entend » parfois du coréen dans un souffle). La première est la langue principale."
+            col
+          >
+            <div className="lang-chips">
+              {(
+                [
+                  ['fr', 'Français'],
+                  ['en', 'English'],
+                  ['it', 'Italiano'],
+                  ['es', 'Español'],
+                  ['de', 'Deutsch'],
+                  ['pt', 'Português'],
+                  ['nl', 'Nederlands'],
+                  ['ar', 'العربية'],
+                ] as const
+              ).map(([code, name]) => {
+                const list = settings.languages?.length ? settings.languages : ['fr', 'en', 'it'];
+                const on = list.includes(code);
+                return (
+                  <button
+                    key={code}
+                    className={`chip ${on ? 'on' : ''}`}
+                    aria-pressed={on}
+                    onClick={() => {
+                      const next = on ? list.filter((l) => l !== code) : [...list, code];
+                      if (next.length) void update({ languages: next });
+                    }}
+                  >
+                    {name}
+                    {on && list[0] === code ? ' · principale' : ''}
+                  </button>
+                );
+              })}
+            </div>
+          </Row>
+        )}
         <Row label="Modèle" hint="Turbo suffit presque toujours ; Large v3 est un peu plus précis, un peu plus lent.">
           <select className="field" value={settings.sttModel} onChange={(e) => void update({ sttModel: e.target.value })}>
             <option value="whisper-large-v3-turbo">Large v3 turbo</option>

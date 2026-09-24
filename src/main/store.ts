@@ -231,6 +231,7 @@ export class MeetingStore {
     };
     const hits: SearchHit[] = [];
     for (const meta of this.list()) {
+      if (meta.deletedAt) continue; // la corbeille n'apparaît pas dans la recherche
       const base = { meetingId: meta.id, title: meta.title, startedAt: meta.startedAt };
       if (matches(meta.title)) hits.push({ ...base, kind: 'title', snippet: meta.preview });
       if (meta.notes && matches(meta.notes)) hits.push({ ...base, kind: 'notes', snippet: snippet(meta.notes) });

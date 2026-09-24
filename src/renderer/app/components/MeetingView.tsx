@@ -17,6 +17,8 @@ import {
   Square,
   Star,
   Trash2,
+  Archive,
+  ArchiveRestore,
   Users,
   X,
   LoaderCircle,
@@ -140,13 +142,23 @@ export function MeetingView({
         ? [{ label: 'Supprimer l’audio conservé', icon: <MicOff />, onClick: () => void minute.meetings.update(id, { hasAudio: false }).then(() => toast('L’audio sera supprimé', 'success')) }]
         : []),
       { separator: true },
+      meta.archived
+        ? { label: 'Désarchiver', icon: <ArchiveRestore />, onClick: () => void minute.meetings.update(id, { archived: false }) }
+        : {
+            label: 'Archiver',
+            icon: <Archive />,
+            onClick: async () => {
+              await minute.meetings.update(id, { archived: true, pinned: false });
+              toast('Réunion archivée', 'success');
+            },
+          },
       {
         label: 'Placer dans la corbeille',
         icon: <Trash2 />,
         danger: true,
         onClick: async () => {
-          if (!confirm(`Placer « ${meta.title} » dans la corbeille ?`)) return;
-          await minute.meetings.remove(id);
+          await minute.meetings.trash(id);
+          toast('Placée dans la corbeille — récupérable pendant 30 jours', 'success');
           onDeleted();
         },
       },
@@ -314,6 +326,22 @@ export function MeetingView({
         </div>
       )}
 
+      {(meta.deletedAt || meta.archived) && (
+        <div className={`state-banner ${meta.deletedAt ? 'trash' : ''}`}>
+          {meta.deletedAt ? <Trash2 size={15} /> : <Archive size={15} />}
+          <span>
+            {meta.deletedAt
+              ? `Dans la corbeille : effacée définitivement le ${new Date(meta.deletedAt + 30 * 86_400_000).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}.`
+              : 'Réunion archivée : elle n’apparaît plus dans la liste, mais reste dans la recherche.'}
+          </span>
+          <button
+            className="btn small"
+            onClick={() => void (meta.deletedAt ? minute.meetings.restore(id) : minute.meetings.update(id, { archived: false }))}
+          >
+            {meta.deletedAt ? 'Restaurer' : 'Désarchiver'}
+          </button>
+        </div>
+      )}
       <div className="meeting-body">
         <div className="transcript-wrap">
           {find !== null && (

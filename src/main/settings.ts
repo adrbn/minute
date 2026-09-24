@@ -57,6 +57,8 @@ export function defaultSettings(): Settings {
     privacyMode: false,
     localModel: 'turbo',
     retentionDays: 30,
+    autoUpdate: true,
+    languages: ['fr', 'en', 'it'],
     palette: 'system',
     voices: true,
   };

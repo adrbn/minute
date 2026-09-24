@@ -1,5 +1,6 @@
 import { AlertTriangle, CheckCircle2, Info, XCircle } from 'lucide-react';
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import type { UpdateState } from '../../../shared/types';
 import { minute } from '../api';
 
 /** Pastille « Dynamic Island » (mode compact). */
@@ -25,13 +26,12 @@ export function AppGlyph({ size = 18 }: { size?: number }) {
       </defs>
       <rect x="0.5" y="0.5" width="19" height="19" rx="4.6" fill="url(#app-glyph)" />
       {[
-        [5.2, 3.2],
-        [7.9, 5.6],
-        [10.6, 4],
-        [13.3, 2.2],
-        [16, 1.2],
+        [5.95, 3.2],
+        [8.65, 5.6],
+        [11.35, 4],
+        [14.05, 2.2],
       ].map(([x, h], k) => (
-        <rect key={k} x={x - 0.8} y={10 - h} width="1.6" height={h * 2} rx="0.8" fill="#fff" opacity={[0.92, 1, 0.96, 0.85, 0.75][k]} />
+        <rect key={k} x={x - 0.8} y={10 - h} width="1.6" height={h * 2} rx="0.8" fill="#fff" opacity={[0.92, 1, 0.96, 0.85][k]} />
       ))}
     </svg>
   );
@@ -234,4 +234,54 @@ export function useAudioInputs(): MediaDeviceInfo[] {
     return () => navigator.mediaDevices.removeEventListener('devicechange', load);
   }, []);
   return devices;
+}
+
+// ------------------------------------------------------------------ mise à jour disponible
+/**
+ * Fenêtre « Nouvelle version » : n'apparaît jamais pendant une réunion (elle attend la fin),
+ * et « Plus tard » la fait taire jusqu'au prochain lancement.
+ */
+export function UpdatePrompt({ recording }: { recording: boolean }) {
+  const [st, setSt] = useState<UpdateState | null>(null);
+  const [later, setLater] = useState<string | null>(null);
+  useEffect(() => {
+    void minute.updates.state().then(setSt);
+    return minute.on('update', setSt);
+  }, []);
+  if (!st || recording || !st.version || later === st.version) return null;
+  const ready = st.status === 'ready';
+  const manual = st.status === 'available' && !st.canInstall;
+  if (!ready && !manual) return null;
+  return (
+    <div className="scrim update-scrim" onMouseDown={(e) => e.target === e.currentTarget && setLater(st.version!)}>
+      <div className="sheet update-sheet" role="dialog" aria-label="Mise à jour disponible">
+        <AppGlyph size={56} />
+        <h2>Minute {st.version} est disponible</h2>
+        <p className="update-sub">
+          Vous avez la version {st.current}.{' '}
+          {ready ? 'Elle est téléchargée : il suffit de redémarrer.' : 'Téléchargez-la pour en profiter.'}
+        </p>
+        {st.notes && (
+          <div className="update-notes">
+            <b>Nouveautés</b>
+            <p>{st.notes}</p>
+          </div>
+        )}
+        <div className="update-actions">
+          <button className="btn" onClick={() => setLater(st.version!)}>
+            Plus tard
+          </button>
+          {ready ? (
+            <button className="btn primary" onClick={() => void minute.updates.install()}>
+              Redémarrer et mettre à jour
+            </button>
+          ) : (
+            <button className="btn primary" onClick={() => void minute.windows.openExternal(st.url)}>
+              Télécharger
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 }

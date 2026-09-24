@@ -188,7 +188,9 @@ export function startLocal(model: LocalModel): Promise<void> {
     if (!exe || !existsSync(modelPath(model))) throw new Error('Moteur local non installé.');
     port = await freePort();
     const threads = Math.max(2, Math.min(8, cpus().length - 1));
-    proc = spawn(exe, ['-m', modelPath(model), '--host', '127.0.0.1', '--port', String(port), '-t', String(threads)], {
+    // un seul candidat, pas de nouvelle tentative à température plus haute : ~30 % plus rapide sur processeur
+    const fast = ['-bo', '1', '-nf'];
+    proc = spawn(exe, ['-m', modelPath(model), '--host', '127.0.0.1', '--port', String(port), '-t', String(threads), ...fast], {
       windowsHide: true,
       stdio: 'ignore',
     });

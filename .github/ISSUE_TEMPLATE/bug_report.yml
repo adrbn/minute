@@ -1,0 +1,27 @@
+name: Signaler un problème
+description: Quelque chose ne marche pas comme prévu
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Merci ! Le plus simple : dans Minute, **Réglages › À propos › Signaler un problème** remplit ce ticket
+        pour vous, avec le journal technique (jamais de contenu de réunion).
+  - type: textarea
+    id: what
+    attributes:
+      label: Que s’est-il passé ?
+      description: Ce que vous faisiez, ce que vous attendiez, ce qui s’est passé à la place.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version de Minute et système
+      placeholder: Minute 0.4.0 · Windows 11
+  - type: textarea
+    id: logs
+    attributes:
+      label: Journal technique (facultatif)
+      description: Collez ici le rapport copié depuis l’app.
+      render: text

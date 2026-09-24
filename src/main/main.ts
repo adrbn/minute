@@ -45,6 +45,8 @@ import { planMerge, planSplit } from './merge';
 import { installLocal, localStatus, onLocalStatus, removeLocalModel, stopLocal, type LocalModel } from './localStt';
 import { findLocalLlm } from './llm';
 import { installNetworkGuard, participantNotice, setPrivacy } from './privacy';
+import { checkForUpdates, initUpdater, installUpdate, updateState } from './updater';
+import { diagLog, diagnostics } from './diag';
 import { newId, store } from './store';
 import { pcm16ToWav } from './wav';
 import {
@@ -85,6 +87,7 @@ function logError(kind: string, err: unknown) {
     /* disque indisponible */
   }
   console.error(line);
+  diagLog('erreur', `${kind}: ${err instanceof Error ? err.message : String(err)}`);
 }
 process.on('uncaughtException', (err) => logError('uncaughtException', err));
 process.on('unhandledRejection', (err) => logError('unhandledRejection', err));
@@ -93,7 +96,9 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
   process.exit(0);
 }
-app.setAppUserModelId('fr.minute.app');
+// Identité Windows (notifications, épinglage). En développement (electron.exe), Windows prendrait
+// alors l'icône d'Electron pour la barre des tâches : on laisse l'icône de la fenêtre s'afficher.
+if (app.isPackaged || process.platform !== 'win32') app.setAppUserModelId('fr.minute.app');
 
 // ------------------------------------------------------------------ diffusion vers l'interface
 function broadcast(channel: string, payload?: unknown) {
@@ -243,14 +248,21 @@ function onMeetingAppEnded(app: string) {
   );
 }
 
-/** Mode confidentiel : les réunions plus anciennes que la durée de conservation sont supprimées définitivement. */
+const TRASH_DAYS = 30;
+/**
+ * Effacements automatiques : la corbeille après 30 jours ; en mode confidentiel, les réunions
+ * plus anciennes que la durée de conservation (sauf épinglées).
+ */
 function purgeExpired() {
   const cfg = settings().get();
-  if (!cfg.privacyMode || !cfg.retentionDays) return;
-  const limit = Date.now() - cfg.retentionDays * 86_400_000;
+  const now = Date.now();
+  const retention = cfg.privacyMode && cfg.retentionDays ? now - cfg.retentionDays * 86_400_000 : 0;
   let n = 0;
   for (const m of store.list()) {
-    if (m.startedAt < limit && !m.pinned && !recorder.busyWith(m.id)) {
+    if (recorder.busyWith(m.id)) continue;
+    const trashExpired = m.deletedAt && m.deletedAt < now - TRASH_DAYS * 86_400_000;
+    const tooOld = retention && m.startedAt < retention && !m.pinned;
+    if (trashExpired || tooOld) {
       store.removePermanently(m.id);
       n++;
     }
@@ -385,6 +397,48 @@ function wireIpc() {
     return next;
   });
   // ---------------------------------------------------------------- mode confidentiel
+  // ---------------------------------------------------------------- signaler un problème
+  handle('diag:report', (_e, input: { title?: string; what?: string; logs?: boolean }) => {
+    const cfg = settings().get();
+    const st = localStatus();
+    const context = {
+      'Langue des réunions': cfg.language,
+      Transcription: cfg.privacyMode ? `locale (${cfg.localModel})` : cfg.sttModel,
+      IA: cfg.privacyMode ? 'locale' : cfg.llmProvider,
+      'Mode confidentiel': cfg.privacyMode,
+      'Qui parle': cfg.voices,
+      Thème: `${cfg.theme} / ${cfg.palette}`,
+      Enregistrement: recorder.state.status,
+      'Phrases en attente': recorder.state.queue,
+      'Moteur local': st.supported ? (st.engine ? `installé (${Object.entries(st.models).filter(([, v]) => v).map(([k]) => k).join(', ') || 'sans modèle'})` : 'non installé') : undefined,
+      'Mise à jour': updateState().status,
+    };
+    const what = (input.what ?? '').trim() || '_(non précisé)_';
+    const logs = input.logs === false ? '' : diagnostics(context);
+    const text = ['**Que s’est-il passé ?**', what, '', logs].join('\n').trim();
+    const title = (input.title ?? '').trim() || 'Problème signalé depuis l’app';
+    // l'adresse du ticket a une taille limite : au-delà, le journal complet passe par le presse-papiers
+    const base = `https://github.com/adrbn/minute/issues/new?labels=bug&title=${encodeURIComponent(title)}&body=`;
+    let body = text;
+    let truncated = false;
+    if (encodeURIComponent(body).length > 6500) {
+      truncated = true;
+      body = [
+        '**Que s’est-il passé ?**',
+        what,
+        '',
+        '_Le journal technique complet a été copié par Minute : collez-le ici (Ctrl+V)._',
+        '',
+      ].join('\n');
+    }
+    return { text, url: base + encodeURIComponent(body), truncated };
+  });
+  handle('updates:state', () => updateState());
+  handle('updates:check', () => checkForUpdates(true));
+  handle('updates:install', () => {
+    if (recorder.state.meetingId) throw new Error('Terminez la réunion en cours avant de mettre à jour.');
+    installUpdate();
+  });
   handle('local:status', () => localStatus());
   handle('local:install', async (_e, model: LocalModel) => {
     if (settings().get().privacyMode) throw new Error('Le téléchargement se fait avant d’activer le mode confidentiel.');
@@ -506,13 +560,36 @@ function wireIpc() {
     broadcast('meetings');
     return plan.newMeta.id;
   });
-  handle('meetings:remove', async (_e, id: string) => {
+  /** Suppression pour de bon : les derniers extraits partent avec la réunion ; on attend ceux déjà envoyés. */
+  const purge = async (id: string) => {
     if (recorder.state.meetingId === id) await recorder.stop();
-    // les derniers extraits partent à la poubelle avec la réunion ; on attend ceux déjà envoyés
     recorder.forget(id);
     for (let i = 0; i < 100 && recorder.busyWith(id); i++) await new Promise((r) => setTimeout(r, 100));
-    await store.remove(id);
+    store.removePermanently(id);
+  };
+  handle('meetings:remove', async (_e, id: string) => {
+    await purge(id);
     broadcast('meetings');
+  });
+  // corbeille de Minute : la réunion sort des listes et reste récupérable 30 jours
+  handle('meetings:trash', async (_e, id: string) => {
+    if (recorder.state.meetingId === id) await recorder.stop();
+    store.update(id, { deletedAt: Date.now(), pinned: false });
+    broadcast('meetings');
+  });
+  handle('meetings:restore', (_e, id: string) => {
+    store.update(id, { deletedAt: undefined });
+    broadcast('meetings');
+  });
+  handle('meetings:purge', async (_e, id: string) => {
+    await purge(id);
+    broadcast('meetings');
+  });
+  handle('meetings:emptyTrash', async () => {
+    const trashed = store.list().filter((m) => m.deletedAt);
+    for (const m of trashed) await purge(m.id);
+    broadcast('meetings');
+    return trashed.length;
   });
   handle('meetings:editSegment', (_e, id: string, segId: string, text: string) => {
     const seg = store.segments(id).find((s) => s.id === segId);
@@ -666,7 +743,11 @@ function wireIpc() {
   ipcMain.on('engine:levels', (e, l: Levels) => fromEngine(e) && recorder.levels(l));
   ipcMain.on('engine:status', (e, ch, ok, error) => fromEngine(e) && recorder.channelStatus(ch, ok, error));
   ipcMain.on('engine:stopped', (e) => fromEngine(e) && recorder.engineStopped());
-  ipcMain.on('engine:log', (e, msg: string) => fromEngine(e) && console.log('[engine]', msg));
+  ipcMain.on('engine:log', (e, msg: string) => {
+    if (!fromEngine(e)) return;
+    console.log('[engine]', msg);
+    diagLog('moteur', String(msg));
+  });
 }
 
 /** Menu d'application : complet et en français sur macOS, absent sous Windows. */
@@ -758,6 +839,10 @@ app.whenReady().then(() => {
   purgeExpired();
   setInterval(purgeExpired, 6 * 3600_000);
   onLocalStatus((s) => broadcast('localStatus', s));
+  initUpdater({
+    notify: (s) => broadcast('update', s),
+    enabled: () => ({ auto: settings().get().autoUpdate, privacy: settings().get().privacyMode }),
+  });
 
   // Interface servie depuis app://minute/ (fetch, WASM et worklets s'y comportent comme sur le web)
   const rendererRoot = resolve(paths.renderer());
@@ -812,6 +897,12 @@ app.whenReady().then(() => {
     bookmark: actions.bookmark,
     copy: () => void actions.copy(),
     mini: actions.mini,
+    report: () => {
+      const w = showMain();
+      const send = () => w.webContents.send('navigate', { view: 'report' });
+      if (w.webContents.isLoading()) w.webContents.once('did-finish-load', () => setTimeout(send, 120));
+      else send();
+    },
     quit: () => app.quit(),
   });
   createMain();

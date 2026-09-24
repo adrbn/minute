@@ -131,7 +131,13 @@ function Ticker({ ch, text, tone, voice = '' }: { ch?: 'me' | 'them'; text: stri
   const [over, setOver] = useState(false);
   useLayoutEffect(() => {
     const el = box.current;
-    if (el) setOver(el.scrollWidth > el.clientWidth + 1);
+    if (!el) return;
+    const measure = () => setOver(el.scrollWidth > el.clientWidth + 1);
+    measure();
+    // la place disponible change (survol, pastille ↔ panneau) : on remesure
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
   }, [text]);
   return (
     <span ref={box} className={`ticker ${over ? 'over' : ''} ${tone ?? ''}`} title={text}>
@@ -840,11 +846,14 @@ function Compact() {
   );
 }
 
-/** Les quatre coins du panneau se tirent pour l'agrandir (zones invisibles, le curseur l'indique). */
+/**
+ * Les deux coins du bas se tirent pour agrandir le panneau (zones invisibles, le curseur l'indique) ;
+ * tout le haut reste une poignée pour déplacer l'île, sans risque de la redimensionner par erreur.
+ */
 function ResizeCorners() {
   return (
     <>
-      {(['tl', 'tr', 'bl', 'br'] as const).map((c) => (
+      {(['bl', 'br'] as const).map((c) => (
         <ResizeCorner key={c} corner={c} />
       ))}
     </>

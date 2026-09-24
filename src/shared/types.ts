@@ -61,6 +61,10 @@ export interface MeetingMeta {
   hasAudio: boolean;
   language: string;
   pinned?: boolean;
+  /** rangée dans les archives (hors de la liste principale, toujours cherchable) */
+  archived?: boolean;
+  /** dans la corbeille depuis ce moment ; effacée définitivement 30 jours après */
+  deletedAt?: number;
   /** participants connus (agenda) — noms donnés à Whisper et à l'IA */
   attendees?: string[];
   /** réunion de l'agenda à l'origine de l'enregistrement */
@@ -129,6 +133,22 @@ export interface CalendarEvent {
   /** lien Teams / Meet / Zoom trouvé dans l'invitation */
   link?: string;
   source: string;
+}
+
+export interface UpdateState {
+  status: 'idle' | 'checking' | 'none' | 'available' | 'downloading' | 'ready' | 'error' | 'disabled';
+  /** version installée */
+  current: string;
+  /** nouvelle version */
+  version?: string;
+  notes?: string;
+  percent?: number;
+  /** Windows : installation automatique ; macOS : téléchargement manuel */
+  canInstall: boolean;
+  url: string;
+  error?: string;
+  reason?: string;
+  checkedAt?: number;
 }
 
 export interface LocalStatus {
@@ -203,6 +223,10 @@ export interface Settings {
   localModel: 'turbo' | 'small';
   /** mode confidentiel : réunions supprimées définitivement au-delà de N jours (0 = jamais) */
   retentionDays: number;
+  /** vérifier et télécharger les nouvelles versions tout seul */
+  autoUpdate: boolean;
+  /** « Plusieurs langues » : langues parlées dans les réunions ; une autre langue détectée = bruit mal compris */
+  languages: string[];
   /** distinguer les intervenants à leur voix (calcul local) */
   voices: boolean;
 }
@@ -287,6 +311,12 @@ export interface MinuteAPI {
     get(id: string): Promise<MeetingFull | null>;
     update(id: string, patch: Partial<MeetingMeta>): Promise<MeetingMeta | null>;
     remove(id: string): Promise<void>;
+    /** corbeille de Minute : récupérable 30 jours */
+    trash(id: string): Promise<void>;
+    restore(id: string): Promise<void>;
+    /** suppression définitive */
+    purge(id: string): Promise<void>;
+    emptyTrash(): Promise<number>;
     /** réunit deux réunions en une (la plus ancienne garde son titre) ; renvoie l'id conservé */
     merge(a: string, b: string): Promise<string>;
     /** coupe la réunion avant cette phrase ; renvoie l'id de la nouvelle réunion (la suite) */
@@ -330,6 +360,16 @@ export interface MinuteAPI {
     openExternal(url: string): Promise<void>;
     openPrivacySettings(kind: 'microphone' | 'audio'): Promise<void>;
   };
+  diag: {
+    /** rapport de problème : texte complet et adresse du ticket GitHub pré-rempli */
+    report(input: { title: string; what: string; logs: boolean }): Promise<{ text: string; url: string; truncated: boolean }>;
+  };
+  updates: {
+    state(): Promise<UpdateState>;
+    check(): Promise<UpdateState>;
+    /** Windows : redémarre sur la nouvelle version */
+    install(): Promise<void>;
+  };
   /** mode confidentiel : moteur de transcription local, IA locale, message aux participants */
   local: {
     status(): Promise<LocalStatus>;
@@ -362,6 +402,7 @@ export interface MinuteAPI {
   on(event: 'meetings', cb: () => void): () => void;
   on(event: 'ai', cb: (e: AiEvent) => void): () => void;
   on(event: 'localStatus', cb: (s: LocalStatus) => void): () => void;
+  on(event: 'update', cb: (s: UpdateState) => void): () => void;
   on(event: 'navigate', cb: (target: { meetingId?: string; view?: string; section?: string }) => void): () => void;
   on(event: 'toast', cb: (t: { text: string; kind?: 'info' | 'success' | 'warn' | 'error' }) => void): () => void;
   on(event: 'settings', cb: (s: Settings) => void): () => void;

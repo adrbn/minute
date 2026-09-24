@@ -17,6 +17,7 @@ import type {
 import { cleanResult, buildPrompt, isEcho, overlapping } from './filters';
 import { Budget, SttError, transcribe } from './groq';
 import { transcribeLocal } from './localStt';
+import { diagLog } from './diag';
 import { Voices } from './voices';
 import { settings } from './settings';
 import { newId, store } from './store';
@@ -101,6 +102,7 @@ export class Recorder {
 
   /** Message d'état affiché dans l'app et la Dynamic Island (null : l'effacer). */
   notice(kind: 'info' | 'warn' | 'error', text: string | null) {
+    if (text && text !== this.state.notice?.text) diagLog(`état ${kind}`, text);
     this.state = { ...this.state, notice: text ? { kind, text } : undefined };
     this.emitState();
   }
@@ -384,6 +386,8 @@ export class Recorder {
         { model: cfg.sttModel, language: cfg.language, prompt: buildPrompt(this.vocabFor(meetingId), this.recent.get(meetingId)?.[s.ch] ?? ''), timeoutMs: 15_000 },
         this.budget,
       );
+      const expected = cfg.languages?.length ? cfg.languages : ['fr', 'en', 'it'];
+      if (cfg.language === 'auto' && r.language && !expected.includes(r.language)) return; // aperçu douteux : on attend la version définitive
       const text = applyCorrections(cleanResult(r), cfg.learned);
       if (this.state.meetingId !== meetingId || this.lastFinalT0[s.ch] >= s.t0 || !text) return;
       this.lastInterim[s.ch] = { t0: s.t0, text };
@@ -479,6 +483,12 @@ export class Recorder {
     }
     // en local, une phrase à la fois : le processeur n'en traite pas deux plus vite
     const parallel = settings().get().privacyMode ? 1 : 2;
+    // mode confidentiel : sur un processeur modeste, le moteur local peut prendre du retard sur la parole
+    if (settings().get().privacyMode && this.state.meetingId) {
+      const n = this.queue.length + this.inflight;
+      if (n >= 4) this.notice('warn', `Transcription locale plus lente que la parole sur cet ordinateur : ${n} phrases en attente — rien n’est perdu.`);
+      else if (n === 0 && this.state.notice?.text.startsWith('Transcription locale')) this.notice('info', null);
+    }
     while (this.inflight < parallel && this.queue.length) {
       const idx = this.queue.findIndex((j) => !this.busy.has(j.meetingId + j.ch));
       if (idx < 0) break;
@@ -524,13 +534,22 @@ export class Recorder {
         return;
       }
       const prompt = buildPrompt(this.vocabFor(job.meetingId), this.recentText(job.meetingId, job.ch));
+      const wav = readFileSync(job.file);
       let r;
       if (cfg.privacyMode) {
         // mode confidentiel : l'audio ne quitte pas l'ordinateur
-        r = await transcribeLocal(readFileSync(job.file), { model: cfg.localModel, language: cfg.language, prompt });
+        r = await transcribeLocal(wav, { model: cfg.localModel, language: cfg.language, prompt });
       } else {
         this.budget.record(dur);
-        r = await transcribe(key!, readFileSync(job.file), { model: cfg.sttModel, language: cfg.language, prompt }, this.budget);
+        r = await transcribe(key!, wav, { model: cfg.sttModel, language: cfg.language, prompt }, this.budget);
+        // détection libre : une langue que personne ne parle (coréen sur un bruit de fond…) est une
+        // hallucination de Whisper ; on retranscrit dans la langue principale, le filtre fait le reste
+        const expected = cfg.languages?.length ? cfg.languages : ['fr', 'en', 'it'];
+        if (cfg.language === 'auto' && r.language && !expected.includes(r.language)) {
+          diagLog('langue', `« ${r.language} » inattendue : nouvelle transcription en « ${expected[0]} »`);
+          this.budget.record(dur);
+          r = await transcribe(key!, wav, { model: cfg.sttModel, language: expected[0], prompt }, this.budget);
+        }
       }
       this.failures = 0;
       if (this.state.notice && this.state.notice.kind !== 'error' && !this.state.notice.text.startsWith('Plus personne')) {

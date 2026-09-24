@@ -21,6 +21,10 @@ const api: MinuteAPI = {
     get: (id) => invoke('meetings:get', id),
     update: (id, patch) => invoke('meetings:update', id, patch),
     remove: (id) => invoke('meetings:remove', id),
+    trash: (id) => invoke('meetings:trash', id),
+    restore: (id) => invoke('meetings:restore', id),
+    purge: (id) => invoke('meetings:purge', id),
+    emptyTrash: () => invoke('meetings:emptyTrash'),
     merge: (a, b) => invoke('meetings:merge', a, b),
     split: (id, segId) => invoke('meetings:split', id, segId),
     editSegment: (id, segId, text) => invoke('meetings:editSegment', id, segId, text),
@@ -57,6 +61,14 @@ const api: MinuteAPI = {
     openSettings: (section) => invoke('windows:settings', section),
     openExternal: (url) => invoke('windows:openExternal', url),
     openPrivacySettings: (kind) => invoke('windows:privacy', kind),
+  },
+  diag: {
+    report: (input) => invoke('diag:report', input),
+  },
+  updates: {
+    state: () => invoke('updates:state'),
+    check: () => invoke('updates:check'),
+    install: () => invoke('updates:install'),
   },
   local: {
     status: () => invoke('local:status'),

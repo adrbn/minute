@@ -13,6 +13,8 @@ export class SttError extends Error {
 
 export interface SttResult {
   text: string;
+  /** langue détectée (code ISO à deux lettres), en détection automatique */
+  language?: string;
   noSpeech: number;
   avgLogprob: number;
   compression: number;
@@ -64,16 +66,31 @@ export async function transcribe(
     const body = await res.text().catch(() => '');
     throw new SttError(`Groq a refusé l'audio (${res.status}) ${body.slice(0, 200)}`, 'bad');
   }
-  const json = (await res.json()) as { text?: string; segments?: VerboseSegment[] };
+  const json = (await res.json()) as { text?: string; segments?: VerboseSegment[]; language?: string };
   const segs = json.segments ?? [];
   const avg = (f: (s: VerboseSegment) => number | undefined, dflt: number) =>
     segs.length ? segs.reduce((a, s) => a + (f(s) ?? dflt), 0) / segs.length : dflt;
   return {
     text: (json.text ?? '').trim(),
+    language: languageCode(json.language),
     noSpeech: avg((s) => s.no_speech_prob, 0),
     avgLogprob: avg((s) => s.avg_logprob, 0),
     compression: avg((s) => s.compression_ratio, 1),
   };
+}
+
+/** Whisper renvoie le nom anglais de la langue (« french ») ou son code : on garde le code. */
+const LANG_CODES: Record<string, string> = {
+  english: 'en', french: 'fr', italian: 'it', spanish: 'es', german: 'de', portuguese: 'pt', dutch: 'nl',
+  catalan: 'ca', romanian: 'ro', polish: 'pl', russian: 'ru', ukrainian: 'uk', arabic: 'ar', turkish: 'tr',
+  greek: 'el', swedish: 'sv', danish: 'da', norwegian: 'no', finnish: 'fi', czech: 'cs', hungarian: 'hu',
+  chinese: 'zh', japanese: 'ja', korean: 'ko', hindi: 'hi', hebrew: 'he', persian: 'fa', vietnamese: 'vi',
+  indonesian: 'id', thai: 'th', malay: 'ms', welsh: 'cy', latin: 'la',
+};
+export function languageCode(raw?: string): string | undefined {
+  if (!raw) return undefined;
+  const v = raw.trim().toLowerCase();
+  return LANG_CODES[v] ?? (/^[a-z]{2}$/.test(v) ? v : undefined);
 }
 
 type Priority = 'final' | 'interim';

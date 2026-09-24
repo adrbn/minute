@@ -1,0 +1,15 @@
+name: Proposer une idée
+description: Une fonctionnalité qui vous ferait gagner du temps
+labels: [idée]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: Quel besoin ?
+      description: La situation concrète (réunion, contexte) où il vous manque quelque chose.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: Ce que vous imaginez

@@ -23,9 +23,11 @@ def app_icon(size, full_bleed=False):
     d = ImageDraw.Draw(img)
     inner = s4 - 2 * pad
     bw, gap = inner * 0.078, inner * 0.06
-    x0 = pad + (inner - (5 * bw + 4 * gap)) / 2
+    # quatre barres d'onde, centrées sur le fond bleu
+    bars = list(zip([0.30, 0.56, 0.40, 0.20], [235, 255, 245, 215]))
+    x0 = pad + (inner - (len(bars) * bw + (len(bars) - 1) * gap)) / 2
     cy = pad + inner * 0.5
-    for i, (h, a) in enumerate(zip([0.30, 0.56, 0.40, 0.20, 0.10], [235, 255, 245, 215, 190])):
+    for i, (h, a) in enumerate(bars):
         x = x0 + i * (bw + gap)
         hh = inner * h
         d.rounded_rectangle([x, cy - hh / 2, x + bw, cy + hh / 2], radius=bw / 2, fill=(255, 255, 255, a))

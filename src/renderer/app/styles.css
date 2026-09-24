@@ -1140,25 +1140,34 @@ select.field {
   padding: 40px;
   overflow-y: auto;
 }
+/* bouton d'enregistrement façon Dictaphone : anneau fin et neutre, disque rouge au centre */
 .rec-button {
-  width: 92px;
-  height: 92px;
+  width: 88px;
+  height: 88px;
   border-radius: 50%;
-  border: 4px solid color-mix(in srgb, var(--red) 30%, var(--content));
-  background: var(--content);
+  border: none;
+  padding: 0;
+  background: transparent;
+  box-shadow: inset 0 0 0 3px var(--sep-strong);
   display: grid;
   place-items: center;
+  cursor: pointer;
   transition: transform 0.15s var(--ease);
-  box-shadow: var(--shadow-2);
 }
 .rec-button i {
-  width: 64px;
-  height: 64px;
+  width: 70px;
+  height: 70px;
   border-radius: 50%;
   background: var(--red);
   transition:
     transform 0.2s var(--ease),
     border-radius 0.2s;
+}
+.rec-button:focus-visible {
+  outline: none;
+  box-shadow:
+    inset 0 0 0 3px var(--sep-strong),
+    0 0 0 4px var(--accent-soft);
 }
 .rec-button:hover i {
   transform: scale(0.94);
@@ -2022,12 +2031,12 @@ html.mac .app.narrow .content .titlebar {
     padding-top: 24px;
   }
   .rec-button {
-    width: 76px;
-    height: 76px;
+    width: 74px;
+    height: 74px;
   }
   .rec-button i {
-    width: 52px;
-    height: 52px;
+    width: 58px;
+    height: 58px;
   }
 }
 
@@ -2677,30 +2686,34 @@ html.mac .brand {
   box-shadow: none;
   color: #fff;
 }
+/* progression : le texte au-dessus, une barre fine dessous (toujours lisible) */
 .progress {
-  position: relative;
-  height: 26px;
-  border-radius: 13px;
-  background: var(--fill);
-  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
-.progress i {
-  position: absolute;
-  inset: 0 auto 0 0;
-  background: var(--accent);
-  border-radius: 13px;
-  transition: width 0.25s ease;
-}
-.progress span {
-  position: relative;
-  display: block;
-  text-align: center;
-  line-height: 26px;
-  font-size: 12px;
+.progress-line {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12.5px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
-  mix-blend-mode: difference;
-  color: #fff;
+}
+.progress-line .faint {
+  font-weight: 500;
+}
+.progress-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--fill-2);
+  overflow: hidden;
+}
+.progress-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: width 0.25s ease;
 }
 .segmented.wide button {
   flex: 1;
@@ -2721,4 +2734,246 @@ html.mac .brand {
 .privacy-badge svg {
   width: 12px;
   height: 12px;
+}
+
+/* ================================================================== mise à jour disponible */
+.update-scrim {
+  z-index: 60;
+}
+.update-sheet {
+  width: min(440px, calc(100vw - 32px));
+  padding: 28px 28px 22px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  animation: sheet-in 0.38s var(--ease);
+}
+@keyframes sheet-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+}
+.update-sheet svg {
+  filter: drop-shadow(0 6px 14px rgba(40, 60, 170, 0.25));
+}
+.update-sheet h2 {
+  margin: 14px 0 4px;
+  font: 650 18px/1.25 var(--font-display);
+  letter-spacing: -0.015em;
+}
+.update-sub {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.update-notes {
+  align-self: stretch;
+  margin: 16px 0 0;
+  padding: 12px 14px;
+  max-height: 180px;
+  overflow: auto;
+  border-radius: 12px;
+  background: var(--fill);
+  text-align: left;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.update-notes b {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.update-notes p {
+  margin: 0;
+  white-space: pre-line;
+}
+.update-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 20px;
+  align-self: stretch;
+  justify-content: flex-end;
+}
+@media (prefers-reduced-motion: reduce) {
+  .update-sheet {
+    animation: none;
+  }
+}
+
+/* ================================================================== archives et corbeille */
+.list-head {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  padding: 2px 10px 8px;
+}
+.list-head b {
+  font-size: 13px;
+}
+.list-head .link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  justify-self: start;
+}
+.list-head .link-btn:last-child {
+  justify-self: end;
+}
+.link-btn.danger {
+  color: var(--red);
+}
+.icon-btn.counted {
+  position: relative;
+}
+.icon-btn.counted i {
+  position: absolute;
+  top: 1px;
+  right: 0;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 8px;
+  font: 600 10px/15px var(--font);
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  background: var(--text-3);
+}
+.icon-btn.counted.on i {
+  background: var(--accent);
+}
+.state-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 20px;
+  padding: 8px 10px 8px 14px;
+  border-radius: 10px;
+  background: var(--fill);
+  color: var(--text-2);
+  font-size: 12.5px;
+}
+.state-banner span {
+  flex: 1;
+}
+.state-banner.trash {
+  background: var(--red-soft);
+  color: color-mix(in srgb, var(--red) 75%, var(--text));
+}
+
+/* ================================================================== signaler un problème */
+.report-sheet {
+  width: min(560px, calc(100vw - 32px));
+  padding: 22px 24px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+}
+.report-head {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.report-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: var(--red);
+  flex-shrink: 0;
+}
+.report-head h2 {
+  margin: 0;
+  font: 650 17px/1.2 var(--font-display);
+  letter-spacing: -0.01em;
+}
+.report-head p {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.report-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.report-field textarea {
+  resize: vertical;
+  font: inherit;
+  font-weight: 400;
+  color: var(--text);
+  line-height: 1.45;
+}
+.report-logs {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--fill);
+}
+.report-logs div {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+}
+.report-logs span {
+  font-size: 12px;
+  color: var(--text-2);
+}
+.report-preview {
+  margin: 0;
+  max-height: 200px;
+  overflow: auto;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--fill);
+  font: 11.5px/1.45 var(--font);
+  font-variant-numeric: tabular-nums;
+  white-space: pre-wrap;
+  color: var(--text-2);
+}
+.report-note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.report-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* langues attendues */
+.lang-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.lang-chips .chip {
+  height: 28px;
+  padding: 0 11px;
+  border-radius: 14px;
+  border: none;
+  background: var(--fill);
+  color: var(--text-2);
+  font: 500 12.5px var(--font);
+  cursor: pointer;
+}
+.lang-chips .chip.on {
+  background: var(--accent);
+  color: #fff;
 }

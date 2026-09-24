@@ -1,5 +1,5 @@
-import { Clock, Download, FileText, FolderOpen, Hourglass, Lock, Merge, Pencil, Pin, PinOff, Search, Settings, SquarePen, Star, Trash2, X } from 'lucide-react';
-import { useMemo, useRef } from 'react';
+import { Archive, ArchiveRestore, ChevronLeft, Clock, Download, FileText, FolderOpen, Hourglass, Lock, Merge, RotateCcw, Pencil, Pin, PinOff, Search, Settings, SquarePen, Star, Trash2, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { clock, durationLabel } from '../../../shared/transcript';
 import type { LiveState, MeetingMeta } from '../../../shared/types';
 import { minute, useElapsed } from '../api';
@@ -48,10 +48,20 @@ export function Sidebar({
   const searchRef = useRef<HTMLInputElement>(null);
   const liveId = live?.meetingId ?? null;
   const liveMeta = meetings.find((m) => m.id === liveId);
+  const [view, setView] = useState<'main' | 'archive' | 'trash'>('main');
+  const active = meetings.filter((m) => !m.deletedAt && !m.archived);
+  const archived = meetings.filter((m) => !m.deletedAt && m.archived);
+  const trashed = meetings.filter((m) => m.deletedAt).sort((a, b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0));
+  const visible = view === 'archive' ? archived : view === 'trash' ? trashed : active;
+  useEffect(() => {
+    if (view === 'archive' && !archived.length) setView('main');
+    if (view === 'trash' && !trashed.length) setView('main');
+  }, [view, archived.length, trashed.length]);
 
   const groups = useMemo(() => {
-    const pinned = meetings.filter((m) => m.pinned && m.id !== liveId);
-    const rest = meetings.filter((m) => !m.pinned && m.id !== liveId);
+    if (view === 'trash') return [{ label: 'Effacées définitivement 30 jours après', items: visible }];
+    const pinned = view === 'main' ? visible.filter((m) => m.pinned && m.id !== liveId) : [];
+    const rest = visible.filter((m) => (view !== 'main' || !m.pinned) && m.id !== liveId);
     const out: { label: string; items: MeetingMeta[] }[] = [];
     if (pinned.length) out.push({ label: 'Épinglées', items: pinned });
     for (const m of rest) {
@@ -61,7 +71,15 @@ export function Sidebar({
       else out.push({ label, items: [m] });
     }
     return out;
-  }, [meetings, liveId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meetings, liveId, view]);
+
+  const toTrash = async (m: MeetingMeta) => {
+    await minute.meetings.trash(m.id);
+    if (selected === m.id) onNew();
+    toast('Placée dans la corbeille — récupérable pendant 30 jours', 'success');
+  };
+  const daysLeft = (m: MeetingMeta) => Math.max(0, 30 - Math.floor((Date.now() - (m.deletedAt ?? 0)) / 86_400_000));
 
   const merge = async (a: MeetingMeta, b: MeetingMeta) => {
     if (!confirm(`Réunir « ${a.title} » et « ${b.title} » en une seule réunion ?\nLa plus récente est ajoutée à la suite de l’autre ; le compte-rendu sera à refaire.`)) return;
@@ -83,12 +101,27 @@ export function Sidebar({
 
   const contextMenu = (e: React.MouseEvent, m: MeetingMeta) => {
     // voisines dans le temps (hors réunion en cours) : les candidates naturelles à une fusion
-    const chrono = meetings.filter((x) => x.id !== liveId).sort((x, y) => x.startedAt - y.startedAt);
+    const chrono = active.filter((x) => x.id !== liveId).sort((x, y) => x.startedAt - y.startedAt);
     const i = chrono.findIndex((x) => x.id === m.id);
     const before = i > 0 ? chrono[i - 1] : null;
     const after = i >= 0 && i < chrono.length - 1 ? chrono[i + 1] : null;
+    if (m.deletedAt)
+      return menu.open(e, [
+        { label: 'Restaurer', icon: <RotateCcw />, onClick: () => void minute.meetings.restore(m.id).then(() => toast('Réunion restaurée', 'success')) },
+        { separator: true },
+        {
+          label: 'Supprimer définitivement',
+          icon: <Trash2 />,
+          danger: true,
+          onClick: async () => {
+            if (!confirm(`Supprimer définitivement « ${m.title} » ?\nCette action est irréversible.`)) return;
+            await minute.meetings.purge(m.id);
+            if (selected === m.id) onNew();
+          },
+        },
+      ]);
     const mergeItems =
-      m.id === liveId
+      m.id === liveId || m.archived
         ? []
         : [
             ...(before
@@ -111,16 +144,17 @@ export function Sidebar({
       { label: 'Afficher dans le dossier', icon: <FolderOpen />, onClick: () => void minute.meetings.reveal(m.id) },
       ...(mergeItems.length ? [{ separator: true }, ...mergeItems] : []),
       { separator: true },
-      {
-        label: 'Placer dans la corbeille',
-        icon: <Trash2 />,
-        danger: true,
-        onClick: async () => {
-          if (!confirm(`Placer « ${m.title} » dans la corbeille ?\nVous pourrez la récupérer depuis la corbeille du système.`)) return;
-          await minute.meetings.remove(m.id);
-          toast('Réunion placée dans la corbeille', 'success');
-        },
-      },
+      m.archived
+        ? { label: 'Désarchiver', icon: <ArchiveRestore />, onClick: () => void minute.meetings.update(m.id, { archived: false }) }
+        : {
+            label: 'Archiver',
+            icon: <Archive />,
+            onClick: async () => {
+              await minute.meetings.update(m.id, { archived: true, pinned: false });
+              toast('Réunion archivée — retrouvez-la dans les archives', 'success');
+            },
+          },
+      { label: 'Placer dans la corbeille', icon: <Trash2 />, danger: true, onClick: () => void toTrash(m) },
     ]);
   };
 
@@ -165,7 +199,30 @@ export function Sidebar({
         </div>
       </div>
 
-      {live?.meetingId ? (
+      {view !== 'main' && (
+        <div className="list-head">
+          <button className="link-btn" onClick={() => setView('main')}>
+            <ChevronLeft size={15} /> Réunions
+          </button>
+          <b>{view === 'archive' ? 'Archives' : 'Corbeille'}</b>
+          {view === 'trash' ? (
+            <button
+              className="link-btn danger"
+              onClick={async () => {
+                if (!confirm(`Vider la corbeille (${trashed.length} réunion${trashed.length > 1 ? 's' : ''}) ?\nCette action est irréversible.`)) return;
+                await minute.meetings.emptyTrash();
+                setView('main');
+              }}
+            >
+              Vider
+            </button>
+          ) : (
+            <span />
+          )}
+        </div>
+      )}
+
+      {view === 'main' && live?.meetingId ? (
         <button className="live-card" onClick={() => onSelect(live.meetingId!)}>
           <span className="row">
             <span className={`dot ${live.status === 'paused' ? 'paused' : 'pulse'}`} />
@@ -213,13 +270,18 @@ export function Sidebar({
                     </span>
                   )}
                   {m.source === 'natively' && <span className="badge quiet">Natively</span>}
+                  {view === 'trash' && (
+                    <span className="badge quiet" title="Ensuite, effacée définitivement">
+                      encore {daysLeft(m)} j
+                    </span>
+                  )}
                 </div>
                 {m.preview && <div className="p">{m.preview}</div>}
               </button>
             ))}
           </div>
         ))}
-        {!meetings.length && (
+        {!visible.length && view === 'main' && (
           <div className="faint" style={{ padding: '18px 12px' }}>
             Vos réunions apparaîtront ici.
           </div>
@@ -244,9 +306,31 @@ export function Sidebar({
               <Clock size={12} style={{ verticalAlign: -2 }} /> {live.queue} phrase{live.queue > 1 ? 's' : ''} en cours de transcription
             </>
           ) : (
-            `${meetings.length} réunion${meetings.length > 1 ? 's' : ''}`
+            `${active.length} réunion${active.length > 1 ? 's' : ''}`
           )}
         </span>
+        {archived.length > 0 && (
+          <button
+            className={`icon-btn counted ${view === 'archive' ? 'on' : ''}`}
+            onClick={() => setView(view === 'archive' ? 'main' : 'archive')}
+            title={`Archives (${archived.length})`}
+            aria-label="Archives"
+          >
+            <Archive />
+            <i>{archived.length}</i>
+          </button>
+        )}
+        {trashed.length > 0 && (
+          <button
+            className={`icon-btn counted ${view === 'trash' ? 'on' : ''}`}
+            onClick={() => setView(view === 'trash' ? 'main' : 'trash')}
+            title={`Corbeille (${trashed.length})`}
+            aria-label="Corbeille"
+          >
+            <Trash2 />
+            <i>{trashed.length}</i>
+          </button>
+        )}
       </div>
       {menu.node}
     </aside>
