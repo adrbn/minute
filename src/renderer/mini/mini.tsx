@@ -205,8 +205,13 @@ function Compact() {
   const caps = useRef<HTMLDivElement>(null);
   const [stick, setStick] = useState(true);
   const turns = useMemo(() => (data ? toTurns(data.segments.filter((s) => s.text)).slice(-14) : []), [data]);
+  const autoScroll = useRef(false);
   useLayoutEffect(() => {
-    if (stick && caps.current) caps.current.scrollTop = caps.current.scrollHeight;
+    const el = caps.current;
+    if (el && stick && el.scrollHeight - el.scrollTop - el.clientHeight > 1) {
+      autoScroll.current = true;
+      el.scrollTop = el.scrollHeight;
+    }
   }, [turns, interims, stick, levels.meSpeaking, levels.themSpeaking, catchup]);
 
   const isPanel = lay?.shape === 'panel';
@@ -417,8 +422,14 @@ function Compact() {
           ref={caps}
           onScroll={() => {
             const el = caps.current;
-            if (el) setStick(el.scrollHeight - el.scrollTop - el.clientHeight < 30);
+            if (!el) return;
+            if (autoScroll.current) {
+              autoScroll.current = false;
+              return;
+            }
+            setStick(el.scrollHeight - el.scrollTop - el.clientHeight < 16);
           }}
+          onWheel={(e) => e.deltaY < 0 && setStick(false)}
         >
           {!turns.length && !interims.me && !interims.them && <p className="cap-empty">À l’écoute…</p>}
           {catchup && !catchup.after && catchupCard}

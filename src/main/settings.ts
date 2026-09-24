@@ -46,6 +46,11 @@ export function defaultSettings(): Settings {
     copyWithTimestamps: false,
     autoStopMinutes: 4,
     theme: 'system',
+    calendars: [],
+    calendarReminders: true,
+    meetingDetection: true,
+    nameAlerts: true,
+    learned: [],
   };
 }
 

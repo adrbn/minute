@@ -1,4 +1,4 @@
-import { Clock, Download, FileText, FolderOpen, Hourglass, Pencil, Pin, PinOff, Plus, Search, Settings, Star, Trash2, X } from 'lucide-react';
+import { Clock, Download, FileText, FolderOpen, Hourglass, Pencil, Pin, PinOff, Search, Settings, SquarePen, Star, Trash2, X } from 'lucide-react';
 import { useMemo, useRef } from 'react';
 import { clock, durationLabel } from '../../../shared/transcript';
 import type { LiveState, MeetingMeta } from '../../../shared/types';
@@ -109,6 +109,9 @@ export function Sidebar({
             </button>
           )}
         </div>
+        <button className="icon-btn no-drag" onClick={onNew} title="Nouvelle réunion (Ctrl+N)" aria-label="Nouvelle réunion">
+          <SquarePen />
+        </button>
       </div>
 
       {live?.meetingId ? (
@@ -121,11 +124,7 @@ export function Sidebar({
           </span>
           <span className="title">{liveMeta?.title ?? 'Réunion en cours'}</span>
         </button>
-      ) : (
-        <button className="btn primary new-btn" onClick={onNew}>
-          <Plus /> Nouvelle réunion
-        </button>
-      )}
+      ) : null}
 
       <div className="list">
         {groups.map((g) => (
@@ -162,7 +161,7 @@ export function Sidebar({
                       <Hourglass size={10} /> récupérée
                     </span>
                   )}
-                  {m.source === 'natively' && <span className="badge">Natively</span>}
+                  {m.source === 'natively' && <span className="badge quiet">Natively</span>}
                 </div>
                 {m.preview && <div className="p">{m.preview}</div>}
               </button>

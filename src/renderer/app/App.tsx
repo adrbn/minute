@@ -4,7 +4,7 @@ import { minute, useInfo, useLiveState, useMeetings, useSettings } from './api';
 import { MeetingView } from './components/MeetingView';
 import { Onboarding } from './components/Onboarding';
 import { SearchResults } from './components/SearchResults';
-import { SettingsSheet } from './components/SettingsSheet';
+import { SettingsSheet, type SettingsSection } from './components/SettingsSheet';
 import { Sidebar } from './components/Sidebar';
 import { StartView } from './components/StartView';
 
@@ -15,7 +15,7 @@ export function App() {
   const live = useLiveState();
   const [selected, setSelected] = useState<string | null>(null);
   const [query, setQuery] = useState('');
-  const [showSettings, setShowSettings] = useState(false);
+  const [showSettings, setShowSettings] = useState<SettingsSection | null>(null);
   const [secrets, setSecrets] = useState<Record<SecretName, boolean> | null>(null);
   const [focusAt, setFocusAt] = useState<{ t: number; key: number } | null>(null);
   const [renameSignal, setRenameSignal] = useState(0);
@@ -51,7 +51,7 @@ export function App() {
           setSelected(t.meetingId);
           setQuery('');
         }
-        if (t.view === 'settings') setShowSettings(true);
+        if (t.view === 'settings') setShowSettings('general');
         if (t.view === 'new') {
           setSelected(null);
           setQuery('');
@@ -67,7 +67,7 @@ export function App() {
       const mod = e.ctrlKey || e.metaKey;
       if (mod && e.key === ',') {
         e.preventDefault();
-        setShowSettings(true);
+        setShowSettings('general');
       }
       if (mod && e.key.toLowerCase() === 'n' && !live?.meetingId) {
         e.preventDefault();
@@ -114,7 +114,7 @@ export function App() {
           setSelected(null);
           setQuery('');
         }}
-        onSettings={() => setShowSettings(true)}
+        onSettings={() => setShowSettings('general')}
         onRename={(id) => {
           open(id);
           setRenameSignal(Date.now());
@@ -133,7 +133,7 @@ export function App() {
           focusAt={focusAt}
           renameSignal={renameSignal}
           onDeleted={() => setSelected(null)}
-          onOpenSettings={() => setShowSettings(true)}
+          onOpenSettings={() => setShowSettings('transcription')}
         />
       ) : (
         <StartView
@@ -142,10 +142,12 @@ export function App() {
           info={info}
           hasGroq={secrets.groq}
           onStarted={(id) => setSelected(id)}
-          onOpenSettings={() => setShowSettings(true)}
+          onOpenSettings={(section) => setShowSettings(section ?? 'general')}
         />
       )}
-      {showSettings && <SettingsSheet settings={settings} update={update} info={info} onClose={() => setShowSettings(false)} />}
+      {showSettings && (
+        <SettingsSheet settings={settings} update={update} info={info} initial={showSettings} onClose={() => setShowSettings(null)} />
+      )}
     </div>
   );
 }

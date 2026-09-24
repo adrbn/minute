@@ -50,6 +50,10 @@ export interface MeetingMeta {
   hasAudio: boolean;
   language: string;
   pinned?: boolean;
+  /** participants connus (agenda) — noms donnés à Whisper et à l'IA */
+  attendees?: string[];
+  /** réunion de l'agenda à l'origine de l'enregistrement */
+  eventId?: string;
 }
 
 export interface MeetingFull {
@@ -95,6 +99,34 @@ export type LiveEvent =
 export type SecretName = 'groq' | 'anthropic' | 'gemini' | 'openai';
 export type LlmProvider = 'groq' | 'anthropic' | 'gemini' | 'openai';
 
+export interface CalendarSource {
+  name: string;
+  url: string;
+}
+
+export interface CalendarEvent {
+  id: string;
+  title: string;
+  start: number;
+  end: number;
+  attendees: string[];
+  /** lien Teams / Meet / Zoom trouvé dans l'invitation */
+  link?: string;
+  source: string;
+}
+
+export interface CalendarState {
+  events: CalendarEvent[];
+  errors: Record<string, string>;
+  lastSync: number;
+}
+
+export interface LearnedCorrection {
+  from: string;
+  to: string;
+  count: number;
+}
+
 export interface Shortcuts {
   toggleRecord: string;
   copy: string;
@@ -124,6 +156,14 @@ export interface Settings {
   copyWithTimestamps: boolean;
   autoStopMinutes: number;
   theme: 'system' | 'light' | 'dark';
+  calendars: CalendarSource[];
+  /** rappel « la réunion commence » depuis l'agenda */
+  calendarReminders: boolean;
+  /** Windows : proposer de transcrire quand Teams / Zoom / Meet utilise le micro */
+  meetingDetection: boolean;
+  /** alerte quand quelqu'un prononce votre prénom */
+  nameAlerts: boolean;
+  learned: LearnedCorrection[];
 }
 
 export interface CopyOptions {
@@ -214,7 +254,7 @@ export interface MinuteAPI {
   };
   recorder: {
     state(): Promise<LiveState>;
-    start(opts?: { title?: string }): Promise<{ ok: boolean; error?: string }>;
+    start(opts?: { title?: string; eventId?: string }): Promise<{ ok: boolean; error?: string }>;
     stop(): Promise<void>;
     pause(): Promise<void>;
     resume(): Promise<void>;
@@ -238,6 +278,14 @@ export interface MinuteAPI {
     openExternal(url: string): Promise<void>;
     openPrivacySettings(kind: 'microphone' | 'audio'): Promise<void>;
   };
+  calendar: {
+    state(): Promise<CalendarState>;
+    refresh(): Promise<CalendarState>;
+    test(url: string): Promise<{ ok: boolean; message: string }>;
+  };
+  vocabulary: {
+    suggestions(): Promise<{ term: string; count: number; meetings: number }[]>;
+  };
   natively: {
     detect(): Promise<NativelyInfo>;
     importAll(): Promise<{ imported: number; skipped: number }>;
@@ -253,6 +301,8 @@ export interface MinuteAPI {
   on(event: 'settings', cb: (s: Settings) => void): () => void;
   on(event: 'compactLayout', cb: (l: CompactLayout) => void): () => void;
   on(event: 'compact', cb: (active: boolean) => void): () => void;
+  on(event: 'calendar', cb: (s: CalendarState) => void): () => void;
+  on(event: 'mention', cb: (m: { meetingId: string; text: string }) => void): () => void;
 }
 
 /** Pont réservé à la fenêtre invisible qui capte l'audio. */

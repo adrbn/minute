@@ -1,6 +1,7 @@
 import { ArrowDown, Copy, Play, Square, Star, Trash2 } from 'lucide-react';
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { clock, normalize, speakerName, toTurns, turnText, type Turn } from '../../../shared/transcript';
+import { firstNameRe } from '../api';
 import type { Bookmark, Channel, MeetingMeta, Segment } from '../../../shared/types';
 import { minute, useSpeaking, type Interims } from '../api';
 import { useToast } from './ui';
@@ -45,6 +46,7 @@ export function Transcript({
   const handledFocus = useRef<number | null>(null);
   const turns = useMemo(() => toTurns(segments), [segments]);
   const q = normalize(find.trim());
+  const nameRe = useMemo(() => firstNameRe(meta.speakers.me), [meta.speakers.me]);
 
   // Moments marqués intercalés au bon endroit
   const rows = useMemo(() => {
@@ -59,16 +61,29 @@ export function Transcript({
     return out;
   }, [turns, meta.bookmarks]);
 
-  // Défilement « collant » : suit le direct tant que l'utilisateur est en bas.
+  // Défilement « collant » : suit le direct tant que l'utilisateur ne remonte pas.
+  // Dès qu'il remonte (molette, barre, clavier), on le laisse lire ; on ne se recolle
+  // qu'une fois revenu tout en bas, ou via « Revenir au direct ».
+  const autoScroll = useRef(false);
   useLayoutEffect(() => {
     const el = scroller.current;
-    if (el && stick) el.scrollTop = el.scrollHeight;
+    if (el && stick && el.scrollHeight - el.scrollTop - el.clientHeight > 1) {
+      autoScroll.current = true;
+      el.scrollTop = el.scrollHeight;
+    }
   }, [rows, interims, stick, speaking]);
 
   const onScroll = () => {
     const el = scroller.current;
     if (!el) return;
-    setStick(el.scrollHeight - el.scrollTop - el.clientHeight < 60);
+    if (autoScroll.current) {
+      autoScroll.current = false;
+      return;
+    }
+    setStick(el.scrollHeight - el.scrollTop - el.clientHeight < 24);
+  };
+  const onWheel = (e: React.WheelEvent) => {
+    if (e.deltaY < 0) setStick(false);
   };
 
   // Aller à un instant précis (recherche, horodatage d'un compte-rendu)
@@ -129,7 +144,7 @@ export function Transcript({
 
   return (
     <div className="transcript-wrap">
-      <div className="transcript" ref={scroller} onScroll={onScroll}>
+      <div className="transcript" ref={scroller} onScroll={onScroll} onWheel={onWheel}>
         <div className="transcript-inner">
           {!rows.length && !live && (
             <div className="empty">
@@ -177,7 +192,9 @@ export function Transcript({
                       ) : (
                         <span
                           key={s.id}
-                          className={`seg ${s.pending ? 'pending' : ''} ${q && normalize(s.text).includes(q) ? 'hit' : ''}`}
+                          className={`seg ${s.pending ? 'pending' : ''} ${q && normalize(s.text).includes(q) ? 'hit' : ''} ${
+                            s.ch === 'them' && nameRe && nameRe.test(normalize(s.text)) ? 'mention' : ''
+                          }`}
                           onDoubleClick={() => !s.pending && setEditing(s.id)}
                           title={s.pending ? 'Transcription en cours…' : 'Double-clic pour corriger'}
                         >

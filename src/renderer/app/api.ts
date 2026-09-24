@@ -154,6 +154,18 @@ export function shortcutLabel(accel: string, platform: string): string {
   return accel.replace(/Control/g, 'Ctrl').replace(/CommandOrControl/g, 'Ctrl');
 }
 
+/** Prénom de l'utilisateur (pour repérer les phrases qui lui sont adressées). */
+export function firstNameRe(name: string): RegExp | null {
+  const first = name.trim().split(/\s+/)[0];
+  if (!first || first.length < 2 || /^moi$/i.test(first)) return null;
+  const n = first
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?<![\\p{L}])${n}(?![\\p{L}])`, 'u');
+}
+
 export function relativeTime(ts: number): string {
   const diff = Date.now() - ts;
   const min = Math.round(diff / 60000);

@@ -191,6 +191,12 @@ export function MeetingView({
                 <span>{meta.wordCount.toLocaleString('fr-FR')} mots</span>
               </>
             )}
+            {!!meta.attendees?.length && (
+              <span className="attendees" title={meta.attendees.join(', ')}>
+                · avec {meta.attendees.slice(0, 3).join(', ')}
+                {meta.attendees.length > 3 ? ` +${meta.attendees.length - 3}` : ''}
+              </span>
+            )}
           </div>
         </div>
 
@@ -212,11 +218,12 @@ export function MeetingView({
               <Copy />
             </button>
             <button
-              className="btn small"
-              title={`Mode compact : sous-titres flottants, la fenêtre s’efface (${shortcutLabel(settings.shortcuts.mini, info.platform)})`}
+              className="icon-btn"
+              title={`Mode compact — la fenêtre s’efface (${shortcutLabel(settings.shortcuts.mini, info.platform)})`}
+              aria-label="Mode compact"
               onClick={() => void minute.windows.enterCompact()}
             >
-              <PictureInPicture2 /> Compact
+              <PictureInPicture2 />
             </button>
             {live.status === 'paused' ? (
               <button className="btn small" onClick={() => void minute.recorder.resume()}>

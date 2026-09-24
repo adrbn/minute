@@ -1,14 +1,42 @@
-import { ExternalLink, FolderOpen, Import, Loader2, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
-import type { AppInfo, LlmProvider, NativelyInfo, SecretName, Settings, Shortcuts } from '../../../shared/types';
-import { minute, shortcutLabel } from '../api';
+import {
+  AudioLines,
+  CalendarDays,
+  Database,
+  ExternalLink,
+  FolderOpen,
+  Import,
+  Keyboard,
+  Loader2,
+  Plus,
+  RefreshCw,
+  Sparkles,
+  SlidersHorizontal,
+  Trash2,
+  Type,
+  X,
+} from 'lucide-react';
+import { useEffect, useState, type ReactNode } from 'react';
+import type { AppInfo, CalendarState, LlmProvider, NativelyInfo, SecretName, Settings, Shortcuts } from '../../../shared/types';
+import { minute, relativeTime, shortcutLabel } from '../api';
 import { Switch, useAudioInputs, useToast } from './ui';
 
 const PROVIDERS: { id: LlmProvider; label: string; hint: string; url: string }[] = [
-  { id: 'groq', label: 'Groq', hint: 'Même clé que la transcription — gratuit, rapide.', url: 'https://console.groq.com/keys' },
-  { id: 'anthropic', label: 'Claude', hint: 'Excellente qualité rédactionnelle en français.', url: 'https://console.anthropic.com/settings/keys' },
+  { id: 'groq', label: 'Groq', hint: 'La même clé que la transcription. Gratuit et rapide.', url: 'https://console.groq.com/keys' },
+  { id: 'anthropic', label: 'Claude', hint: 'La meilleure qualité rédactionnelle en français.', url: 'https://console.anthropic.com/settings/keys' },
   { id: 'gemini', label: 'Gemini', hint: 'Très long contexte, offre gratuite généreuse.', url: 'https://aistudio.google.com/apikey' },
   { id: 'openai', label: 'OpenAI', hint: 'Modèles GPT.', url: 'https://platform.openai.com/api-keys' },
+];
+
+export type SettingsSection = 'general' | 'transcription' | 'audio' | 'calendar' | 'ai' | 'compact' | 'data';
+
+const SECTIONS: { id: SettingsSection; label: string; icon: ReactNode }[] = [
+  { id: 'general', label: 'Général', icon: <SlidersHorizontal /> },
+  { id: 'transcription', label: 'Transcription', icon: <Type /> },
+  { id: 'audio', label: 'Audio', icon: <AudioLines /> },
+  { id: 'calendar', label: 'Agenda', icon: <CalendarDays /> },
+  { id: 'ai', label: 'Intelligence', icon: <Sparkles /> },
+  { id: 'compact', label: 'Mode compact', icon: <Keyboard /> },
+  { id: 'data', label: 'Données', icon: <Database /> },
 ];
 
 export function KeyField({ name, onSaved }: { name: SecretName; onSaved?: (ok: boolean) => void }) {
@@ -36,12 +64,12 @@ export function KeyField({ name, onSaved }: { name: SecretName; onSaved?: (ok: b
     setState({ ok: r.ok, msg: r.message });
   };
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '100%' }}>
+    <div className="stack-6">
       <div className="row">
         <input
           className="field"
           type="password"
-          placeholder={has ? '•••••••••••• (clé enregistrée — collez-en une autre pour la remplacer)' : 'Collez votre clé ici'}
+          placeholder={has ? 'Clé enregistrée — collez-en une autre pour la remplacer' : 'Collez votre clé'}
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && void save()}
@@ -63,7 +91,7 @@ export function KeyField({ name, onSaved }: { name: SecretName; onSaved?: (ok: b
           <Loader2 size={12} className="spin" style={{ verticalAlign: -2 }} /> Vérification…
         </span>
       )}
-      {!state.busy && state.msg && <span className={`test-msg ${state.ok ? 'ok' : 'ko'}`}>{state.ok ? '✓ ' : '✕ '}{state.msg}</span>}
+      {!state.busy && state.msg && <span className={`test-msg ${state.ok ? 'ok' : 'ko'}`}>{state.msg}</span>}
     </div>
   );
 }
@@ -72,8 +100,7 @@ function ShortcutInput({ value, platform, onChange }: { value: string; platform:
   const [rec, setRec] = useState(false);
   return (
     <button
-      className={`field shortcut-input ${rec ? 'focus' : ''}`}
-      style={rec ? { borderColor: 'var(--accent)', boxShadow: '0 0 0 3px var(--accent-soft)' } : undefined}
+      className={`field shortcut-input ${rec ? 'recording' : ''}`}
       onClick={() => setRec(true)}
       onBlur={() => setRec(false)}
       onKeyDown={(e) => {
@@ -92,48 +119,477 @@ function ShortcutInput({ value, platform, onChange }: { value: string; platform:
         setRec(false);
       }}
     >
-      {rec ? 'Appuyez sur la combinaison…' : shortcutLabel(value, platform) || 'Aucun'}
+      {rec ? 'Tapez la combinaison…' : shortcutLabel(value, platform) || 'Aucun'}
     </button>
   );
 }
+
+/** Une ligne de réglage : libellé (+ explication) à gauche, contrôle à droite. */
+function Row({ label, hint, children, col }: { label: ReactNode; hint?: ReactNode; children?: ReactNode; col?: boolean }) {
+  return (
+    <div className={`setting ${col ? 'col' : ''}`}>
+      <div className="label">
+        {label}
+        {hint && <div className="d">{hint}</div>}
+      </div>
+      {children && <div className="ctl">{children}</div>}
+    </div>
+  );
+}
+
+function Group({ title, children, foot }: { title?: string; children: ReactNode; foot?: ReactNode }) {
+  return (
+    <section className="group">
+      {title && <h3>{title}</h3>}
+      <div className="card">{children}</div>
+      {foot && <p className="group-foot">{foot}</p>}
+    </section>
+  );
+}
+
+const link = (url: string, label: string) => (
+  <a href="#" onClick={() => void minute.windows.openExternal(url)}>
+    {label} <ExternalLink size={11} />
+  </a>
+);
 
 export function SettingsSheet({
   settings,
   update,
   info,
   onClose,
+  initial = 'general',
 }: {
   settings: Settings;
   update: (p: Partial<Settings>) => Promise<void>;
   info: AppInfo;
   onClose: () => void;
+  initial?: SettingsSection;
 }) {
-  const toast = useToast();
-  const devices = useAudioInputs();
-  const [models, setModels] = useState<string[]>([]);
-  const [natively, setNatively] = useState<NativelyInfo | null>(null);
-  const [importing, setImporting] = useState(false);
-  const [freshInfo, setFreshInfo] = useState(info);
-  const provider = PROVIDERS.find((p) => p.id === settings.llmProvider) ?? PROVIDERS[0];
-
-  useEffect(() => {
-    void minute.natively.detect().then(setNatively);
-  }, []);
-  useEffect(() => {
-    setModels([]);
-    void minute.secrets.listModels(settings.llmProvider).then(setModels);
-  }, [settings.llmProvider]);
+  const [section, setSection] = useState<SettingsSection>(initial);
   useEffect(() => {
     const esc = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', esc);
     return () => window.removeEventListener('keydown', esc);
   }, [onClose]);
 
+  const props = { settings, update, info };
+  return (
+    <div className="scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="sheet settings" role="dialog" aria-label="Réglages">
+        <nav className="settings-nav">
+          <div className="settings-nav-title">Réglages</div>
+          {SECTIONS.map((s) => (
+            <button key={s.id} className={section === s.id ? 'active' : ''} onClick={() => setSection(s.id)}>
+              {s.icon}
+              {s.label}
+            </button>
+          ))}
+          <div className="grow" />
+          <div className="faint settings-version">Minute {info.version}</div>
+        </nav>
+        <div className="settings-pane">
+          <div className="sheet-head">
+            <h2>{SECTIONS.find((s) => s.id === section)?.label}</h2>
+            <button className="icon-btn" onClick={onClose} aria-label="Fermer">
+              <X />
+            </button>
+          </div>
+          <div className="sheet-body">
+            {section === 'general' && <General {...props} />}
+            {section === 'transcription' && <Transcription {...props} />}
+            {section === 'audio' && <Audio {...props} />}
+            {section === 'calendar' && <Calendars {...props} />}
+            {section === 'ai' && <Intelligence {...props} />}
+            {section === 'compact' && <Compact {...props} />}
+            {section === 'data' && <Data {...props} />}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+type P = { settings: Settings; update: (p: Partial<Settings>) => Promise<void>; info: AppInfo };
+
+// ------------------------------------------------------------------ Général
+function General({ settings, update }: P) {
+  return (
+    <>
+      <Group>
+        <Row label="Votre prénom" hint="Affiché pour votre voix, et utilisé pour vous prévenir quand on s’adresse à vous.">
+          <input className="field" defaultValue={settings.meName === 'Moi' ? '' : settings.meName} placeholder="Moi" onBlur={(e) => void update({ meName: e.target.value.trim() || 'Moi' })} />
+        </Row>
+        <Row label="Les autres participants" hint="Nom par défaut de la voix de l’ordinateur.">
+          <input className="field" defaultValue={settings.themName} onBlur={(e) => void update({ themName: e.target.value.trim() || 'Eux' })} />
+        </Row>
+        <Row label="Me prévenir quand on dit mon prénom" hint="Notification « On parle de vous » si Minute n’est pas au premier plan.">
+          <Switch on={settings.nameAlerts} onChange={(v) => void update({ nameAlerts: v })} />
+        </Row>
+      </Group>
+      <Group>
+        <Row label="Apparence">
+          <div className="segmented">
+            {(
+              [
+                ['system', 'Auto'],
+                ['light', 'Clair'],
+                ['dark', 'Sombre'],
+              ] as const
+            ).map(([v, l]) => (
+              <button key={v} className={settings.theme === v ? 'active' : ''} onClick={() => void update({ theme: v })}>
+                {l}
+              </button>
+            ))}
+          </div>
+        </Row>
+        <Row label="Copier avec l’horodatage" hint="Ajoute [mm:ss] devant chaque intervention copiée.">
+          <Switch on={settings.copyWithTimestamps} onChange={(v) => void update({ copyWithTimestamps: v })} />
+        </Row>
+      </Group>
+    </>
+  );
+}
+
+// ------------------------------------------------------------------ Transcription
+function Transcription({ settings, update }: P) {
+  const [sugg, setSugg] = useState<{ term: string; count: number; meetings: number }[] | null>(null);
+  const [vocab, setVocab] = useState(settings.vocabulary);
+  useEffect(() => setVocab(settings.vocabulary), [settings.vocabulary]);
+  useEffect(() => {
+    void minute.vocabulary.suggestions().then(setSugg);
+  }, [settings.vocabulary]);
+  const addTerms = (terms: string[]) => {
+    const list = vocab.split(/[\n,;]+/).map((v) => v.trim()).filter(Boolean);
+    for (const t of terms) if (!list.some((v) => v.toLowerCase() === t.toLowerCase())) list.push(t);
+    void update({ vocabulary: list.join(', ') });
+  };
+  return (
+    <>
+      <Group foot={<>Whisper large-v3 turbo, via Groq : rapide, excellent en français, gratuit jusqu’à environ 2 h d’audio par heure. {link('https://console.groq.com/keys', 'Obtenir une clé')}</>}>
+        <Row label="Clé Groq" col>
+          <KeyField name="groq" />
+        </Row>
+      </Group>
+      <Group>
+        <Row label="Langue des réunions">
+          <select className="field" value={settings.language} onChange={(e) => void update({ language: e.target.value })}>
+            <option value="fr">Français</option>
+            <option value="auto">Détection automatique</option>
+            <option value="it">Italiano</option>
+            <option value="en">English</option>
+            <option value="es">Español</option>
+            <option value="de">Deutsch</option>
+          </select>
+        </Row>
+        <Row label="Modèle" hint="Turbo suffit presque toujours ; Large v3 est un peu plus précis, un peu plus lent.">
+          <select className="field" value={settings.sttModel} onChange={(e) => void update({ sttModel: e.target.value })}>
+            <option value="whisper-large-v3-turbo">Large v3 turbo</option>
+            <option value="whisper-large-v3">Large v3</option>
+          </select>
+        </Row>
+        <Row label="Texte pendant que l’on parle" hint="Affiche un aperçu avant la fin de la phrase (un peu plus de quota Groq).">
+          <Switch on={settings.livePreview} onChange={(v) => void update({ livePreview: v })} />
+        </Row>
+      </Group>
+      <Group title="Vocabulaire" foot="Les participants de l’agenda s’ajoutent d’eux-mêmes à chaque réunion.">
+        <Row label="Noms propres, sigles, jargon" hint="Minute les écrira correctement. Séparés par des virgules." col>
+          <textarea className="field" rows={3} value={vocab} onChange={(e) => setVocab(e.target.value)} onBlur={() => void update({ vocabulary: vocab })} />
+        </Row>
+        {!!sugg?.length && (
+          <Row
+            label="Suggestions"
+            hint="Noms et sigles qui reviennent dans vos réunions."
+            col
+          >
+            <div className="chips">
+              {sugg.map((s) => (
+                <button key={s.term} className="chip" onClick={() => addTerms([s.term])} title={`${s.count} fois, dans ${s.meetings} réunions`}>
+                  <Plus /> {s.term}
+                </button>
+              ))}
+              {sugg.length > 1 && (
+                <button className="chip strong" onClick={() => addTerms(sugg.map((s) => s.term))}>
+                  Tout ajouter
+                </button>
+              )}
+            </div>
+          </Row>
+        )}
+        <Row
+          label="Corrections apprises"
+          hint={settings.learned.length ? 'Réappliquées automatiquement aux nouvelles transcriptions.' : 'Corrigez une phrase d’un double-clic : Minute retiendra la correction.'}
+          col={!!settings.learned.length}
+        >
+          {!!settings.learned.length && (
+            <div className="learned">
+              {settings.learned
+                .slice()
+                .reverse()
+                .map((l) => (
+                  <div key={l.from} className="learned-row">
+                    <span className="from">{l.from}</span>
+                    <span className="arrow">→</span>
+                    <span className="to">{l.to}</span>
+                    <button
+                      className="icon-btn small"
+                      aria-label="Oublier"
+                      title="Oublier cette correction"
+                      onClick={() => void update({ learned: settings.learned.filter((x) => x.from !== l.from) })}
+                    >
+                      <X />
+                    </button>
+                  </div>
+                ))}
+            </div>
+          )}
+        </Row>
+      </Group>
+    </>
+  );
+}
+
+// ------------------------------------------------------------------ Audio
+function Audio({ settings, update }: P) {
+  const devices = useAudioInputs();
+  return (
+    <Group>
+      <Row label="Micro">
+        <select className="field" value={settings.micDeviceId} onChange={(e) => void update({ micDeviceId: e.target.value })}>
+          <option value="">Micro par défaut du système</option>
+          {devices.map((d) => (
+            <option key={d.deviceId} value={d.deviceId}>
+              {d.label || 'Micro'}
+            </option>
+          ))}
+        </select>
+      </Row>
+      <Row label="Son de l’ordinateur" hint="La voix des autres en visio (Teams, Meet, Zoom…).">
+        <Switch on={settings.captureSystem} onChange={(v) => void update({ captureSystem: v })} />
+      </Row>
+      <Row label="Garder l’audio" hint="Pour réécouter une phrase en cliquant sur son heure.">
+        <select className="field" value={settings.keepAudioDays} onChange={(e) => void update({ keepAudioDays: Number(e.target.value) })}>
+          <option value={0}>Jamais</option>
+          <option value={7}>7 jours</option>
+          <option value={30}>30 jours</option>
+          <option value={90}>90 jours</option>
+          <option value={-1}>Toujours</option>
+        </select>
+      </Row>
+      <Row label="Proposer d’arrêter après un silence" hint="Pour ne jamais laisser tourner un enregistrement oublié.">
+        <select className="field" value={settings.autoStopMinutes} onChange={(e) => void update({ autoStopMinutes: Number(e.target.value) })}>
+          <option value={0}>Jamais</option>
+          <option value={2}>2 min</option>
+          <option value={4}>4 min</option>
+          <option value={8}>8 min</option>
+        </select>
+      </Row>
+    </Group>
+  );
+}
+
+// ------------------------------------------------------------------ Agenda
+function Calendars({ settings, update, info }: P) {
+  const toast = useToast();
+  const [state, setState] = useState<CalendarState | null>(null);
+  const [adding, setAdding] = useState<{ name: string; url: string; busy?: boolean; msg?: string; ok?: boolean } | null>(null);
+  useEffect(() => {
+    void minute.calendar.state().then(setState);
+    return minute.on('calendar', setState);
+  }, []);
+  const add = async () => {
+    if (!adding?.url.trim()) return;
+    setAdding({ ...adding, busy: true, msg: undefined });
+    const r = await minute.calendar.test(adding.url.trim());
+    if (!r.ok) return setAdding({ ...adding, busy: false, ok: false, msg: r.message });
+    await update({ calendars: [...settings.calendars, { name: adding.name.trim() || 'Agenda', url: adding.url.trim() }] });
+    toast(r.message, 'success');
+    setAdding(null);
+  };
+  return (
+    <>
+      <Group
+        foot={
+          <>
+            Google Agenda : Paramètres de l’agenda › Intégrer l’agenda › <b>Adresse secrète au format iCal</b>. Outlook / Teams : Paramètres ›
+            Calendrier › Calendriers partagés › Publier › <b>lien ICS</b>. Le lien reste sur cet ordinateur.
+          </>
+        }
+      >
+        {settings.calendars.map((c) => (
+          <Row
+            key={c.url}
+            label={c.name}
+            hint={state?.errors[c.url] ? <span className="ko">{state.errors[c.url]}</span> : state?.lastSync ? `Synchronisé ${relativeTime(state.lastSync)}` : 'Synchronisation…'}
+          >
+            <button
+              className="icon-btn"
+              aria-label="Retirer"
+              title="Retirer cet agenda"
+              onClick={() => void update({ calendars: settings.calendars.filter((x) => x.url !== c.url) })}
+            >
+              <Trash2 />
+            </button>
+          </Row>
+        ))}
+        {adding ? (
+          <Row label="Nouvel agenda" col>
+            <div className="stack-6">
+              <input className="field" placeholder="Nom (ex. Google IFI)" value={adding.name} onChange={(e) => setAdding({ ...adding, name: e.target.value })} />
+              <div className="row">
+                <input
+                  className="field"
+                  placeholder="https://calendar.google.com/calendar/ical/…/basic.ics"
+                  value={adding.url}
+                  autoFocus
+                  onChange={(e) => setAdding({ ...adding, url: e.target.value })}
+                  onKeyDown={(e) => e.key === 'Enter' && void add()}
+                />
+                <button className="btn primary" onClick={() => void add()} disabled={adding.busy || !adding.url.trim()}>
+                  {adding.busy ? <Loader2 className="spin" /> : 'Ajouter'}
+                </button>
+                <button className="btn ghost" onClick={() => setAdding(null)}>
+                  Annuler
+                </button>
+              </div>
+              {adding.msg && <span className={`test-msg ${adding.ok ? 'ok' : 'ko'}`}>{adding.msg}</span>}
+            </div>
+          </Row>
+        ) : (
+          <Row label={settings.calendars.length ? 'Ajouter un autre agenda' : 'Connecter un agenda'} hint="Google Agenda, Outlook / Teams, iCloud… via leur lien iCal privé.">
+            <button className="btn" onClick={() => setAdding({ name: '', url: '' })}>
+              <Plus /> Ajouter
+            </button>
+          </Row>
+        )}
+        {!!settings.calendars.length && (
+          <Row label="Actualiser maintenant">
+            <button className="icon-btn" aria-label="Actualiser" onClick={() => void minute.calendar.refresh().then(setState)}>
+              <RefreshCw />
+            </button>
+          </Row>
+        )}
+      </Group>
+      <Group>
+        <Row label="Rappel au début d’une réunion" hint="Une notification pour lancer la transcription, avec le titre et les participants.">
+          <Switch on={settings.calendarReminders} onChange={(v) => void update({ calendarReminders: v })} />
+        </Row>
+        {info.platform === 'win32' && (
+          <Row label="Détecter les visios" hint="Quand Teams, Zoom ou Meet utilise le micro, Minute propose de transcrire — et d’arrêter à la fin.">
+            <Switch on={settings.meetingDetection} onChange={(v) => void update({ meetingDetection: v })} />
+          </Row>
+        )}
+      </Group>
+    </>
+  );
+}
+
+// ------------------------------------------------------------------ Intelligence
+function Intelligence({ settings, update }: P) {
+  const [models, setModels] = useState<string[]>([]);
+  const provider = PROVIDERS.find((p) => p.id === settings.llmProvider) ?? PROVIDERS[0];
+  const model = settings.llmModels[settings.llmProvider];
+  useEffect(() => {
+    setModels([]);
+    void minute.secrets.listModels(settings.llmProvider).then(setModels);
+  }, [settings.llmProvider]);
+  return (
+    <>
+      <Group foot={provider.hint}>
+        <Row label="Rédaction des comptes-rendus">
+          <div className="segmented">
+            {PROVIDERS.map((p) => (
+              <button key={p.id} className={settings.llmProvider === p.id ? 'active' : ''} onClick={() => void update({ llmProvider: p.id })}>
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </Row>
+        {settings.llmProvider !== 'groq' && (
+          <Row label={<>Clé {provider.label}</>} hint={link(provider.url, 'Obtenir une clé')} col>
+            <KeyField name={settings.llmProvider} onSaved={() => void minute.secrets.listModels(settings.llmProvider).then(setModels)} />
+          </Row>
+        )}
+        <Row label="Modèle">
+          {models.length ? (
+            <select
+              className="field"
+              value={models.includes(model) ? model : ''}
+              onChange={(e) => void update({ llmModels: { ...settings.llmModels, [settings.llmProvider]: e.target.value } })}
+            >
+              {!models.includes(model) && <option value="">{model}</option>}
+              {models.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              className="field"
+              defaultValue={model}
+              key={settings.llmProvider}
+              onBlur={(e) => void update({ llmModels: { ...settings.llmModels, [settings.llmProvider]: e.target.value.trim() } })}
+            />
+          )}
+        </Row>
+      </Group>
+      <Group>
+        <Row label="Compte-rendu automatique" hint="Rédigé dès la fin de la réunion : titre, décisions, actions, questions ouvertes.">
+          <Switch on={settings.autoSummary} onChange={(v) => void update({ autoSummary: v })} />
+        </Row>
+      </Group>
+    </>
+  );
+}
+
+// ------------------------------------------------------------------ Mode compact & raccourcis
+function Compact({ settings, update, info }: P) {
+  const [fresh, setFresh] = useState(info);
   const setShortcut = async (k: keyof Shortcuts, v: string) => {
     await update({ shortcuts: { ...settings.shortcuts, [k]: v } });
-    setFreshInfo(await minute.info());
+    setFresh(await minute.info());
   };
+  return (
+    <>
+      <Group foot="Le mode compact remplace la fenêtre pendant la visio : une Dynamic Island discrète, qui se déplie en sous-titres.">
+        <Row label="Passer en mode compact au démarrage">
+          <select className="field" value={settings.compactOnStart} onChange={(e) => void update({ compactOnStart: e.target.value as Settings['compactOnStart'] })}>
+            <option value="background">Si Minute est en arrière-plan</option>
+            <option value="always">Toujours</option>
+            <option value="never">Jamais</option>
+          </select>
+        </Row>
+        <Row label="Invisible dans les partages d’écran">
+          <Switch on={settings.miniHiddenFromCapture} onChange={(v) => void update({ miniHiddenFromCapture: v })} />
+        </Row>
+      </Group>
+      <Group title="Raccourcis — depuis n’importe quelle application">
+        {(
+          [
+            ['toggleRecord', 'Démarrer / arrêter'],
+            ['copy', 'Copier la transcription'],
+            ['bookmark', 'Marquer un moment'],
+            ['mini', 'Mode compact'],
+          ] as [keyof Shortcuts, string][]
+        ).map(([k, label]) => (
+          <Row key={k} label={label} hint={fresh.shortcutErrors.includes(settings.shortcuts[k]) ? <span className="ko">Déjà pris par une autre application.</span> : undefined}>
+            <ShortcutInput value={settings.shortcuts[k]} platform={info.platform} onChange={(v) => void setShortcut(k, v)} />
+          </Row>
+        ))}
+      </Group>
+    </>
+  );
+}
 
+// ------------------------------------------------------------------ Données
+function Data({ settings, update }: P) {
+  const toast = useToast();
+  const [natively, setNatively] = useState<NativelyInfo | null>(null);
+  const [importing, setImporting] = useState(false);
+  useEffect(() => {
+    void minute.natively.detect().then(setNatively);
+  }, []);
   const runImport = async () => {
     setImporting(true);
     try {
@@ -146,341 +602,42 @@ export function SettingsSheet({
       setImporting(false);
     }
   };
-
-  const model = settings.llmModels[settings.llmProvider];
-
   return (
-    <div className="scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="sheet" role="dialog" aria-label="Réglages">
-        <div className="sheet-head">
-          <h2>Réglages</h2>
-          <button className="icon-btn" onClick={onClose} aria-label="Fermer">
-            <X />
+    <>
+      <Group foot="Vos réunions restent sur cet ordinateur. Seul l’audio des phrases part chez Groq pour être transcrit, et seul le texte part chez le service d’IA choisi.">
+        <Row label="Dossier des réunions" hint={<span className="path">{settings.storageDir}</span>}>
+          <button
+            className="btn"
+            onClick={async () => {
+              const dir = await minute.settings.chooseStorageDir();
+              if (!dir) return;
+              try {
+                await update({ storageDir: dir });
+              } catch (e) {
+                toast((e as Error).message.replace(/^Error invoking remote method [^:]+: (Error: )?/, ''), 'error');
+              }
+            }}
+          >
+            <FolderOpen /> Changer…
           </button>
-        </div>
-        <div className="sheet-body">
-          <section className="group">
-            <h3>Transcription</h3>
-            <div className="card">
-              <div className="setting col">
-                <div className="label">
-                  Clé Groq
-                  <div className="d">
-                    Le moteur Whisper large-v3 turbo, via Groq : rapide, excellent en français, gratuit jusqu’à ~2 h d’audio par heure.{' '}
-                    <a href="#" onClick={() => void minute.windows.openExternal('https://console.groq.com/keys')}>
-                      Obtenir une clé <ExternalLink size={11} />
-                    </a>
-                  </div>
-                </div>
-                <KeyField name="groq" />
-              </div>
-              <div className="setting">
-                <div className="label">Langue des réunions</div>
-                <div className="ctl">
-                  <select className="field" value={settings.language} onChange={(e) => void update({ language: e.target.value })}>
-                    <option value="fr">Français</option>
-                    <option value="auto">Détection automatique</option>
-                    <option value="it">Italiano</option>
-                    <option value="en">English</option>
-                    <option value="es">Español</option>
-                    <option value="de">Deutsch</option>
-                  </select>
-                </div>
-              </div>
-              <div className="setting">
-                <div className="label">
-                  Modèle
-                  <div className="d">Turbo suffit presque toujours ; Large v3 est un peu plus précis et plus lent.</div>
-                </div>
-                <div className="ctl">
-                  <select className="field" value={settings.sttModel} onChange={(e) => void update({ sttModel: e.target.value })}>
-                    <option value="whisper-large-v3-turbo">Whisper large-v3 turbo</option>
-                    <option value="whisper-large-v3">Whisper large-v3</option>
-                  </select>
-                </div>
-              </div>
-              <div className="setting">
-                <div className="label">
-                  Aperçu instantané
-                  <div className="d">Affiche le texte pendant que la personne parle encore (utilise un peu plus de quota Groq).</div>
-                </div>
-                <Switch on={settings.livePreview} onChange={(v) => void update({ livePreview: v })} />
-              </div>
-              <div className="setting col">
-                <div className="label">
-                  Vocabulaire
-                  <div className="d">Noms propres, sigles, jargon : Minute les écrira correctement. Un par ligne ou séparés par des virgules.</div>
-                </div>
-                <textarea
-                  className="field"
-                  rows={3}
-                  placeholder={'Institut français, DELF, DALF, Campus France…'}
-                  defaultValue={settings.vocabulary}
-                  onBlur={(e) => void update({ vocabulary: e.target.value })}
-                />
-              </div>
-            </div>
-          </section>
-
-          <section className="group">
-            <h3>Voix et audio</h3>
-            <div className="card">
-              <div className="setting">
-                <div className="label">Votre nom dans les transcriptions</div>
-                <div className="ctl">
-                  <input className="field" defaultValue={settings.meName} onBlur={(e) => void update({ meName: e.target.value.trim() || 'Moi' })} />
-                </div>
-              </div>
-              <div className="setting">
-                <div className="label">Les autres participants</div>
-                <div className="ctl">
-                  <input className="field" defaultValue={settings.themName} onBlur={(e) => void update({ themName: e.target.value.trim() || 'Eux' })} />
-                </div>
-              </div>
-              <div className="setting">
-                <div className="label">Micro</div>
-                <div className="ctl">
-                  <select className="field" value={settings.micDeviceId} onChange={(e) => void update({ micDeviceId: e.target.value })}>
-                    <option value="">Micro par défaut du système</option>
-                    {devices.map((d) => (
-                      <option key={d.deviceId} value={d.deviceId}>
-                        {d.label || 'Micro'}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              <div className="setting">
-                <div className="label">
-                  Capter le son de l’ordinateur
-                  <div className="d">Indispensable pour les visios (Teams, Meet, Zoom…).</div>
-                </div>
-                <Switch on={settings.captureSystem} onChange={(v) => void update({ captureSystem: v })} />
-              </div>
-              <div className="setting">
-                <div className="label">
-                  Conserver l’audio
-                  <div className="d">Permet de réécouter chaque phrase en cliquant sur son horodatage.</div>
-                </div>
-                <div className="ctl">
-                  <select className="field" value={settings.keepAudioDays} onChange={(e) => void update({ keepAudioDays: Number(e.target.value) })}>
-                    <option value={0}>Jamais</option>
-                    <option value={7}>7 jours</option>
-                    <option value={30}>30 jours</option>
-                    <option value={90}>90 jours</option>
-                    <option value={-1}>Toujours</option>
-                  </select>
-                </div>
-              </div>
-              <div className="setting">
-                <div className="label">
-                  Proposer d’arrêter après un silence
-                  <div className="d">Pour ne jamais oublier un enregistrement qui tourne.</div>
-                </div>
-                <div className="ctl">
-                  <select className="field" value={settings.autoStopMinutes} onChange={(e) => void update({ autoStopMinutes: Number(e.target.value) })}>
-                    <option value={0}>Jamais</option>
-                    <option value={2}>2 min</option>
-                    <option value={4}>4 min</option>
-                    <option value={8}>8 min</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <section className="group">
-            <h3>Intelligence</h3>
-            <div className="card">
-              <div className="setting col">
-                <div className="label">
-                  Fournisseur
-                  <div className="d">{provider.hint}</div>
-                </div>
-                <div className="segmented" style={{ alignSelf: 'flex-start' }}>
-                  {PROVIDERS.map((p) => (
-                    <button key={p.id} className={settings.llmProvider === p.id ? 'active' : ''} onClick={() => void update({ llmProvider: p.id })}>
-                      {p.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              {settings.llmProvider !== 'groq' && (
-                <div className="setting col">
-                  <div className="label">
-                    Clé {provider.label}{' '}
-                    <a href="#" className="d" onClick={() => void minute.windows.openExternal(provider.url)}>
-                      Obtenir une clé <ExternalLink size={11} />
-                    </a>
-                  </div>
-                  <KeyField name={settings.llmProvider} onSaved={() => void minute.secrets.listModels(settings.llmProvider).then(setModels)} />
-                </div>
-              )}
-              <div className="setting">
-                <div className="label">Modèle</div>
-                <div className="ctl" style={{ minWidth: 260 }}>
-                  {models.length ? (
-                    <select
-                      className="field"
-                      value={models.includes(model) ? model : ''}
-                      onChange={(e) => void update({ llmModels: { ...settings.llmModels, [settings.llmProvider]: e.target.value } })}
-                    >
-                      {!models.includes(model) && <option value="">{model} (par défaut)</option>}
-                      {models.map((m) => (
-                        <option key={m} value={m}>
-                          {m}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <input
-                      className="field"
-                      defaultValue={model}
-                      key={settings.llmProvider}
-                      onBlur={(e) => void update({ llmModels: { ...settings.llmModels, [settings.llmProvider]: e.target.value.trim() } })}
-                    />
-                  )}
-                </div>
-              </div>
-              <div className="setting">
-                <div className="label">
-                  Compte-rendu automatique
-                  <div className="d">Rédigé dès la fin de la réunion, avec titre, décisions et actions.</div>
-                </div>
-                <Switch on={settings.autoSummary} onChange={(v) => void update({ autoSummary: v })} />
-              </div>
-            </div>
-          </section>
-
-          <section className="group">
-            <h3>Mode compact et raccourcis</h3>
-            <div className="card">
-              <div className="setting">
-                <div className="label">
-                  Passer en mode compact au démarrage
-                  <div className="d">La fenêtre s’efface au profit de sous-titres flottants, discrets pendant la visio.</div>
-                </div>
-                <div className="ctl">
-                  <select
-                    className="field"
-                    value={settings.compactOnStart}
-                    onChange={(e) => void update({ compactOnStart: e.target.value as Settings['compactOnStart'] })}
-                  >
-                    <option value="background">Si Minute est en arrière-plan</option>
-                    <option value="always">Toujours</option>
-                    <option value="never">Jamais</option>
-                  </select>
-                </div>
-              </div>
-              <div className="setting">
-                <div className="label">
-                  Invisible dans les partages d’écran
-                  <div className="d">Le mode compact n’apparaît pas quand vous partagez votre écran en visio.</div>
-                </div>
-                <Switch on={settings.miniHiddenFromCapture} onChange={(v) => void update({ miniHiddenFromCapture: v })} />
-              </div>
-              <div className="setting">
-                <div className="label">Copier avec l’horodatage</div>
-                <Switch on={settings.copyWithTimestamps} onChange={(v) => void update({ copyWithTimestamps: v })} />
-              </div>
-              {(
-                [
-                  ['toggleRecord', 'Démarrer / arrêter'],
-                  ['copy', 'Copier la transcription'],
-                  ['bookmark', 'Marquer un moment'],
-                  ['mini', 'Mode compact'],
-                ] as [keyof Shortcuts, string][]
-              ).map(([k, label]) => (
-                <div className="setting" key={k}>
-                  <div className="label">
-                    {label}
-                    {freshInfo.shortcutErrors.includes(settings.shortcuts[k]) && (
-                      <div className="d" style={{ color: 'var(--red)' }}>
-                        Déjà utilisé par une autre application — choisissez-en un autre.
-                      </div>
-                    )}
-                  </div>
-                  <ShortcutInput value={settings.shortcuts[k]} platform={info.platform} onChange={(v) => void setShortcut(k, v)} />
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section className="group">
-            <h3>Données</h3>
-            <div className="card">
-              <div className="setting">
-                <div className="label">
-                  Dossier des réunions
-                  <div className="d" style={{ wordBreak: 'break-all' }}>
-                    {settings.storageDir}
-                  </div>
-                </div>
-                <div className="ctl">
-                  <button
-                    className="btn small"
-                    onClick={async () => {
-                      const dir = await minute.settings.chooseStorageDir();
-                      if (!dir) return;
-                      try {
-                        await update({ storageDir: dir });
-                      } catch (e) {
-                        toast((e as Error).message.replace(/^Error invoking remote method [^:]+: (Error: )?/, ''), 'error');
-                      }
-                    }}
-                  >
-                    <FolderOpen /> Changer…
-                  </button>
-                </div>
-              </div>
-              <div className="setting">
-                <div className="label">
-                  Historique Natively
-                  <div className="d">
-                    {natively === null
-                      ? 'Recherche…'
-                      : !natively.found
-                        ? 'Aucune base Natively trouvée sur cet ordinateur.'
-                        : `${natively.meetings} réunion${natively.meetings > 1 ? 's' : ''} trouvée${natively.meetings > 1 ? 's' : ''}${
-                            natively.alreadyImported ? `, dont ${natively.alreadyImported} déjà importée${natively.alreadyImported > 1 ? 's' : ''}` : ''
-                          }. Transcriptions et comptes-rendus sont repris ; Natively n’est pas modifié.`}
-                  </div>
-                </div>
-                <div className="ctl">
-                  <button
-                    className="btn small"
-                    disabled={!natively?.found || importing || natively.meetings === natively.alreadyImported}
-                    onClick={() => void runImport()}
-                  >
-                    {importing ? <Loader2 className="spin" /> : <Import />} Importer
-                  </button>
-                </div>
-              </div>
-              <div className="setting">
-                <div className="label">Apparence</div>
-                <div className="segmented">
-                  {(
-                    [
-                      ['system', 'Auto'],
-                      ['light', 'Clair'],
-                      ['dark', 'Sombre'],
-                    ] as const
-                  ).map(([v, l]) => (
-                    <button key={v} className={settings.theme === v ? 'active' : ''} onClick={() => void update({ theme: v })}>
-                      {l}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <p className="faint" style={{ textAlign: 'center', margin: 0 }}>
-            Minute {info.version} · Transcription Groq Whisper · Détection de parole Silero VAD · Vos réunions restent sur cet ordinateur ;
-            seul l’audio des phrases est envoyé à Groq pour être transcrit.
-          </p>
-        </div>
-      </div>
-    </div>
+        </Row>
+      </Group>
+      <Group>
+        <Row
+          label="Historique Natively"
+          hint={
+            natively === null
+              ? 'Recherche…'
+              : !natively.found
+                ? 'Aucun historique Natively sur cet ordinateur.'
+                : `${natively.meetings} réunion${natively.meetings > 1 ? 's' : ''}${natively.alreadyImported ? `, dont ${natively.alreadyImported} déjà importée${natively.alreadyImported > 1 ? 's' : ''}` : ''}. Natively n’est pas modifié.`
+          }
+        >
+          <button className="btn" disabled={!natively?.found || importing || natively.meetings === natively.alreadyImported} onClick={() => void runImport()}>
+            {importing ? <Loader2 className="spin" /> : <Import />} Importer
+          </button>
+        </Row>
+      </Group>
+    </>
   );
 }

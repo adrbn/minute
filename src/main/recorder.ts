@@ -4,6 +4,7 @@
 import { Notification, systemPreferences } from 'electron';
 import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import type {
+  CalendarEvent,
   Channel,
   EngineSegment,
   EngineStartOptions,
@@ -17,6 +18,7 @@ import { cleanResult, buildPrompt, isEcho, overlapping } from './filters';
 import { Budget, SttError, transcribe } from './groq';
 import { settings } from './settings';
 import { newId, store } from './store';
+import { applyCorrections, mentions } from './vocabulary';
 import { pcm16ToWav } from './wav';
 
 export interface RecorderHooks {
@@ -35,6 +37,8 @@ export interface RecorderHooks {
   finished(meetingId: string): void;
   /** Réunion arrêtée (la transcription peut encore se finaliser). */
   ended(meetingId: string): void;
+  /** quelqu'un a prononcé le prénom de l'utilisateur */
+  mention(meetingId: string, text: string): void;
   showMain(meetingId?: string): void;
 }
 
@@ -100,7 +104,7 @@ export class Recorder {
   // ---------------------------------------------------------------- cycle de vie
   private startPromise: Promise<{ ok: boolean; error?: string }> | null = null;
 
-  start(opts: { title?: string } = {}): Promise<{ ok: boolean; error?: string }> {
+  start(opts: { title?: string; event?: CalendarEvent | null } = {}): Promise<{ ok: boolean; error?: string }> {
     if (this.state.status !== 'idle' || this.startPromise) {
       return Promise.resolve({ ok: false, error: 'Un enregistrement est déjà en cours.' });
     }
@@ -115,7 +119,7 @@ export class Recorder {
     return process.platform === 'darwin' ? 'pcm' : 'display';
   }
 
-  private async doStart(opts: { title?: string }): Promise<{ ok: boolean; error?: string }> {
+  private async doStart(opts: { title?: string; event?: CalendarEvent | null }): Promise<{ ok: boolean; error?: string }> {
     const cfg = settings().get();
     if (!settings().secret('groq')) {
       return { ok: false, error: 'Ajoutez votre clé Groq dans les Réglages pour transcrire.' };
@@ -130,8 +134,11 @@ export class Recorder {
     const now = Date.now();
     const meta: MeetingMeta = {
       id: newId(),
-      title: opts.title?.trim() || defaultTitle(now),
-      titleIsAuto: !opts.title?.trim(),
+      // titre : celui saisi, sinon celui de l'agenda, sinon provisoire (l'IA en proposera un)
+      title: opts.title?.trim() || opts.event?.title || defaultTitle(now),
+      titleIsAuto: !opts.title?.trim() && !opts.event,
+      attendees: opts.event?.attendees.length ? opts.event.attendees : undefined,
+      eventId: opts.event?.id,
       startedAt: now,
       durationMs: 0,
       status: 'recording',
@@ -348,10 +355,10 @@ export class Recorder {
       const r = await transcribe(
         key,
         pcm16ToWav(Buffer.from(s.pcm)),
-        { model: cfg.sttModel, language: cfg.language, prompt: buildPrompt(cfg.vocabulary, this.recent.get(meetingId)?.[s.ch] ?? ''), timeoutMs: 15_000 },
+        { model: cfg.sttModel, language: cfg.language, prompt: buildPrompt(this.vocabFor(meetingId), this.recent.get(meetingId)?.[s.ch] ?? ''), timeoutMs: 15_000 },
         this.budget,
       );
-      const text = cleanResult(r);
+      const text = applyCorrections(cleanResult(r), cfg.learned);
       if (this.state.meetingId !== meetingId || this.lastFinalT0[s.ch] >= s.t0 || !text) return;
       this.lastInterim[s.ch] = { t0: s.t0, text };
       this.hooks.live({ type: 'interim', meetingId, ch: s.ch, t0: s.t0, text });
@@ -478,14 +485,14 @@ export class Recorder {
       const r = await transcribe(
         key,
         readFileSync(job.file),
-        { model: cfg.sttModel, language: cfg.language, prompt: buildPrompt(cfg.vocabulary, this.recentText(job.meetingId, job.ch)) },
+        { model: cfg.sttModel, language: cfg.language, prompt: buildPrompt(this.vocabFor(job.meetingId), this.recentText(job.meetingId, job.ch)) },
         this.budget,
       );
       this.failures = 0;
       if (this.state.notice && this.state.notice.kind !== 'error' && !this.state.notice.text.startsWith('Plus personne')) {
         this.notice('info', null);
       }
-      this.finalize(job, cleanResult(r));
+      this.finalize(job, applyCorrections(cleanResult(r), cfg.learned));
     } catch (e) {
       const err = e instanceof SttError ? e : new SttError((e as Error).message, 'network');
       this.queue.unshift(job);
@@ -514,6 +521,12 @@ export class Recorder {
       this.inflightSegs.delete(job.segId);
       this.pump();
     }
+  }
+
+  /** Vocabulaire personnel + participants de l'agenda pour cette réunion. */
+  private vocabFor(meetingId: string): string {
+    const attendees = store.meta(meetingId)?.attendees ?? [];
+    return [settings().get().vocabulary, ...attendees].filter(Boolean).join(', ');
   }
 
   private recentText(meetingId: string, ch: Channel): string {
@@ -571,6 +584,9 @@ export class Recorder {
     }
     store.putSegment(meetingId, done);
     this.hooks.live({ type: 'segment', meetingId, segment: done });
+    if (done.ch === 'them' && this.state.meetingId === meetingId && settings().get().nameAlerts && mentions(text, settings().get().meName)) {
+      this.hooks.mention(meetingId, text);
+    }
     const r = this.recent.get(meetingId);
     if (r) r[done.ch] = (r[done.ch] + ' ' + text).slice(-600);
     this.maybeFinished(meetingId);

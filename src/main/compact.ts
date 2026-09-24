@@ -222,6 +222,19 @@ function anchoredBounds(b: Rectangle, size: { width: number; height: number }, a
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), Math.max(lo, hi));
+/** Toute valeur venant de l'interface est vérifiée : jamais de NaN/Infinity vers le système. */
+const num = (v: unknown, fallback = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
+
+/** Déplace la fenêtre sans jamais pouvoir faire planter l'app. */
+function moveTo(w: BrowserWindow, x: number, y: number) {
+  if (!Number.isFinite(x) || !Number.isFinite(y) || w.isDestroyed()) return false;
+  try {
+    w.setPosition(Math.round(clamp(x, -100_000, 100_000)), Math.round(clamp(y, -100_000, 100_000)));
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 // ------------------------------------------------------------------ déplacement façon PiP
 let drag: { offX: number; offY: number } | null = null;
@@ -235,9 +248,15 @@ function stopSpring() {
 /** Projection d'élan d'Apple (« Designing Fluid Interfaces ») : où le geste s'arrêterait. */
 const project = (v: number, rate = 0.998) => ((v / 1000) * rate) / (1 - rate);
 
-export function compactDrag(phase: 'start' | 'move' | 'end', sx: number, sy: number, vx = 0, vy = 0) {
+export function compactDrag(phase: 'start' | 'move' | 'end', rawX: unknown, rawY: unknown, rawVx?: unknown, rawVy?: unknown) {
   const w = getCompactWindow();
   if (!w) return;
+  const sx = num(rawX, NaN);
+  const sy = num(rawY, NaN);
+  if (!Number.isFinite(sx) || !Number.isFinite(sy)) return;
+  // vitesse bornée : un geste vif, pas une téléportation
+  const vx = clamp(num(rawVx), -4000, 4000);
+  const vy = clamp(num(rawVy), -4000, 4000);
   if (phase === 'start') {
     stopSpring(); // on peut rattraper la fenêtre en plein vol
     const b = w.getBounds();
@@ -246,7 +265,7 @@ export function compactDrag(phase: 'start' | 'move' | 'end', sx: number, sy: num
   }
   if (!drag) return;
   if (phase === 'move') {
-    w.setPosition(Math.round(sx - drag.offX), Math.round(sy - drag.offY));
+    moveTo(w, sx - drag.offX, sy - drag.offY);
     return;
   }
   drag = null;
@@ -277,6 +296,7 @@ export function compactDrag(phase: 'start' | 'move' | 'end', sx: number, sy: num
 /** Ressort critique (sans rebond) sur X et Y séparément, en héritant de la vitesse du geste. */
 function springTo(w: BrowserWindow, target: { x: number; y: number }, vx: number, vy: number) {
   stopSpring();
+  if (!Number.isFinite(target.x) || !Number.isFinite(target.y)) return;
   const omega = (2 * Math.PI) / 0.4;
   const b = w.getBounds();
   let x = b.x;
@@ -294,12 +314,13 @@ function springTo(w: BrowserWindow, target: { x: number; y: number }, vx: number
     }
     t += 1 / 60;
     const settled = Math.abs(x - target.x) < 0.5 && Math.abs(y - target.y) < 0.5 && Math.hypot(vx, vy) < 20;
-    if (settled || t > 2) {
-      w.setPosition(target.x, target.y);
+    const broken = !Number.isFinite(x) || !Number.isFinite(y);
+    if (settled || broken || t > 2) {
+      moveTo(w, target.x, target.y);
       settings().appState('compactPos', target);
       return stopSpring();
     }
-    w.setPosition(Math.round(x), Math.round(y));
+    moveTo(w, x, y);
   }, 1000 / 60);
 }
 
@@ -347,7 +368,7 @@ export function initCompact() {
     }
   });
   ipcMain.on('compact:drag', (_e, phase, sx, sy, vx, vy) => compactDrag(phase, sx, sy, vx, vy));
-  ipcMain.on('compact:resize', (_e, phase, dx, dy) => compactResize(phase, dx, dy));
+  ipcMain.on('compact:resize', (_e, phase, dx, dy) => compactResize(phase, num(dx), num(dy)));
   // pré-charge la fenêtre pour une apparition instantanée
   create();
 }

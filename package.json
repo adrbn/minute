@@ -28,6 +28,7 @@
     "electron": "^44.4.5",
     "electron-builder": "^26.15.3",
     "esbuild": "^0.28.2",
+    "ical.js": "^2.2.1",
     "lucide-react": "^1.48.0",
     "onnxruntime-web": "1.30",
     "react": "^19.3.0",

@@ -54,6 +54,14 @@ const api: MinuteAPI = {
     openExternal: (url) => invoke('windows:openExternal', url),
     openPrivacySettings: (kind) => invoke('windows:privacy', kind),
   },
+  calendar: {
+    state: () => invoke('calendar:state'),
+    refresh: () => invoke('calendar:refresh'),
+    test: (url) => invoke('calendar:test', url),
+  },
+  vocabulary: {
+    suggestions: () => invoke('vocabulary:suggestions'),
+  },
   natively: {
     detect: () => invoke('natively:detect'),
     importAll: () => invoke('natively:import'),

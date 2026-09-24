@@ -1,8 +1,22 @@
-import { AlertTriangle, KeyRound, Mic, MonitorSpeaker } from 'lucide-react';
-import { useState } from 'react';
-import type { AppInfo, Settings } from '../../../shared/types';
+import { AlertTriangle, CalendarDays, KeyRound, Link2, Mic, MonitorSpeaker, Users } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import type { AppInfo, CalendarEvent, CalendarState, Settings } from '../../../shared/types';
 import { minute, shortcutLabel } from '../api';
+import type { SettingsSection } from './SettingsSheet';
 import { Switch, useAudioInputs, useMicPreview, useToast } from './ui';
+
+const hhmm = (t: number) => new Date(t).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+
+function dayLabel(t: number) {
+  const d = new Date(t);
+  const today = new Date();
+  const start = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diff = Math.round((start(d) - start(today)) / 86_400_000);
+  if (diff === 0) return 'Aujourd’hui';
+  if (diff === 1) return 'Demain';
+  const s = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+  return s[0].toUpperCase() + s.slice(1);
+}
 
 export function StartView({
   settings,
@@ -17,68 +31,61 @@ export function StartView({
   info: AppInfo;
   hasGroq: boolean;
   onStarted: (id: string) => void;
-  onOpenSettings: () => void;
+  onOpenSettings: (section?: SettingsSection) => void;
 }) {
-  const [title, setTitle] = useState('');
   const [busy, setBusy] = useState(false);
+  const [cal, setCal] = useState<CalendarState | null>(null);
   const toast = useToast();
   const devices = useAudioInputs();
   const level = useMicPreview(settings.micDeviceId, !busy);
-  const sc = settings.shortcuts;
-  const p = info.platform;
 
-  const start = async () => {
+  useEffect(() => {
+    void minute.calendar.state().then(setCal);
+    return minute.on('calendar', setCal);
+  }, []);
+
+  const start = async (event?: CalendarEvent) => {
     setBusy(true);
-    const r = await minute.recorder.start({ title });
+    const r = await minute.recorder.start(event ? { eventId: event.id } : undefined);
     setBusy(false);
-    if (!r.ok) {
-      toast(r.error ?? 'Impossible de démarrer', 'error');
-      return;
-    }
+    if (!r.ok) return toast(r.error ?? 'Impossible de démarrer', 'error');
     const st = await minute.recorder.state();
     if (st.meetingId) onStarted(st.meetingId);
   };
+
+  const now = Date.now();
+  const upcoming = (cal?.events ?? []).filter((e) => e.end > now).slice(0, 5);
+  const current = upcoming.find((e) => e.start - 10 * 60_000 <= now && now < e.end);
+  const micName = devices.find((d) => d.deviceId === settings.micDeviceId)?.label || 'Micro par défaut';
 
   return (
     <div className="content">
       <div className="titlebar drag" />
       <div className="start">
-        <h1>Prêt à écouter</h1>
-        <p className="lead">
-          Minute transcrit en direct ce que vous dites et ce que disent les autres. Copiez, cherchez, résumez à tout moment —
-          sans attendre la fin.
-        </p>
-
         {!hasGroq && (
-          <div className="callout warn">
+          <button className="callout warn" onClick={() => onOpenSettings('transcription')}>
             <KeyRound />
-            <span style={{ flex: 1 }}>Ajoutez votre clé Groq (gratuite) pour activer la transcription.</span>
-            <button className="btn small primary" onClick={onOpenSettings}>
-              Ajouter
-            </button>
-          </div>
+            <span>Ajoutez votre clé Groq pour activer la transcription</span>
+          </button>
         )}
 
-        <button className="rec-button" onClick={start} disabled={busy || !hasGroq} aria-label="Démarrer l’enregistrement">
+        <button className="rec-button" onClick={() => void start(current)} disabled={busy || !hasGroq} aria-label="Démarrer la transcription">
           <i />
         </button>
-
-        <input
-          className="field"
-          style={{ width: 'min(560px, 100%)', textAlign: 'center', height: 36 }}
-          placeholder="Titre de la réunion (facultatif — Minute le trouvera tout seul)"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && hasGroq && void start()}
-        />
+        <div className="start-title">
+          <h1>{current ? current.title : 'Prêt à écouter'}</h1>
+          <p className="faint">
+            {current
+              ? `${hhmm(current.start)} – ${hhmm(current.end)}${current.attendees.length ? ` · ${current.attendees.length} participants` : ''}`
+              : `ou ${shortcutLabel(settings.shortcuts.toggleRecord, info.platform)} depuis n’importe quelle application`}
+          </p>
+        </div>
 
         <div className="sources">
-          <div className="card source">
-            <div className="head">
-              <Mic /> Votre micro <span className="faint" style={{ marginLeft: 'auto' }}>« {settings.meName || 'Moi'} »</span>
-            </div>
-            <select className="field" value={settings.micDeviceId} onChange={(e) => void update({ micDeviceId: e.target.value })}>
-              <option value="">Micro par défaut du système</option>
+          <label className="source-pill" title="Micro (votre voix)">
+            <Mic />
+            <select value={settings.micDeviceId} onChange={(e) => void update({ micDeviceId: e.target.value })} aria-label="Micro">
+              <option value="">Micro par défaut</option>
               {devices.map((d) => (
                 <option key={d.deviceId} value={d.deviceId}>
                   {d.label || 'Micro'}
@@ -86,49 +93,62 @@ export function StartView({
               ))}
             </select>
             {level < 0 ? (
-              <div className="row faint" style={{ color: 'var(--red)' }}>
-                <AlertTriangle size={13} /> Micro inaccessible —
-                <a href="#" onClick={() => void minute.windows.openPrivacySettings('microphone')}>
-                  vérifier les autorisations
-                </a>
-              </div>
+              <button className="source-alert" onClick={() => void minute.windows.openPrivacySettings('microphone')} title="Micro inaccessible — ouvrir les autorisations">
+                <AlertTriangle />
+              </button>
             ) : (
-              <div className="level" title="Parlez pour tester">
-                <i style={{ width: `${Math.round(level * 100)}%` }} />
-              </div>
-            )}
-          </div>
-          <div className="card source">
-            <div className="head">
-              <MonitorSpeaker /> Son de l’ordinateur
-              <span style={{ marginLeft: 'auto' }}>
-                <Switch on={settings.captureSystem} onChange={(v) => void update({ captureSystem: v })} />
+              <span className="mini-level" aria-hidden title={micName}>
+                <i style={{ transform: `scaleX(${Math.max(0.04, level)})` }} />
               </span>
-            </div>
-            <div className="faint">
-              {settings.captureSystem
-                ? `Les voix de Teams, Meet, Zoom… apparaissent comme « ${settings.themName || 'Eux'} ».`
-                : 'Désactivé : seul votre micro est transcrit (réunion en présentiel).'}
-            </div>
-            {p === 'darwin' && settings.captureSystem && (
-              <div className="faint">macOS demandera l’autorisation « Enregistrement audio du système » la première fois.</div>
             )}
-          </div>
+          </label>
+          <label className="source-pill" title="La voix des autres participants (Teams, Meet, Zoom…)">
+            <MonitorSpeaker />
+            <span>Son de l’ordinateur</span>
+            <Switch on={settings.captureSystem} onChange={(v) => void update({ captureSystem: v })} />
+          </label>
         </div>
 
-        <div className="shortcut-hints">
-          <span>
-            <kbd>{shortcutLabel(sc.toggleRecord, p)}</kbd> démarrer / arrêter
-          </span>
-          <span>
-            <kbd>{shortcutLabel(sc.copy, p)}</kbd> copier la transcription
-          </span>
-          <span>
-            <kbd>{shortcutLabel(sc.bookmark, p)}</kbd> marquer un moment
-          </span>
-          <span>
-            <kbd>{shortcutLabel(sc.mini, p)}</kbd> mode compact
-          </span>
+        <div className="agenda">
+          {upcoming.length ? (
+            upcoming.map((ev, i) => {
+              const showDay = i === 0 || dayLabel(ev.start) !== dayLabel(upcoming[i - 1].start);
+              const live = ev.start - 10 * 60_000 <= now && now < ev.end;
+              return (
+                <div key={ev.id}>
+                  {showDay && <div className="agenda-day">{dayLabel(ev.start)}</div>}
+                  <div className={`agenda-row ${live ? 'live' : ''}`}>
+                    <span className="agenda-time">{hhmm(ev.start)}</span>
+                    <div className="agenda-main">
+                      <span className="agenda-title">{ev.title}</span>
+                      <span className="agenda-meta">
+                        {!!ev.attendees.length && (
+                          <span title={ev.attendees.join(', ')}>
+                            <Users /> {ev.attendees.slice(0, 3).join(', ')}
+                            {ev.attendees.length > 3 ? ` +${ev.attendees.length - 3}` : ''}
+                          </span>
+                        )}
+                        {ev.link && (
+                          <a href="#" onClick={() => void minute.windows.openExternal(ev.link!)} title="Rejoindre la visio">
+                            <Link2 /> Rejoindre
+                          </a>
+                        )}
+                      </span>
+                    </div>
+                    <button className={`btn small ${live ? 'primary' : ''}`} onClick={() => void start(ev)} disabled={busy || !hasGroq}>
+                      Transcrire
+                    </button>
+                  </div>
+                </div>
+              );
+            })
+          ) : settings.calendars.length ? (
+            <p className="faint agenda-empty">Aucune réunion prévue dans les prochains jours.</p>
+          ) : (
+            <button className="link-btn" onClick={() => onOpenSettings('calendar')}>
+              <CalendarDays /> Connecter votre agenda pour retrouver vos réunions ici
+            </button>
+          )}
         </div>
       </div>
     </div>

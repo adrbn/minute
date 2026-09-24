@@ -14,11 +14,14 @@ import {
   systemPreferences,
   type IpcMainInvokeEvent,
 } from 'electron';
-import { existsSync } from 'node:fs';
-import { relative, resolve, isAbsolute } from 'node:path';
+import { appendFileSync, existsSync } from 'node:fs';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import type { AiRequest, EngineSegment, Levels, LlmProvider, SecretName, Settings } from '../shared/types';
+import type { AiRequest, CalendarEvent, EngineSegment, Levels, LlmProvider, SecretName, Settings } from '../shared/types';
 import { cancelAi, runAi } from './ai';
+import { CalendarService, fetchCalendar } from './calendar';
+import { startMeetingDetector } from './meetingDetector';
+import { learnFromEdit, mergeLearned, suggestTerms, vocabularyList } from './vocabulary';
 import {
   applyCompactPrivacy,
   enterCompact,
@@ -66,6 +69,19 @@ protocol.registerSchemesAsPrivileged([
 // Profil isolé (tests / développement) : MINUTE_PROFILE_DIR=… npm start
 if (process.env.MINUTE_PROFILE_DIR) app.setPath('userData', process.env.MINUTE_PROFILE_DIR);
 
+// Journal des erreurs imprévues (userData/minute.log) au lieu d'une boîte de dialogue bloquante.
+function logError(kind: string, err: unknown) {
+  const line = `[${new Date().toISOString()}] ${kind}: ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`;
+  try {
+    appendFileSync(join(app.getPath('userData'), 'minute.log'), line);
+  } catch {
+    /* disque indisponible */
+  }
+  console.error(line);
+}
+process.on('uncaughtException', (err) => logError('uncaughtException', err));
+process.on('unhandledRejection', (err) => logError('unhandledRejection', err));
+
 if (!app.requestSingleInstanceLock()) {
   app.quit();
   process.exit(0);
@@ -112,26 +128,88 @@ const recorder = new Recorder({
     });
   },
   ended: () => undefined,
+  mention: (meetingId, text) => {
+    broadcast('mention', { meetingId, text });
+    // au premier plan, la transcription le montre déjà ; sinon, une notification discrète
+    if (!BrowserWindow.getFocusedWindow() && Notification.isSupported()) {
+      const n = new Notification({ title: 'On parle de vous', body: `« ${text.slice(0, 140)} »`, silent: false });
+      n.on('click', () => {
+        showMain();
+        broadcast('navigate', { meetingId });
+      });
+      n.show();
+    }
+  },
   showMain: (id) => {
     showMain();
     if (id) broadcast('navigate', { meetingId: id });
   },
 });
 
+// ------------------------------------------------------------------ agenda et détection des visios
+const calendar = new CalendarService(
+  () => settings().get().calendars,
+  () => broadcast('calendar', calendarState()),
+);
+const calendarState = () => ({ events: calendar.upcoming(Date.now(), 12), errors: calendar.errors, lastSync: calendar.lastSync });
+
+/** Démarre depuis l'agenda, une notification ou un raccourci, avec le contexte de la réunion en cours. */
+async function startFromContext(opts: { event?: CalendarEvent | null; inBackground: boolean }) {
+  if (recorder.state.status !== 'idle') return;
+  const r = await recorder.start({ event: opts.event ?? calendar.current() });
+  if (!r.ok) {
+    showMain();
+    toast(r.error ?? 'Impossible de démarrer', 'error');
+    return;
+  }
+  broadcast('navigate', { meetingId: recorder.state.meetingId ?? undefined });
+  if (!maybeCompactOnStart(opts.inBackground)) notify('Transcription démarrée', 'Minute transcrit la réunion en direct.');
+}
+
+function notifyAction(title: string, body: string, onClick: () => void) {
+  if (!Notification.isSupported()) return;
+  const n = new Notification({ title, body, silent: false });
+  n.on('click', onClick);
+  n.show();
+}
+
+const reminded = new Set<string>();
+function checkReminders() {
+  if (!settings().get().calendarReminders || recorder.state.status !== 'idle') return;
+  const now = Date.now();
+  for (const ev of calendar.upcoming(now, 4)) {
+    if (reminded.has(ev.id)) continue;
+    if (ev.start - now <= 60_000 && now - ev.start < 5 * 60_000) {
+      reminded.add(ev.id);
+      notifyAction(`« ${ev.title} » commence`, 'Cliquez pour transcrire la réunion.', () => void startFromContext({ event: ev, inBackground: true }));
+    }
+  }
+}
+
+let detectedSnooze = 0;
+function onMeetingAppStarted(app: string) {
+  if (recorder.state.status !== 'idle' || Date.now() < detectedSnooze) return;
+  const ev = calendar.current();
+  detectedSnooze = Date.now() + 90_000;
+  notifyAction(
+    ev ? `« ${ev.title} » a commencé` : 'Visio détectée',
+    `${app[0].toUpperCase()}${app.slice(1)} utilise votre micro — cliquez pour transcrire.`,
+    () => void startFromContext({ event: ev, inBackground: true }),
+  );
+}
+function onMeetingAppEnded(app: string) {
+  if (recorder.state.status !== 'recording') return;
+  notifyAction('La visio semble terminée', `${app[0].toUpperCase()}${app.slice(1)} n’utilise plus le micro — cliquez pour arrêter la transcription.`, () =>
+    void recorder.stop(),
+  );
+}
+
 // ------------------------------------------------------------------ actions communes (UI, menu, raccourcis)
 const actions = {
   async toggleRecord() {
     const st = recorder.state.status;
     if (st === 'idle') {
-      const inBackground = !BrowserWindow.getFocusedWindow();
-      const r = await recorder.start();
-      if (!r.ok) {
-        showMain();
-        toast(r.error ?? 'Impossible de démarrer', 'error');
-      } else {
-        broadcast('navigate', { meetingId: recorder.state.meetingId ?? undefined });
-        if (!maybeCompactOnStart(inBackground)) notify('Enregistrement démarré', 'Minute transcrit la réunion en direct.');
-      }
+      await startFromContext({ inBackground: !BrowserWindow.getFocusedWindow() });
     } else if (st === 'recording' || st === 'paused') {
       await recorder.stop();
       notify('Réunion enregistrée', 'Le compte-rendu se prépare.');
@@ -215,6 +293,7 @@ function wireIpc() {
     if (patch.shortcuts) registerShortcuts(next);
     if (patch.miniHiddenFromCapture !== undefined) applyCompactPrivacy(next.miniHiddenFromCapture);
     if (patch.theme) nativeTheme.themeSource = next.theme;
+    if (patch.calendars) void calendar.sync();
     broadcast('settings', next);
     refreshTray();
     return next;
@@ -277,6 +356,16 @@ function wireIpc() {
     if (!seg) return;
     const next = { ...seg, text: text.trim(), edited: true };
     store.putSegment(id, next);
+    // on apprend la correction pour les prochaines transcriptions
+    const learned = learnFromEdit(seg.text, next.text);
+    if (learned.length) {
+      const cfg = settings().get();
+      const vocab = vocabularyList(cfg.vocabulary);
+      for (const l of learned) if (!vocab.some((v) => v.toLowerCase() === l.to.toLowerCase())) vocab.push(l.to);
+      const updated = settings().set({ learned: mergeLearned(cfg.learned, learned), vocabulary: vocab.join(', ') });
+      broadcast('settings', updated);
+      toast(`Appris : « ${learned[0].from} » → « ${learned[0].to} »`, 'success');
+    }
     broadcast('live', { type: 'segment', meetingId: id, segment: next });
   });
   handle('meetings:deleteSegment', (_e, id: string, segId: string) => {
@@ -295,9 +384,10 @@ function wireIpc() {
   handle('meetings:retry', (_e, id: string) => recorder.retryMeeting(id));
 
   handle('recorder:state', () => recorder.state);
-  handle('recorder:start', async (e, opts) => {
+  handle('recorder:start', async (e, opts?: { title?: string; eventId?: string }) => {
     const fromCompact = e.sender !== getMain()?.webContents;
-    const r = await recorder.start(opts);
+    const event = opts?.eventId ? calendar.events.find((x) => x.id === opts.eventId) : opts?.title ? null : calendar.current();
+    const r = await recorder.start({ title: opts?.title, event });
     if (r.ok && !fromCompact) maybeCompactOnStart(false);
     return r;
   });
@@ -332,6 +422,29 @@ function wireIpc() {
   handle('windows:privacy', (_e, kind: 'microphone' | 'audio') => {
     if (isMac) openMacPrivacy(kind);
     else void shell.openExternal('ms-settings:privacy-microphone');
+  });
+
+  handle('calendar:state', () => calendarState());
+  handle('calendar:refresh', async () => {
+    await calendar.sync();
+    return calendarState();
+  });
+  handle('calendar:test', async (_e, url: string) => {
+    try {
+      const events = await fetchCalendar({ name: 'test', url });
+      const soon = events.filter((ev) => ev.end > Date.now()).length;
+      return { ok: true, message: `Agenda lu — ${soon} réunion${soon > 1 ? 's' : ''} à venir cette semaine.` };
+    } catch (e) {
+      return { ok: false, message: (e as Error).message };
+    }
+  });
+  handle('vocabulary:suggestions', () => {
+    const cfg = settings().get();
+    const recent = store
+      .list()
+      .slice(0, 40)
+      .map((meta) => ({ meta, segments: store.segments(meta.id) }));
+    return suggestTerms(recent, cfg.vocabulary, cfg.learned);
   });
 
   handle('natively:detect', () => detectNatively());
@@ -496,6 +609,9 @@ app.whenReady().then(() => {
     refreshTray();
   });
   setEngineCrashHandler(() => void recorder.onEngineCrash());
+  calendar.start();
+  setInterval(checkReminders, 20_000);
+  startMeetingDetector(() => settings().get().meetingDetection, { started: onMeetingAppStarted, ended: onMeetingAppEnded });
   void ensureEngine().catch(() => undefined);
   recorder.recover();
 
