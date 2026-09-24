@@ -48,6 +48,7 @@ export function defaultSettings(): Settings {
     theme: 'system',
     calendars: [],
     calendarReminders: true,
+    openAtLogin: true,
     meetingDetection: true,
     nameAlerts: true,
     learned: [],

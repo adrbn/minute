@@ -204,8 +204,10 @@ export interface Settings {
   /** thème de couleur (« system » : accent du système) */
   palette: string;
   calendars: CalendarSource[];
-  /** rappel « la réunion commence » depuis l'agenda */
+  /** rappels depuis l'agenda : 10 et 5 minutes avant, puis « la réunion commence » */
   calendarReminders: boolean;
+  /** lancer Minute (discrètement, dans la zone de notification) à l'ouverture de session */
+  openAtLogin: boolean;
   /** Windows : proposer de transcrire quand Teams / Zoom / Meet utilise le micro */
   meetingDetection: boolean;
   /** alerte quand quelqu'un prononce votre prénom */

@@ -128,7 +128,11 @@ export function createMain(): BrowserWindow {
   }
   secureWeb(main);
   void main.loadURL(paths.page('index'));
-  main.once('ready-to-show', () => main?.show());
+  // lancé à l'ouverture de session : Minute attend dans la zone de notification, sans fenêtre
+  const atLogin = process.argv.includes('--hidden') || (isMac && app.getLoginItemSettings().wasOpenedAtLogin);
+  main.once('ready-to-show', () => {
+    if (!atLogin) main?.show();
+  });
   const saveBounds = () => {
     if (main && !main.isMinimized() && !main.isMaximized()) settings().appState('mainBounds2', main.getBounds());
   };

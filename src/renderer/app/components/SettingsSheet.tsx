@@ -933,8 +933,11 @@ function Calendars({ settings, update, info }: P) {
         )}
       </Group>
       <Group>
-        <Row label={t('Rappel au début d’une réunion')} hint={t('Une notification pour lancer la transcription, avec le titre et les participants.')}>
+        <Row label={t('Rappels avant les réunions')} hint={t('Une notification 10 et 5 minutes avant, puis au début pour lancer la transcription.')}>
           <Switch on={settings.calendarReminders} onChange={(v) => void update({ calendarReminders: v })} />
+        </Row>
+        <Row label={t('Lancer Minute à l’ouverture de session')} hint={t('Minute attend discrètement dans la zone de notification, pour ne manquer aucun rappel.')}>
+          <Switch on={settings.openAtLogin} onChange={(v) => void update({ openAtLogin: v })} />
         </Row>
         {info.platform === 'win32' && (
           <Row label={t('Détecter les visios')} hint={t('Quand Teams, Zoom ou Meet utilise le micro, Minute propose de transcrire — et d’arrêter à la fin.')}>

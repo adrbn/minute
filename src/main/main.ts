@@ -219,16 +219,39 @@ function notifyAction(title: string, body: string, onClick: () => void) {
 }
 
 const reminded = new Set<string>();
+/** Rappels de l'agenda : 10 minutes avant, 5 minutes avant, puis au début (pour lancer la transcription). */
 function checkReminders() {
-  if (!settings().get().calendarReminders || recorder.state.status !== 'idle') return;
+  if (!settings().get().calendarReminders) return;
   const now = Date.now();
   for (const ev of calendar.upcoming(now, 4)) {
-    if (reminded.has(ev.id)) continue;
-    if (ev.start - now <= 60_000 && now - ev.start < 5 * 60_000) {
-      reminded.add(ev.id);
+    const left = ev.start - now;
+    const time = new Date(ev.start).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' });
+    // un seul rappel par palier ; Minute lancé 3 minutes avant ne rattrape pas celui des 10 minutes
+    const step = left <= 60_000 ? 0 : left <= 5 * 60_000 ? 5 : left <= 10 * 60_000 ? 10 : -1;
+    const key = `${ev.id}:${step}`;
+    if (step < 0 || reminded.has(key)) continue;
+    if (step === 0) {
+      if (now - ev.start >= 5 * 60_000 || recorder.state.status !== 'idle') continue;
+      reminded.add(key);
       notifyAction(t('« {title} » commence', { title: ev.title }), t('Cliquez pour transcrire la réunion.'), () => void startFromContext({ event: ev, inBackground: true }));
+      continue;
     }
+    reminded.add(key);
+    const mins = Math.max(1, Math.round(left / 60_000));
+    notifyAction(
+      t('« {title} » dans {n} min', { title: ev.title, n: mins }),
+      ev.attendees.length ? t('À {time}, avec {who}.', { time, who: ev.attendees.slice(0, 3).join(', ') }) : t('À {time}.', { time }),
+      () => showMain(),
+    );
   }
+}
+
+/** Ouverture de session : Minute se lance discrètement pour les rappels (version installée seulement). */
+function applyLoginItem() {
+  if (!app.isPackaged || process.platform === 'linux') return;
+  const on = settings().get().openAtLogin;
+  if (app.getLoginItemSettings().openAtLogin === on) return;
+  app.setLoginItemSettings({ openAtLogin: on, args: ['--hidden'] });
 }
 
 let detectedSnooze = 0;
@@ -920,7 +943,11 @@ app.whenReady().then(() => {
   wireIpc();
   buildAppMenu();
   registerShortcuts(cfg);
-  settings().onChange(() => refreshTray());
+  settings().onChange(() => {
+    refreshTray();
+    applyLoginItem();
+  });
+  applyLoginItem();
   createTray({
     compact: isCompact,
     recording: () => {
