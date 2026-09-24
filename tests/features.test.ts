@@ -2,8 +2,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { parseIcs } from '../src/main/calendar';
+import { retrieve } from '../src/main/retrieval';
+import { Voices, type VoiceStore } from '../src/main/voices';
+import { toTurns, voiceLabel } from '../src/shared/transcript';
 import { applyCorrections, learnFromEdit, mentions, suggestTerms } from '../src/main/vocabulary';
-import type { MeetingMeta } from '../src/shared/types';
+import type { MeetingMeta, Segment, Voice } from '../src/shared/types';
 
 const ics = `BEGIN:VCALENDAR
 VERSION:2.0
@@ -112,4 +115,105 @@ test('alerte prénom : détecte « Adrien » sans tenir compte des accents ni de
   assert.equal(mentions('adrien, tu peux valider les visuels ?', 'Adrien Robino'), true);
   assert.equal(mentions('On en reparle demain.', 'Adrien'), false);
   assert.equal(mentions('Moi je pense que…', 'Moi'), false);
+});
+
+test('question sur une longue réunion : retrouve les bons passages, même écrits autrement', () => {
+  const meta = { speakers: { me: 'Moi', them: 'Eux' } } as MeetingMeta;
+  const filler = 'On fait le point sur le planning de la rentrée et les salles disponibles pour les ateliers.';
+  const segments = Array.from({ length: 120 }, (_, i) => ({
+    id: `s${i}`,
+    ch: (i % 2 ? 'me' : 'them') as 'me' | 'them',
+    t0: i * 120_000,
+    t1: i * 120_000 + 8_000,
+    text: filler,
+  }));
+  segments[40].text = 'Pour Culture Tech, c’est Laura qui reprend l’activation des comptes.';
+  segments[90].text = 'Le budget des inscriptions baisse de 12 % par rapport à l’an dernier.';
+  // mot collé dans la question, séparé dans la transcription
+  const a = retrieve(meta, segments, 'on parle de culturetech ou pas ?', 2_000);
+  assert.ok(a && a.text.includes('Culture Tech') && a.text.includes('[1:20:00]'));
+  assert.ok(!a.text.includes('Le budget'));
+  // flexion : « inscrit » ≈ « inscriptions » ne compte pas, « inscription » oui
+  const b = retrieve(meta, segments, 'qu’a-t-on dit sur l’inscription ?', 2_000);
+  assert.ok(b && b.text.includes('12 %'));
+  // faute de frappe sur un nom propre
+  const c = retrieve(meta, segments, 'que fait Lauraa ?', 2_000);
+  assert.ok(c && c.text.includes('Laura'));
+  // rien à voir avec la réunion
+  assert.equal(retrieve(meta, segments, 'et la météo à Tokyo ?', 2_000), null);
+  // budget respecté
+  assert.ok(retrieve(meta, segments, 'planning des salles', 1_000)!.text.length <= 1_000);
+});
+
+test('voix : trois intervenants qui alternent sont séparés, nommés et gardés en fin de réunion', () => {
+  // empreintes simulées : une direction par personne, plus du bruit (comme d'une phrase à l'autre)
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647) * 2 - 1;
+  const base = [0, 1, 2].map(() => Array.from({ length: 64 }, rnd));
+  const print = (who: number, noise = 0.55) => base[who].map((x) => x + noise * rnd());
+  const meta = { id: 'm', speakers: { me: 'Adrien', them: 'Eux' }, voices: {} as Record<string, Voice> } as MeetingMeta;
+  const segs: Segment[] = [];
+  const io: VoiceStore = {
+    dir: () => null,
+    meta: () => meta,
+    segments: () => segs,
+    setVoices: (_id, v) => (meta.voices = v),
+    putSegment: (_id, seg) => {
+      const i = segs.findIndex((x) => x.id === seg.id);
+      if (i >= 0) segs[i] = seg;
+    },
+  };
+  const v = new Voices(io);
+  const truth = [0, 1, 0, 2, 1, 1, 0, 2, 2, 0, 1, 2, 0, 1];
+  truth.forEach((who, i) => {
+    const seg: Segment = { id: `s${i}`, ch: 'them', t0: i * 10_000, t1: i * 10_000 + 4_000, text: `phrase ${i}` };
+    seg.spk = v.assign('m', seg, print(who));
+    segs.push(seg);
+  });
+  // même personne ⇔ même intervenant
+  for (let i = 0; i < truth.length; i++)
+    for (let j = 0; j < truth.length; j++) assert.equal(segs[i].spk === segs[j].spk, truth[i] === truth[j], `${i}/${j}`);
+  assert.equal(Object.keys(meta.voices!).length, 3);
+  assert.equal(voiceLabel(meta, 'them', segs[0].spk), 'Participant A');
+  // un nom donné s'applique à toute la réunion, et les tours changent à chaque changement de voix
+  meta.voices![segs[1].spk!].name = 'Laura';
+  assert.equal(voiceLabel(meta, 'them', segs[4].spk), 'Laura');
+  assert.equal(toTurns(segs).length, 12);
+  // extrait trop court pour une empreinte, juste après : même personne qui continue
+  const short: Segment = { id: 'x', ch: 'them', t0: 134_500, t1: 135_200, text: 'oui' };
+  assert.equal(v.assign('m', short, undefined), segs[13].spk);
+  // fin de réunion : rien ne bouge, le nom est conservé
+  v.refine('m');
+  assert.equal(Object.values(meta.voices!).filter((x) => x.name === 'Laura').length, 1);
+  assert.equal(new Set(segs.map((s) => s.spk)).size, 3);
+});
+
+test('voix : une même personne découpée en deux groupes est réunie en fin de réunion', () => {
+  let seed = 11;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647) * 2 - 1;
+  const a = Array.from({ length: 64 }, rnd);
+  const meta = { id: 'm', speakers: { me: 'Moi', them: 'Eux' }, voices: {} as Record<string, Voice> } as MeetingMeta;
+  const segs: Segment[] = [];
+  const v = new Voices({
+    dir: () => null,
+    meta: () => meta,
+    segments: () => segs,
+    setVoices: (_id, x) => (meta.voices = x),
+    putSegment: (_id, seg) => {
+      const i = segs.findIndex((x) => x.id === seg.id);
+      if (i >= 0) segs[i] = seg;
+    },
+  });
+  // la voix « dérive » (autre micro, autre pièce) : au début, deux groupes se forment
+  for (let i = 0; i < 12; i++) {
+    const drift = i < 6 ? 0 : 0.9;
+    const e = a.map((x, k) => x + drift * Math.sin(k) + 0.25 * rnd());
+    const seg: Segment = { id: `s${i}`, ch: 'them', t0: i * 10_000, t1: i * 10_000 + 5_000, text: 't' };
+    seg.spk = v.assign('m', seg, e);
+    segs.push(seg);
+  }
+  v.refine('m');
+  assert.equal(new Set(segs.map((s) => s.spk)).size, 1);
+  assert.equal(Object.keys(meta.voices!).length, 1);
+  assert.equal(voiceLabel(meta, 'them', segs[0].spk), 'Participant A');
 });

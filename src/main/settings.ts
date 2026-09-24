@@ -26,7 +26,7 @@ export function defaultSettings(): Settings {
     llmModels: { ...DEFAULT_MODELS },
     autoSummary: true,
     meName: 'Moi',
-    themName: 'Eux',
+    themName: 'Participants',
     storageDir: process.env.MINUTE_STORAGE || join(app.getPath('documents'), 'Minute'),
     shortcuts: isMac
       ? {
@@ -51,6 +51,8 @@ export function defaultSettings(): Settings {
     meetingDetection: true,
     nameAlerts: true,
     learned: [],
+    minimizeToCompact: true,
+    voices: true,
   };
 }
 

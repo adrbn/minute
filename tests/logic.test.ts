@@ -57,7 +57,8 @@ test('copie : texte propre avec en-tête et voix', () => {
   const meta = { title: 'Point DELF', startedAt: Date.UTC(2026, 8, 24, 8, 0), durationMs: 600_000, speakers: { me: 'Adrien', them: 'Eux' } } as MeetingMeta;
   const txt = transcriptToText(meta, [seg('1', 'them', 0, 4000, 'Bonjour.'), seg('2', 'me', 4500, 6000, 'Salut !')], { timestamps: true });
   assert.match(txt, /^Point DELF — /);
-  assert.match(txt, /\[00:00\] Eux : Bonjour\./);
+  // l'ancienne étiquette « Eux » est remplacée partout
+  assert.match(txt, /\[00:00\] Participants : Bonjour\./);
   assert.match(txt, /\[00:04\] Adrien : Salut !/);
 });
 

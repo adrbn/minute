@@ -2,9 +2,9 @@
 // pendant la réunion (les deux ne sont jamais visibles en même temps).
 //
 // - Deux formes : « pilule » (discrète) et « panneau » de sous-titres.
-// - Se déplace comme l'image-dans-l'image d'Apple : suit le pointeur 1:1, puis
-//   file vers l'ancrage le plus proche du point PROJETÉ par l'élan du geste,
-//   avec un ressort critique (amortissement 1, réponse 0,4 s).
+// - Suit le pointeur 1:1 et reste où on la pose ; près d'un bord, elle s'y aimante.
+//   Lancée d'un geste vif, elle file vers le coin visé (point PROJETÉ par l'élan,
+//   comme l'image-dans-l'image d'Apple), avec un ressort critique (réponse 0,4 s).
 // - Le passage pilule ↔ panneau est un morphing CSS ancré sur le coin d'écran :
 //   la fenêtre (transparente) est agrandie avant d'agrandir la forme, et réduite
 //   après l'avoir réduite, pour qu'aucune étape ne soit visible.
@@ -19,11 +19,15 @@ const isWin = process.platform === 'win32';
 /** marge transparente autour de la forme (ombre portée dessinée en CSS) */
 export const MARGIN = 14;
 const EDGE = 12; // distance forme ↔ bord d'écran une fois aimantée
-const PILL = { w: 272, h: 46 };
-const PANEL_MIN = { w: 340, h: 200 };
+const SNAP = 56; // en deçà, la forme se colle au bord
+const FLING = 1400; // px/s : au-delà, c'est un lancer vers un coin
+const PILL = { w: 420, h: 46 }; // assez large pour lire la dernière phrase en direct
+const PANEL_MIN = { w: 340, h: 220 };
 const PANEL_MAX = { w: 900, h: 720 };
 
 interface Geo {
+  /** 2 : pilule élargie et panneau plus grand (v0.3) */
+  v?: number;
   shape: CompactShape;
   anchor: Anchor;
   panel: { w: number; h: number };
@@ -33,9 +37,10 @@ interface Geo {
 let win: BrowserWindow | null = null;
 let active = false;
 let geo: Geo = {
-  shape: 'pill',
+  v: 2,
+  shape: 'panel', // pendant une réunion : les sous-titres d'abord, on voit que tout fonctionne
   anchor: isMac ? 'tr' : 'br', // Windows : loin des boutons de fenêtre et des barres d'outils des visios
-  panel: { w: 420, h: 280 },
+  panel: { w: 460, h: 340 },
 };
 const listeners = new Set<(active: boolean) => void>();
 
@@ -83,7 +88,7 @@ function nearestAnchor(b: Rectangle, area: Rectangle): Anchor {
 }
 
 export function layout(): CompactLayout {
-  return { shape: geo.shape, anchor: geo.anchor, margin: MARGIN, pill: PILL };
+  return { shape: geo.shape, anchor: geo.anchor, margin: MARGIN, pill: PILL, active };
 }
 
 function sendLayout() {
@@ -144,6 +149,11 @@ export function enterCompact() {
   active = true;
   getMain()?.hide();
   const show = () => {
+    // taille ou écran changés depuis la dernière fois : la forme reste entièrement visible
+    const b = w.getBounds();
+    const size = winSize(geo.shape);
+    const fit = settle({ ...b, ...size }, displayFor(b).workArea);
+    w.setBounds({ ...fit, ...size });
     sendLayout();
     w.showInactive();
   };
@@ -155,6 +165,7 @@ export function enterCompact() {
 /** Quitte le mode compact ; par défaut la fenêtre principale revient. */
 export function exitCompact(opts: { showMain?: boolean } = {}) {
   active = false;
+  sendLayout();
   getCompactWindow()?.hide();
   emitActive();
   if (opts.showMain !== false) showMain();
@@ -270,27 +281,50 @@ export function compactDrag(phase: 'start' | 'move' | 'end', rawX: unknown, rawY
   }
   drag = null;
   const b = w.getBounds();
-  const px = b.x + project(vx);
-  const py = b.y + project(vy);
-  // l'élan choisit le coin, pas l'écran : on reste sur l'écran où l'on a lâché la fenêtre
+  // on reste sur l'écran où l'on a lâché la fenêtre
   const area = displayFor(b).workArea;
   const size = { width: b.width, height: b.height };
-  const anchors: Anchor[] = ['tl', 'tc', 'tr', 'bl', 'bc', 'br'];
-  let best: Anchor = geo.anchor;
-  let bestD = Infinity;
-  for (const a of anchors) {
-    const p = placeAt(a, size, area);
-    const d = Math.hypot(p.x - px, p.y - py);
-    if (d < bestD) {
-      bestD = d;
-      best = a;
+  let target: { x: number; y: number };
+  if (Math.hypot(vx, vy) > FLING) {
+    // lancer : l'élan choisit le coin (ou le milieu d'un bord)
+    const px = b.x + project(vx);
+    const py = b.y + project(vy);
+    const anchors: Anchor[] = ['tl', 'tc', 'tr', 'bl', 'bc', 'br'];
+    let best: Anchor = geo.anchor;
+    let bestD = Infinity;
+    for (const a of anchors) {
+      const p = placeAt(a, size, area);
+      const d = Math.hypot(p.x - px, p.y - py);
+      if (d < bestD) {
+        bestD = d;
+        best = a;
+      }
     }
+    target = placeAt(best, size, area);
+  } else {
+    target = settle(b, area);
   }
-  const target = placeAt(best, size, area);
-  geo = { ...geo, anchor: best };
+  geo = { ...geo, anchor: nearestAnchor({ ...target, ...size }, area) };
   saveGeo();
   sendLayout();
   springTo(w, target, vx, vy);
+}
+
+/** Posée : reste où elle est (dans l'écran), aimantée seulement aux bords tout proches. */
+function settle(b: Rectangle, area: Rectangle) {
+  const sx = b.x + MARGIN;
+  const sy = b.y + MARGIN;
+  const sw = b.width - 2 * MARGIN;
+  const sh = b.height - 2 * MARGIN;
+  const inset = EDGE - MARGIN;
+  let x = clamp(b.x, area.x + inset, area.x + area.width - b.width - inset);
+  let y = clamp(b.y, area.y + inset, area.y + area.height - b.height - inset);
+  if (sx - area.x < SNAP) x = area.x + inset;
+  else if (area.x + area.width - (sx + sw) < SNAP) x = area.x + area.width - b.width - inset;
+  else if (Math.abs(sx + sw / 2 - (area.x + area.width / 2)) < SNAP / 2) x = Math.round(area.x + (area.width - b.width) / 2);
+  if (sy - area.y < SNAP) y = area.y + inset;
+  else if (area.y + area.height - (sy + sh) < SNAP) y = area.y + area.height - b.height - inset;
+  return { x: Math.round(x), y: Math.round(y) };
 }
 
 /** Ressort critique (sans rebond) sur X et Y séparément, en héritant de la vitesse du geste. */
@@ -325,36 +359,41 @@ function springTo(w: BrowserWindow, target: { x: number; y: number }, vx: number
 }
 
 // ------------------------------------------------------------------ redimensionnement du panneau
-let resizeStart: { b: Rectangle; panel: { w: number; h: number } } | null = null;
+let resizeStart: { b: Rectangle; panel: { w: number; h: number }; corner: Anchor } | null = null;
 
-export function compactResize(phase: 'start' | 'move' | 'end', dx: number, dy: number) {
+/** Redimensionne depuis le coin saisi : le coin opposé ne bouge pas (comme une fenêtre ordinaire). */
+export function compactResize(phase: 'start' | 'move' | 'end', dx: number, dy: number, corner?: unknown) {
   const w = getCompactWindow();
   if (!w || geo.shape !== 'panel') return;
   if (phase === 'start') {
-    resizeStart = { b: w.getBounds(), panel: { ...geo.panel } };
+    const c = (['tl', 'tr', 'bl', 'br'] as const).find((k) => k === corner) ?? 'br';
+    resizeStart = { b: w.getBounds(), panel: { ...geo.panel }, corner: c };
     return;
   }
   if (!resizeStart) return;
-  // la poignée est au coin opposé à l'ancrage : on grandit vers l'intérieur de l'écran
-  const sx = geo.anchor[1] === 'r' ? -1 : 1;
-  const sy = geo.anchor[0] === 'b' ? -1 : 1;
-  const pw = clamp(resizeStart.panel.w + dx * sx * (geo.anchor[1] === 'c' ? 2 : 1), PANEL_MIN.w, PANEL_MAX.w);
-  const ph = clamp(resizeStart.panel.h + dy * sy, PANEL_MIN.h, PANEL_MAX.h);
+  const { b, corner: c } = resizeStart;
+  const pw = clamp(resizeStart.panel.w + (c[1] === 'r' ? dx : -dx), PANEL_MIN.w, PANEL_MAX.w);
+  const ph = clamp(resizeStart.panel.h + (c[0] === 'b' ? dy : -dy), PANEL_MIN.h, PANEL_MAX.h);
   geo = { ...geo, panel: { w: Math.round(pw), h: Math.round(ph) } };
   const size = winSize('panel');
-  const area = displayFor(resizeStart.b).workArea;
-  w.setBounds(anchoredBounds(resizeStart.b, size, geo.anchor, area));
+  const x = c[1] === 'r' ? b.x : b.x + b.width - size.width;
+  const y = c[0] === 'b' ? b.y : b.y + b.height - size.height;
+  w.setBounds({ x: Math.round(x), y: Math.round(y), ...size });
   if (phase === 'end') {
     resizeStart = null;
-    saveGeo();
     const nb = w.getBounds();
+    geo = { ...geo, anchor: nearestAnchor(nb, displayFor(nb).workArea) };
+    saveGeo();
+    sendLayout();
     settings().appState('compactPos', { x: nb.x, y: nb.y });
   }
 }
 
 // ------------------------------------------------------------------ branchements
 export function initCompact() {
-  geo = { ...geo, ...(settings().appState<Geo>('compactGeo') ?? {}) };
+  const saved = settings().appState<Geo>('compactGeo');
+  // tailles d'avant la v0.3 (trop petites) : on repart des nouvelles valeurs, en gardant le coin choisi
+  geo = saved?.v === 2 ? { ...geo, ...saved } : { ...geo, anchor: saved?.anchor ?? geo.anchor };
   registerExtraWindows(() => {
     const w = getCompactWindow();
     return w ? [w] : [];
@@ -368,7 +407,18 @@ export function initCompact() {
     }
   });
   ipcMain.on('compact:drag', (_e, phase, sx, sy, vx, vy) => compactDrag(phase, sx, sy, vx, vy));
-  ipcMain.on('compact:resize', (_e, phase, dx, dy) => compactResize(phase, num(dx), num(dy)));
+  ipcMain.on('compact:resize', (_e, phase, dx, dy, corner) => compactResize(phase, num(dx), num(dy), corner));
+  // saisie (notes, question) : la fenêtre accepte le clavier le temps de taper, puis rend la main
+  ipcMain.on('compact:focus', (_e, on: unknown) => {
+    const w = getCompactWindow();
+    if (!w || !isWin) return;
+    if (on === true) {
+      w.setFocusable(true);
+      w.focus();
+    } else {
+      w.setFocusable(false);
+    }
+  });
   // pré-charge la fenêtre pour une apparition instantanée
   create();
 }

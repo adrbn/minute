@@ -4,6 +4,7 @@ import * as ort from 'onnxruntime-web/wasm';
 import type { Channel, EngineBridge, EngineStartOptions } from '../../shared/types';
 import { FRAME, FRAME_MS, rms, Segmenter, toInt16 } from './segmenter';
 import { SileroVad } from './vad';
+import { VoicePrint } from './voice';
 
 declare global {
   interface Window {
@@ -19,6 +20,19 @@ let modelBytes: ArrayBuffer | null = null;
 async function model(): Promise<ArrayBuffer> {
   if (!modelBytes) modelBytes = await (await fetch('./models/silero_vad.onnx')).arrayBuffer();
   return modelBytes;
+}
+
+// Empreintes de voix (séparation des intervenants) : modèle chargé à la première utilisation.
+let voicePrint: Promise<VoicePrint | null> | null = null;
+function voiceModel(): Promise<VoicePrint | null> {
+  voicePrint ??= fetch('./models/campplus_voxceleb.onnx')
+    .then((r) => r.arrayBuffer())
+    .then((b) => VoicePrint.create(ort, b))
+    .catch((e) => {
+      bridge.log(`empreinte vocale indisponible : ${(e as Error).message}`);
+      return null;
+    });
+  return voicePrint;
 }
 
 // Horloge d'enregistrement (pauses exclues), alignée sur celle du process principal.
@@ -44,6 +58,8 @@ class Pipe {
     readonly ch: Channel,
     readonly vad: SileroVad,
     readonly seg: Segmenter,
+    /** envois vers le process principal, dans l'ordre (l'empreinte vocale prend quelques centaines de ms) */
+    readonly out: { chain: Promise<void> },
   ) {}
 
   /** Trame de 512 échantillons arrivée maintenant. */
@@ -79,6 +95,7 @@ class Pipe {
   async drain() {
     await this.chain;
     this.seg.flush();
+    await this.out.chain;
     this.vad.reset();
   }
 
@@ -109,14 +126,28 @@ let generation = 0;
 /** un modèle VAD par voix, créé une fois pour toute la vie de l'app */
 const vads: Partial<Record<Channel, SileroVad>> = {};
 
-async function makePipe(ch: Channel, livePreview: boolean): Promise<Pipe> {
+async function makePipe(ch: Channel, livePreview: boolean, voices: boolean): Promise<Pipe> {
   let vad = vads[ch];
   if (!vad) vad = vads[ch] = await SileroVad.create(ort, await model());
   vad.reset();
+  const out = { chain: Promise.resolve() };
+  if (voices) void voiceModel(); // chargé pendant que la réunion démarre
   const seg = new Segmenter((s) => {
-    bridge.segment({ ch, t0: s.t0, t1: s.t1, pcm: toInt16(s.pcm), interim: s.interim });
+    const base = { ch, t0: s.t0, t1: s.t1, pcm: toInt16(s.pcm), interim: s.interim };
+    if (!voices) return bridge.segment(base);
+    out.chain = out.chain.then(async () => {
+      let voice: number[] | undefined;
+      if (!s.interim) {
+        try {
+          voice = await (await voiceModel())?.embed(s.pcm);
+        } catch (e) {
+          bridge.log(`empreinte ${ch}: ${(e as Error).message}`);
+        }
+      }
+      bridge.segment({ ...base, voice });
+    });
   }, livePreview);
-  return new Pipe(ch, vad, seg);
+  return new Pipe(ch, vad, seg, out);
 }
 
 async function attachStream(pipe: Pipe, stream: MediaStream) {
@@ -233,13 +264,13 @@ async function start(o: EngineStartOptions): Promise<{ me: boolean; them: boolea
   if (ctx.state === 'suspended') await ctx.resume();
   if (cancelled()) return result;
 
-  pipes.me = await makePipe('me', o.livePreview);
+  pipes.me = await makePipe('me', o.livePreview, o.voices);
   if (mic) {
     await attachMic(pipes.me, mic);
     result.me = true;
   }
   if (o.captureSystem) {
-    pipes.them = await makePipe('them', o.livePreview);
+    pipes.them = await makePipe('them', o.livePreview, o.voices);
     if (o.systemMode === 'display') {
       if (loopback) {
         await attachStream(pipes.them, loopback);

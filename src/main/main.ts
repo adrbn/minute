@@ -56,6 +56,7 @@ import {
   paths,
   refreshTray,
   setEngineCrashHandler,
+  setOnMinimize,
   setQuitting,
   showMain,
 } from './windows';
@@ -371,6 +372,9 @@ function wireIpc() {
   });
   handle('meetings:remove', async (_e, id: string) => {
     if (recorder.state.meetingId === id) await recorder.stop();
+    // les derniers extraits partent à la poubelle avec la réunion ; on attend ceux déjà envoyés
+    recorder.forget(id);
+    for (let i = 0; i < 100 && recorder.busyWith(id); i++) await new Promise((r) => setTimeout(r, 100));
     await store.remove(id);
     broadcast('meetings');
   });
@@ -666,6 +670,12 @@ app.whenReady().then(() => {
     refreshTray();
   });
   setEngineCrashHandler(() => void recorder.onEngineCrash());
+  // pendant une réunion, réduire la fenêtre = passer en Dynamic Island
+  setOnMinimize(() => {
+    if (!recorder.state.meetingId || !settings().get().minimizeToCompact) return false;
+    enterCompact();
+    return true;
+  });
   calendar.start();
   setInterval(checkReminders, 20_000);
   startMeetingDetector(() => settings().get().meetingDetection, { started: onMeetingAppStarted, ended: onMeetingAppEnded });

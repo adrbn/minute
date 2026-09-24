@@ -59,9 +59,19 @@ app_icon(256).save(os.path.join(icons, 'app.png'))
 app_icon(256, full_bleed=True).save(
     os.path.join(build, 'icon.ico'), sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
 )
-# Windows : icône blanche (barre des tâches sombre par défaut sous Windows 11)
-tray(32, (255, 255, 255, 255)).save(os.path.join(icons, 'tray.png'))
-tray(32, (255, 255, 255, 255), rec=True).save(os.path.join(icons, 'tray-rec.png'))
+# Windows : l'icône de l'app en couleur, lisible sur barre des tâches claire comme sombre
+def tray_color(size, rec=False):
+    img = app_icon(size, full_bleed=True)
+    if rec:
+        d = ImageDraw.Draw(img)
+        r = max(3, round(size * 0.2))
+        d.ellipse([size - 2 * r - 1, size - 2 * r - 1, size - 1, size - 1], fill=(255, 59, 48, 255), outline=(255, 255, 255, 255), width=max(1, size // 16))
+    return img
+
+
+for suffix, size in (('', 16), ('@2x', 32)):
+    tray_color(size).save(os.path.join(icons, f'tray{suffix}.png'))
+    tray_color(size, rec=True).save(os.path.join(icons, f'tray-rec{suffix}.png'))
 # macOS : images « template » noir + alpha, en @1x et @2x
 for suffix, size in (('', 18), ('@2x', 36)):
     tray(size, (0, 0, 0, 255)).save(os.path.join(icons, f'trayTemplate{suffix}.png'))

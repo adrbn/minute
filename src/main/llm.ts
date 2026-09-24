@@ -38,19 +38,23 @@ export const PROVIDER_LABEL: Record<LlmProvider, string> = {
   openai: 'OpenAI',
 };
 
+/** Débit (tokens/minute) annoncé par Groq pour chaque modèle, lu dans les en-têtes de réponse. */
+const groqTpm = new Map<string, number>();
+
 /** Taille d'entrée « confortable » par fournisseur (en tokens estimés). */
-export function inputBudget(provider: LlmProvider): number {
+export function inputBudget(provider: LlmProvider, model = ''): number {
   switch (provider) {
-    case 'groq':
-      return groqPaid ? 60_000 : 4_000; // offre gratuite : 8 000 tokens/min, réponse comprise
+    case 'groq': {
+      // offre gratuite : quelques milliers de tokens/min, réponse comprise
+      const tpm = groqTpm.get(model);
+      return tpm ? Math.max(3_000, Math.min(60_000, Math.floor(tpm * 0.5))) : 4_000;
+    }
     case 'openai':
       return 150_000;
     default:
       return 400_000;
   }
 }
-
-let groqPaid = false;
 
 export const estimateTokens = (s: string) => Math.ceil(s.length / 3.2);
 
@@ -104,7 +108,7 @@ async function chatOpenAiCompatible(
   }
   if (provider === 'groq') {
     const tpm = Number(res.headers.get('x-ratelimit-limit-tokens'));
-    if (Number.isFinite(tpm) && tpm > 20_000) groqPaid = true;
+    if (Number.isFinite(tpm) && tpm > 0) groqTpm.set(model, tpm);
   }
   if (!res.ok) {
     const text = await res.text().catch(() => '');

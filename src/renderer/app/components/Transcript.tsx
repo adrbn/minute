@@ -1,10 +1,157 @@
-import { ArrowDown, Copy, Play, Square, Star, Trash2 } from 'lucide-react';
+import { ArrowDown, Copy, LoaderCircle, Play, Sparkles, Square, Star, Trash2, X } from 'lucide-react';
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { clock, normalize, speakerName, toTurns, turnText, type Turn } from '../../../shared/transcript';
+import {
+  clock,
+  normalize,
+  speakerName,
+  toTurns,
+  turnText,
+  voiceBadge,
+  voiceClass,
+  voiceLabel,
+  voiceLetter,
+  voicePending,
+  type Turn,
+} from '../../../shared/transcript';
 import { firstNameRe } from '../api';
 import type { Bookmark, Channel, MeetingMeta, Segment } from '../../../shared/types';
 import { minute, useSpeaking, type Interims } from '../api';
 import { useToast } from './ui';
+
+/**
+ * « Qui est qui ? » : l'IA propose un prénom pour les voix non nommées, d'après la conversation
+ * (on appelle Elsa, c'est B qui répond…). Rien n'est appliqué sans un clic.
+ */
+function VoiceNamer({ meta }: { meta: MeetingMeta }) {
+  const [state, setState] = useState<{ id: string; done: boolean; text: string; error?: string } | null>(null);
+  const [dismissed, setDismissed] = useState<string[]>([]);
+  useEffect(
+    () =>
+      minute.on('ai', (e) =>
+        setState((s) => (s && e.requestId === s.id ? { ...s, text: e.text || s.text, done: e.done, error: e.error } : s)),
+      ),
+    [],
+  );
+  const voices = meta.voices ?? {};
+  const unnamed = Object.entries(voices).filter(([, v]) => !v.name && !v.owner);
+  if (!unnamed.length && !state) return null;
+  const byLetter = new Map(unnamed.map(([k, v]) => [voiceLetter(v.n), k]));
+  let guesses: { letter: string; key: string; name: string; why: string }[] = [];
+  if (state?.done && !state.error) {
+    try {
+      const json = JSON.parse(state.text.slice(state.text.indexOf('{'), state.text.lastIndexOf('}') + 1)) as Record<
+        string,
+        { name?: string; why?: string }
+      >;
+      guesses = Object.entries(json)
+        .map(([letter, g]) => ({ letter: letter.replace(/^Participant\s+/i, '').trim(), name: g?.name?.trim() ?? '', why: g?.why ?? '' }))
+        .map((g) => ({ ...g, key: byLetter.get(g.letter) ?? '' }))
+        .filter((g) => g.key && g.name && !dismissed.includes(g.key));
+    } catch {
+      guesses = [];
+    }
+  }
+  const apply = (list: typeof guesses) => {
+    const next = { ...voices };
+    for (const g of list) next[g.key] = { ...next[g.key], name: g.name };
+    void minute.meetings.update(meta.id, { voices: next });
+    setDismissed((d) => [...d, ...list.map((g) => g.key)]);
+    // plus rien à proposer : on revient à l'invitation (pour les voix encore sans nom)
+    if (list.length >= guesses.length) setState(null);
+  };
+  const run = async () => setState({ id: await minute.ai.run({ kind: 'names', meetingId: meta.id }), done: false, text: '' });
+  return (
+    <div className="voice-namer">
+      {!state ? (
+        <>
+          <span className="vn-lead">
+            {unnamed.length} voix sans nom : {unnamed.map(([k, v]) => (
+              <span key={k} className={`who ${voiceClass(meta, k)}`}>
+                <span className="vbadge">{voiceLetter(v.n)}</span>
+              </span>
+            ))}
+          </span>
+          <button className="link-btn" onClick={() => void run()}>
+            <Sparkles size={14} /> Deviner qui parle
+          </button>
+        </>
+      ) : !state.done ? (
+        <span className="vn-lead">
+          <LoaderCircle size={14} className="spin" /> Je cherche qui est qui dans la conversation…
+        </span>
+      ) : state.error ? (
+        <span className="vn-lead err">{state.error}</span>
+      ) : guesses.length ? (
+        <>
+          {guesses.map((g) => (
+            <button key={g.key} className={`vn-guess who ${voiceClass(meta, g.key)}`} onClick={() => apply([g])} title={g.why}>
+              <span className="vbadge">{g.letter}</span> = <b>{g.name}</b> ?
+            </button>
+          ))}
+          {guesses.length > 1 && (
+            <button className="link-btn" onClick={() => apply(guesses)}>
+              Tout appliquer
+            </button>
+          )}
+          <button className="icon-btn small" onClick={() => setState(null)} aria-label="Fermer" title="Fermer">
+            <X size={14} />
+          </button>
+        </>
+      ) : (
+        <>
+          <span className="vn-lead">Rien de sûr dans la conversation — cliquez sur une pastille pour la nommer.</span>
+          <button className="icon-btn small" onClick={() => setState(null)} aria-label="Fermer" title="Fermer">
+            <X size={14} />
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Nom de l'intervenant ; un clic pour le renommer (vaut pour toute la réunion). */
+function VoiceName({ meta, turn }: { meta: MeetingMeta; turn: Turn }) {
+  const [editing, setEditing] = useState(false);
+  const label = voiceLabel(meta, turn.ch, turn.spk);
+  const v = turn.spk ? meta.voices?.[turn.spk] : undefined;
+  if (voicePending(meta, turn.ch, turn.spk))
+    return (
+      <span className="who" title="Voix non reconnue (phrase trop courte)">
+        <span className="vbadge pending" />
+      </span>
+    );
+  if (!turn.spk || !v) return <span className="who">{label}</span>;
+  const save = (name: string) => {
+    setEditing(false);
+    const clean = name.trim();
+    if (clean === (v.name ?? '')) return;
+    const next = { ...meta.voices, [turn.spk!]: { ...v, name: clean || undefined } };
+    void minute.meetings.update(meta.id, { voices: next });
+  };
+  return editing ? (
+    <input
+      className={`who-edit ${voiceClass(meta, turn.spk)}`}
+      defaultValue={v.name ?? ''}
+      placeholder={label}
+      autoFocus
+      onFocus={(e) => e.currentTarget.select()}
+      onBlur={(e) => save(e.currentTarget.value)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') e.currentTarget.blur();
+        if (e.key === 'Escape') setEditing(false);
+      }}
+    />
+  ) : (
+    <button
+      className={`who voice ${voiceClass(meta, turn.spk)}`}
+      onClick={() => setEditing(true)}
+      title={`${label} — reconnu à sa voix. Cliquer pour ${v.name ? 'renommer' : 'lui donner un nom'} (vaut pour toute la réunion)`}
+      aria-label={label}
+    >
+      {v.owner ? label : <span className={`vbadge ${v.name ? 'named' : ''}`}>{voiceBadge(meta, turn.spk) ?? v.name}</span>}
+    </button>
+  );
+}
 
 // Lecture audio : un seul lecteur pour toute l'app.
 const player = new Audio();
@@ -103,7 +250,7 @@ export function Transcript({
   }, [focus, turns]);
 
   const copyTurn = async (turn: Turn) => {
-    await navigator.clipboard.writeText(`${speakerName(meta, turn.ch)} : ${turnText(turn)}`);
+    await navigator.clipboard.writeText(`${voiceLabel(meta, turn.ch, turn.spk)} : ${turnText(turn)}`);
     toast('Passage copié', 'success');
   };
 
@@ -125,7 +272,9 @@ export function Transcript({
     if (!live || (!isSpeaking && !it)) return null;
     return (
       <div className={`live-row ${ch}`} key={`ghost-${ch}`}>
-        <span className="who">{speakerName(meta, ch)}</span>
+        <span className="who">
+          {voicePending(meta, ch) ? <span className="vbadge pending" title="Voix en cours de reconnaissance" /> : speakerName(meta, ch)}
+        </span>
         <span className="body">
           {it?.text}
           {isSpeaking && (
@@ -146,6 +295,7 @@ export function Transcript({
     <div className="transcript-wrap">
       <div className="transcript" ref={scroller} onScroll={onScroll} onWheel={onWheel}>
         <div className="transcript-inner">
+          {!live && <VoiceNamer meta={meta} />}
           {!rows.length && !live && (
             <div className="empty">
               <p>Aucune parole transcrite dans cette réunion.</p>
@@ -166,7 +316,7 @@ export function Transcript({
               <Fragment key={r.turn.key}>
                 <div className={`turn ${r.turn.ch} ${flash === r.turn.key ? 'flash' : ''}`} data-turn={r.turn.key}>
                   <div className="side">
-                    <span className="who">{speakerName(meta, r.turn.ch)}</span>
+                    <VoiceName meta={meta} turn={r.turn} />
                     <button
                       className={`ts ${hasAudio && r.turn.segments.some((s) => s.audio) ? 'play' : ''}`}
                       onClick={() => play(r.turn)}

@@ -99,12 +99,18 @@ export class MeetingStore {
     const e = this.index.get(id);
     if (!e) return [];
     const file = join(e.dir, 'transcript.jsonl');
-    if (!existsSync(file)) return [];
-    const st = statSync(file);
-    const cached = this.segCache.get(id);
-    if (cached && cached.mtime === st.mtimeMs && cached.size === st.size) return cached.segments;
+    let st: ReturnType<typeof statSync>;
+    let raw: string;
+    try {
+      st = statSync(file);
+      const cached = this.segCache.get(id);
+      if (cached && cached.mtime === st.mtimeMs && cached.size === st.size) return cached.segments;
+      raw = readFileSync(file, 'utf8');
+    } catch {
+      return []; // pas encore de texte, ou dossier déplacé entre-temps
+    }
     const byId = new Map<string, Segment>();
-    for (const line of readFileSync(file, 'utf8').split('\n')) {
+    for (const line of raw.split('\n')) {
       if (!line.trim()) continue;
       try {
         const l = JSON.parse(line) as LogLine;
@@ -188,13 +194,14 @@ export class MeetingStore {
   async remove(id: string) {
     const e = this.index.get(id);
     if (!e) return;
+    // d'abord hors de l'index : plus personne ne lit ni n'écrit dans le dossier pendant qu'il part à la corbeille
+    this.index.delete(id);
+    this.segCache.delete(id);
     try {
       await shell.trashItem(e.dir); // corbeille : récupérable
     } catch {
       rmSync(e.dir, { recursive: true, force: true });
     }
-    this.index.delete(id);
-    this.segCache.delete(id);
   }
 
   search(query: string, limit = 150): SearchHit[] {

@@ -1,10 +1,25 @@
 // Mode compact — pilule discrète ou panneau de sous-titres, dans une fenêtre
 // flottante qui remplace la fenêtre principale pendant la réunion.
-import { AppWindow, Captions, Check, Copy, History, LoaderCircle, Pause, Play, Square, Star, X } from 'lucide-react';
+import {
+  AppWindow,
+  ArrowUp,
+  Captions,
+  Check,
+  Copy,
+  History,
+  LoaderCircle,
+  MessageCircleQuestionMark,
+  NotebookPen,
+  Pause,
+  Play,
+  Square,
+  Star,
+  X,
+} from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from 'react';
 import { createRoot } from 'react-dom/client';
-import { clock, durationLabel, speakerName, toTurns, turnText } from '../../shared/transcript';
-import type { AiEvent, CompactLayout, Levels } from '../../shared/types';
+import { clock, durationLabel, speakerName, toTurns, turnText, voiceBadge, voiceClass, voiceLabel, voicePending } from '../../shared/transcript';
+import type { AiEvent, CalendarState, CompactLayout, Levels } from '../../shared/types';
 import { minute, useElapsed, useInfo, useLevels, useLiveState, useMeeting } from '../app/api';
 import { Markdown } from '../app/components/Markdown';
 import '../app/styles.css';
@@ -41,7 +56,7 @@ function useWindowSize() {
 function useDrag(onTap: () => void) {
   const st = useRef<{ x0: number; y0: number; dragging: boolean; hist: { x: number; y: number; t: number }[] } | null>(null);
   const onPointerDown = (e: RPointerEvent<HTMLElement>) => {
-    if (e.button !== 0 || (e.target as HTMLElement).closest('button, a, .no-drag')) return;
+    if (e.button !== 0 || (e.target as HTMLElement).closest('button, a, input, textarea, .no-drag')) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     st.current = { x0: e.screenX, y0: e.screenY, dragging: false, hist: [{ x: e.screenX, y: e.screenY, t: performance.now() }] };
   };
@@ -109,6 +124,48 @@ function Waves({ levels }: { levels: Levels }) {
   );
 }
 
+/** Dernière phrase en direct, sur une ligne : on voit la fin, le début s'efface. */
+function Ticker({ ch, text, tone, voice = '' }: { ch?: 'me' | 'them'; text: string; tone?: 'warn' | 'error' | 'muted'; voice?: string }) {
+  const box = useRef<HTMLSpanElement>(null);
+  const [over, setOver] = useState(false);
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (el) setOver(el.scrollWidth > el.clientWidth + 1);
+  }, [text]);
+  return (
+    <span ref={box} className={`ticker ${over ? 'over' : ''} ${tone ?? ''}`} title={text}>
+      <span className="ticker-in">
+        {ch && <i className={`who-dot ${ch} ${voice}`} />}
+        {text}
+      </span>
+    </span>
+  );
+}
+
+/** Saisie dans la fenêtre compacte : sous Windows, elle ne prend le clavier que le temps de taper. */
+const typing = {
+  onPointerDown: (e: RPointerEvent<HTMLElement>) => {
+    const el = e.currentTarget as HTMLInputElement;
+    minute.windows.compactFocus(true);
+    window.setTimeout(() => el.focus(), 40);
+  },
+  onFocus: () => minute.windows.compactFocus(true),
+  onBlur: () => minute.windows.compactFocus(false),
+  onKeyDown: (e: React.KeyboardEvent<HTMLElement>) => {
+    if (e.key === 'Escape') (e.currentTarget as HTMLElement).blur();
+  },
+};
+
+type Tab = 'live' | 'notes' | 'ask';
+interface Ask {
+  id: string;
+  q: string;
+  text: string;
+  done: boolean;
+  error?: string;
+  progress?: string;
+}
+
 /** Retour immédiat : l'icône devient ✓ pendant un instant. */
 function useFlash(ms = 1400): [boolean, () => void] {
   const [on, setOn] = useState(false);
@@ -121,11 +178,32 @@ function useFlash(ms = 1400): [boolean, () => void] {
   return [on, fire];
 }
 
+// ------------------------------------------------------------------ forme préférée pendant une réunion
+const SHAPE_KEY = 'minute.liveShape';
+function liveShape(): 'pill' | 'panel' {
+  try {
+    return localStorage.getItem(SHAPE_KEY) === 'pill' ? 'pill' : 'panel';
+  } catch {
+    return 'panel';
+  }
+}
+/** Choix explicite de l'utilisateur : retenu pour les prochaines réunions. */
+function chooseShape(shape: 'pill' | 'panel') {
+  try {
+    localStorage.setItem(SHAPE_KEY, shape);
+  } catch {
+    /* stockage indisponible : le choix vaut pour cette fois */
+  }
+  void minute.windows.setCompactShape(shape);
+}
+
 // ------------------------------------------------------------------ fenêtre compacte
 function Compact() {
   const info = useInfo();
   const live = useLiveState();
   const [lay, setLay] = useState<CompactLayout | null>(null);
+  const layRef = useRef<CompactLayout | null>(null);
+  layRef.current = lay;
   const [endedId, setEndedId] = useState<string | null>(null);
   const liveId = live?.meetingId ?? null;
   const meetingId = liveId ?? endedId;
@@ -138,9 +216,20 @@ function Compact() {
   const [marked, flashMarked] = useFlash(1600);
   const [confirmStop, setConfirmStop] = useState(false);
   const [catchup, setCatchup] = useState<{ id: string; text: string; done: boolean; error?: string; after: string | null } | null>(null);
+  const [tab, setTab] = useState<Tab>('live');
+  const [asks, setAsks] = useState<Ask[]>([]);
+  const [question, setQuestion] = useState('');
+  const [notes, setNotes] = useState('');
+  const notesFocused = useRef(false);
+  const notesTimer = useRef<number | null>(null);
+  const [cal, setCal] = useState<CalendarState | null>(null);
+  const [now, setNow] = useState(Date.now());
+  const lastText = useRef(Date.now());
+  const lastVoice = useRef(0);
   const ack = useRef<'frame' | 'transition' | null>(null);
   const prevLive = useRef<string | null>(null);
-  const [active, setActive] = useState(true);
+  // préchargée en arrière-plan, la fenêtre n'est « active » qu'une fois affichée
+  const [active, setActive] = useState(false);
   useEffect(
     () =>
       minute.on('compact', (on) => {
@@ -160,13 +249,17 @@ function Compact() {
 
   // disposition envoyée par le process principal (forme + ancrage) — avec accusé de réception
   useEffect(() => {
-    void minute.windows.compactLayout().then(setLay);
-    return minute.on('compactLayout', (l) =>
+    void minute.windows.compactLayout().then((l) => {
+      setLay(l);
+      setActive(l.active);
+    });
+    return minute.on('compactLayout', (l) => {
+      setActive(l.active);
       setLay((prev) => {
         ack.current = prev?.shape === 'panel' && l.shape === 'pill' && !reduceMotion() ? 'transition' : 'frame';
         return l;
-      }),
-    );
+      });
+    });
   }, []);
   useLayoutEffect(() => {
     if (!ack.current) return;
@@ -192,18 +285,75 @@ function Compact() {
     return () => clearTimeout(t);
   }, [endedId, hover, active]);
 
-  // rattrapage IA
+  // rattrapage et questions IA
   useEffect(
     () =>
-      minute.on('ai', (e: AiEvent) =>
-        setCatchup((c) => (c && c.id === e.requestId ? { ...c, text: e.text || c.text, done: e.done, error: e.error } : c)),
-      ),
+      minute.on('ai', (e: AiEvent) => {
+        setCatchup((c) => (c && c.id === e.requestId ? { ...c, text: e.text || c.text, done: e.done, error: e.error } : c));
+        setAsks((list) =>
+          list.map((a) =>
+            a.id === e.requestId ? { ...a, text: e.text || a.text, done: e.done, error: e.error, progress: e.progress ?? a.progress } : a,
+          ),
+        );
+      }),
     [],
   );
+
+  // agenda : la prochaine réunion s'affiche dans la pilule au repos
+  useEffect(() => {
+    void minute.calendar.state().then(setCal);
+    return minute.on('calendar', setCal);
+  }, []);
+  useEffect(() => {
+    const t = window.setInterval(() => setNow(Date.now()), 5000);
+    return () => clearInterval(t);
+  }, []);
+
+  // santé du direct : du son est capté mais aucun texte n'arrive
+  useEffect(() => {
+    lastText.current = Date.now();
+  }, [data?.segments.length, interims.me?.text, interims.them?.text, liveId]);
+  useEffect(() => {
+    if (levels.meSpeaking || levels.themSpeaking) lastVoice.current = Date.now();
+  }, [levels.meSpeaking, levels.themSpeaking]);
+
+  // notes de la réunion, modifiables sans rouvrir l'app
+  useEffect(() => {
+    if (!notesFocused.current) setNotes(data?.meta.notes ?? '');
+  }, [data?.meta.notes, meetingId]);
+  const editNotes = (v: string) => {
+    setNotes(v);
+    if (notesTimer.current) clearTimeout(notesTimer.current);
+    const id = meetingId;
+    notesTimer.current = window.setTimeout(() => id && void minute.meetings.update(id, { notes: v }), 500);
+  };
+
+  // nouvelle réunion : on repart sur le direct
+  useEffect(() => {
+    setTab('live');
+    setAsks([]);
+  }, [liveId]);
+
+  // forme à l'affichage : en réunion, celle que l'utilisateur préfère (sous-titres par défaut) ;
+  // au repos, la pilule (le panneau n'aurait rien à montrer)
+  const hasLay = !!lay;
+  const liveMeeting = live?.meetingId ?? null;
+  useEffect(() => {
+    if (!active || !hasLay || !live) return;
+    const current = layRef.current?.shape;
+    if (liveMeeting) {
+      const want = liveShape();
+      if (current !== want) void minute.windows.setCompactShape(want);
+    } else if (!endedId && current === 'panel') {
+      void minute.windows.setCompactShape('pill');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, hasLay, liveMeeting, endedId]);
 
   // défilement des sous-titres collé au direct
   const caps = useRef<HTMLDivElement>(null);
   const [stick, setStick] = useState(true);
+  const [scrolledUp, setScrolledUp] = useState(false);
   const turns = useMemo(() => (data ? toTurns(data.segments.filter((s) => s.text)).slice(-14) : []), [data]);
   const autoScroll = useRef(false);
   useLayoutEffect(() => {
@@ -216,7 +366,7 @@ function Compact() {
 
   const isPanel = lay?.shape === 'panel';
   const drag = useDrag(() => {
-    if (!isPanel && liveId) void minute.windows.setCompactShape('panel');
+    if (!isPanel && liveId) chooseShape('panel');
   });
 
   if (!lay) return null;
@@ -292,6 +442,41 @@ function Compact() {
     </div>
   );
   const openMain = () => void minute.windows.exitCompact({ meetingId: meetingId ?? undefined });
+  const ask = async (q: string) => {
+    const text = q.trim();
+    if (!text || !meetingId) return;
+    setQuestion('');
+    const id = await minute.ai.run({ kind: 'ask', meetingId, question: text });
+    setAsks((list) => [...list.slice(-4), { id, q: text, text: '', done: false }]);
+  };
+
+  // pilule : dernière phrase (ou le problème en cours, en clair)
+  const stale = recording && !paused && now - lastText.current > 60_000 && now - lastVoice.current < 15_000;
+  const latest = (() => {
+    const last = data?.segments.filter((x) => x.text).at(-1);
+    const its = (['me', 'them'] as const)
+      .map((ch) => (interims[ch] ? { ch, t0: interims[ch]!.t0, text: interims[ch]!.text } : null))
+      .filter(Boolean) as { ch: 'me' | 'them'; t0: number; text: string }[];
+    const it = its.sort((x, y) => y.t0 - x.t0)[0];
+    if (it && (!last || it.t0 >= last.t0)) return { ch: it.ch, text: it.text, spk: undefined as string | undefined };
+    return last ? { ch: last.ch, text: last.text, spk: last.spk } : null;
+  })();
+  const ticker = problem ? (
+    <Ticker text={problemText || 'Problème de capture'} tone={problem} />
+  ) : stale ? (
+    <Ticker text="Pas de texte depuis 1 min — ouvrez les sous-titres pour vérifier" tone="warn" />
+  ) : paused ? (
+    <Ticker text="En pause — rien n’est transcrit" tone="muted" />
+  ) : latest ? (
+    <Ticker ch={latest.ch} text={latest.text} voice={meta ? voiceClass(meta, latest.spk) : ''} />
+  ) : (
+    <Ticker text="À l’écoute…" tone="muted" />
+  );
+  const next = cal?.events
+    .filter((e) => e.end > now && e.start < now + 3 * 3600_000)
+    .sort((x, y) => x.start - y.start)[0];
+  const nextSoon = next && next.start - now < 10 * 60_000;
+  const hm = (t: number) => new Date(t).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 
   // ------------------------------------------------------------------ contenu « pilule »
   const pill = (
@@ -300,9 +485,8 @@ function Compact() {
         <>
           <span className={`rec ${paused ? 'paused' : ''}`} />
           <span className="t">{clock(elapsed)}</span>
-          {problem && <span className={`badge-dot ${problem}`} title={problemText} />}
-          {paused ? <span className="pill-label">En pause</span> : <Waves levels={levels} />}
-          <span className="grow" />
+          {!paused && <Waves levels={levels} />}
+          {ticker}
           <span className="reveal">
             {paused ? (
               <button className="hud-btn" title="Reprendre" aria-label="Reprendre" onClick={() => void minute.recorder.resume()}>
@@ -331,7 +515,7 @@ function Compact() {
             className="hud-btn"
             title="Afficher les sous-titres"
             aria-label="Afficher les sous-titres"
-            onClick={() => void minute.windows.setCompactShape('panel')}
+            onClick={() => chooseShape('panel')}
           >
             <Captions />
           </button>
@@ -355,8 +539,16 @@ function Compact() {
             <i />
           </span>
           <span className="pill-label strong">Minute</span>
-          <span className="grow" />
-          <button className="hud-pill-btn rec-start" onClick={() => void minute.recorder.start()}>
+          {next ? (
+            <Ticker text={`${next.start <= now ? 'En cours' : hm(next.start)} · ${next.title}`} tone="muted" />
+          ) : (
+            <span className="grow" />
+          )}
+          <button
+            className="hud-pill-btn rec-start"
+            title={nextSoon ? `Transcrire « ${next!.title} »` : 'Démarrer une transcription'}
+            onClick={() => void minute.recorder.start(nextSoon ? { title: next!.title, eventId: next!.id } : undefined)}
+          >
             <span className="rec" /> Démarrer
           </button>
           <button className="hud-btn" title="Ouvrir la fenêtre Minute" aria-label="Ouvrir la fenêtre Minute" onClick={openMain}>
@@ -381,13 +573,32 @@ function Compact() {
             <Check />
           </span>
         )}
-        <span className="p-title">{marked ? '★ Moment marqué' : meta.title}</span>
+        {recording ? (
+          <span className="p-tabs no-drag" role="tablist" title={meta.title}>
+            {(
+              [
+                ['live', 'Direct', <Captions key="i" />],
+                ['notes', 'Notes', <NotebookPen key="i" />],
+                ['ask', 'Question', <MessageCircleQuestionMark key="i" />],
+              ] as const
+            ).map(([k, label, icon]) => (
+              <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)} title={label}>
+                {icon}
+                <span>{label}</span>
+              </button>
+            ))}
+          </span>
+        ) : (
+          <span className="p-title">{meta.title}</span>
+        )}
+        {marked && <span className="p-flash">★</span>}
+        {recording && <span className="grow" />}
         <span className="reveal">
           <button
             className="hud-btn"
             title="Réduire en Dynamic Island"
             aria-label="Réduire en Dynamic Island"
-            onClick={() => void minute.windows.setCompactShape('pill')}
+            onClick={() => chooseShape('pill')}
           >
             <IslandIcon />
           </button>
@@ -398,7 +609,71 @@ function Compact() {
       </header>
       {problem && recording && <div className={`p-banner ${problem}`}>{problemText}</div>}
 
-      {!recording && endedId ? (
+      {recording && tab === 'notes' ? (
+        <div className="p-notes-wrap">
+          <textarea
+            className="p-notes"
+            value={notes}
+            placeholder="Vos notes — elles guident le compte-rendu (ce qui compte pour vous, à qui envoyer quoi…)"
+            onChange={(e) => editNotes(e.target.value)}
+            {...typing}
+            onFocus={() => {
+              notesFocused.current = true;
+              typing.onFocus();
+            }}
+            onBlur={() => {
+              notesFocused.current = false;
+              typing.onBlur();
+            }}
+          />
+        </div>
+      ) : recording && tab === 'ask' ? (
+        <div className="p-ask">
+          <div className="p-answers">
+            {!asks.length && (
+              <div className="p-suggest">
+                <p>Demandez n’importe quoi sur ce qui a été dit.</p>
+                {['Qu’attend-on de moi ?', 'Quelles décisions jusqu’ici ?', 'Qui doit faire quoi ?'].map((q) => (
+                  <button key={q} className="hud-chip-inline" onClick={() => void ask(q)}>
+                    {q}
+                  </button>
+                ))}
+              </div>
+            )}
+            {asks.map((a) => (
+              <div key={a.id} className="p-qa">
+                <p className="q">{a.q}</p>
+                {a.error ? (
+                  <p className="err">{a.error}</p>
+                ) : a.text ? (
+                  <Markdown text={a.text} streaming={!a.done} />
+                ) : (
+                  <p className="muted">
+                    <LoaderCircle className="spin" /> {a.progress || 'Je relis la réunion…'}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+          <form
+            className="p-ask-bar"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void ask(question);
+            }}
+          >
+            <input
+              value={question}
+              placeholder="Demander à la réunion…"
+              onChange={(e) => setQuestion(e.target.value)}
+              {...typing}
+            />
+            <button className="hud-btn send" type="submit" disabled={!question.trim()} aria-label="Envoyer">
+              <ArrowUp />
+            </button>
+          </form>
+        </div>
+      ) : !recording && endedId ? (
         <div className="p-ended">
           <span className="done-check big">
             <Check />
@@ -418,16 +693,18 @@ function Compact() {
         </div>
       ) : (
         <div
-          className="captions no-drag"
+          className={`captions ${scrolledUp ? 'scrolled' : ''}`}
           ref={caps}
           onScroll={() => {
             const el = caps.current;
             if (!el) return;
+            setScrolledUp(el.scrollTop > 4);
             if (autoScroll.current) {
               autoScroll.current = false;
               return;
             }
             setStick(el.scrollHeight - el.scrollTop - el.clientHeight < 16);
+            setScrolledUp(el.scrollTop > 4);
           }}
           onWheel={(e) => e.deltaY < 0 && setStick(false)}
         >
@@ -436,7 +713,17 @@ function Compact() {
           {turns.map((t, i) => (
             <div key={t.key} className="cap-row">
               <p className={`cap ${t.ch} ${i < turns.length - 2 ? 'past' : ''}`}>
-                <span className="who">{speakerName(meta, t.ch)}</span>
+                <span className={`who ${voiceClass(meta, t.spk)}`} title={voiceLabel(meta, t.ch, t.spk)}>
+                  {voicePending(meta, t.ch, t.spk) ? (
+                    <span className="vbadge pending" />
+                  ) : voiceBadge(meta, t.spk) ? (
+                    <span className="vbadge">{voiceBadge(meta, t.spk)}</span>
+                  ) : t.spk && meta.voices?.[t.spk]?.name ? (
+                    <span className="vbadge named">{meta.voices[t.spk].name}</span>
+                  ) : (
+                    voiceLabel(meta, t.ch, t.spk)
+                  )}
+                </span>
                 {turnText(t)}
               </p>
               {catchup?.after === t.key && catchupCard}
@@ -449,7 +736,7 @@ function Compact() {
             if (!it && !speaking) return null;
             return (
               <p key={ch} className={`cap ${ch} ghost`}>
-                <span className="who">{speakerName(meta, ch)}</span>
+                <span className="who">{voicePending(meta, ch) ? <span className="vbadge pending" /> : speakerName(meta, ch)}</span>
                 {it?.text}
                 {speaking && (
                   <span className="wave">
@@ -463,7 +750,7 @@ function Compact() {
           })}
         </div>
       )}
-      {!stick && recording && (
+      {!stick && recording && tab === 'live' && (
         <button
           className="hud-chip live-chip"
           onClick={() => {
@@ -475,20 +762,28 @@ function Compact() {
         </button>
       )}
 
-      {recording && (
+      {recording && tab === 'live' && (
         <footer className="p-foot">
-          <button className={`hud-tool ${marked ? 'ok' : ''}`} onClick={() => void bookmark()} disabled={paused}>
-            <Star /> <span>Marquer</span>
-          </button>
-          <button className={`hud-tool ${copied ? 'ok' : ''}`} onClick={() => void copy()}>
+          {/* en pause, « Marquer » n'a pas de sens : sa place revient à « Reprendre » */}
+          {!paused && (
+            <button className={`hud-tool secondary ${marked ? 'ok' : ''}`} onClick={() => void bookmark()} title="Marquer un moment">
+              <Star /> <span>Marquer</span>
+            </button>
+          )}
+          <button className={`hud-tool secondary ${copied ? 'ok' : ''}`} onClick={() => void copy()} title="Copier la transcription">
             {copied ? <Check /> : <Copy />} <span>{copied ? 'Copié' : 'Copier'}</span>
           </button>
-          <button className="hud-tool" onClick={() => void runCatchup()} disabled={!!catchup && !catchup.done}>
+          <button
+            className="hud-tool secondary"
+            onClick={() => void runCatchup()}
+            disabled={!!catchup && !catchup.done}
+            title="Résumé des 5 dernières minutes"
+          >
             {catchup && !catchup.done ? <LoaderCircle className="spin" /> : <History />} <span>Rattrapage</span>
           </button>
           <span className="grow" />
           {paused ? (
-            <button className="hud-tool" onClick={() => void minute.recorder.resume()}>
+            <button className="hud-tool resume" onClick={() => void minute.recorder.resume()}>
               <Play /> <span>Reprendre</span>
             </button>
           ) : (
@@ -502,7 +797,7 @@ function Compact() {
         </footer>
       )}
 
-      {recording && <ResizeGrip anchor={a} />}
+      {recording && <ResizeCorners />}
 
     </div>
   );
@@ -521,23 +816,28 @@ function Compact() {
   );
 }
 
-function ResizeGrip({ anchor }: { anchor: CompactLayout['anchor'] }) {
+/** Les quatre coins du panneau se tirent pour l'agrandir (zones invisibles, le curseur l'indique). */
+function ResizeCorners() {
+  return (
+    <>
+      {(['tl', 'tr', 'bl', 'br'] as const).map((c) => (
+        <ResizeCorner key={c} corner={c} />
+      ))}
+    </>
+  );
+}
+
+function ResizeCorner({ corner }: { corner: 'tl' | 'tr' | 'bl' | 'br' }) {
   const start = useRef<{ x: number; y: number } | null>(null);
-  // la poignée est au coin opposé à l'ancrage
-  const style: React.CSSProperties = {
-    ...(anchor[0] === 't' ? { bottom: 2 } : { top: 2 }),
-    ...(anchor[1] === 'r' ? { left: 2 } : { right: 2 }),
-    cursor: (anchor[0] === 't') === (anchor[1] === 'r') ? 'nesw-resize' : 'nwse-resize',
-  };
   return (
     <span
-      className="grip no-drag"
-      style={style}
+      className={`corner ${corner} no-drag`}
+      aria-hidden
       onPointerDown={(e) => {
         e.stopPropagation();
         e.currentTarget.setPointerCapture(e.pointerId);
         start.current = { x: e.screenX, y: e.screenY };
-        minute.windows.compactResize('start', 0, 0);
+        minute.windows.compactResize('start', 0, 0, corner);
       }}
       onPointerMove={(e) => {
         if (!start.current) return;

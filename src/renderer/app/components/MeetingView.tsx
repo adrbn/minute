@@ -11,7 +11,6 @@ import {
   MonitorSpeaker,
   PanelRight,
   Pause,
-  PictureInPicture2,
   Play,
   RotateCw,
   Search,
@@ -27,7 +26,7 @@ import type { AppInfo, LiveState, Settings } from '../../../shared/types';
 import { minute, shortcutLabel, useElapsed, useLevels, useMeeting } from '../api';
 import { SidePanel, type PanelTab } from './SidePanel';
 import { Transcript } from './Transcript';
-import { useMenu, useToast } from './ui';
+import { IslandIcon, useMenu, useToast, useWidth } from './ui';
 
 export function MeetingView({
   id,
@@ -53,7 +52,15 @@ export function MeetingView({
   const { data, interims } = useMeeting(id);
   const isLive = live?.meetingId === id;
   const elapsed = useElapsed(isLive ? live : null);
-  const [panel, setPanel] = useState(true);
+  const width = useWidth();
+  // panneau latéral ouvert d'office seulement si la fenêtre est assez large
+  const [panel, setPanel] = useState(() => window.innerWidth >= 1040);
+  const wide = useRef(width >= 1040);
+  useEffect(() => {
+    const nowWide = width >= 1040;
+    if (nowWide !== wide.current) setPanel(nowWide);
+    wide.current = nowWide;
+  }, [width]);
   const [tab, setTab] = useState<PanelTab>(isLive ? 'notes' : 'summary');
   const [find, setFind] = useState<string | null>(null);
   const [focus, setFocus] = useState<{ t: number; key: number } | null>(focusAt);
@@ -154,7 +161,7 @@ export function MeetingView({
     if (me === null) return;
     const them = prompt('Et les autres participants ? (ex. « Marco », « Équipe Milan »)', meta.speakers.them);
     if (them === null) return;
-    void minute.meetings.update(id, { speakers: { me: me.trim() || 'Moi', them: them.trim() || 'Eux' } });
+    void minute.meetings.update(id, { speakers: { me: me.trim() || 'Moi', them: them.trim() || 'Participants' } });
   };
 
   const ch = live?.channels;
@@ -218,12 +225,11 @@ export function MeetingView({
               <Copy />
             </button>
             <button
-              className="icon-btn"
-              title={`Mode compact — la fenêtre s’efface (${shortcutLabel(settings.shortcuts.mini, info.platform)})`}
-              aria-label="Mode compact"
+              className="btn small"
+              title={`Réduire en Dynamic Island — la réunion continue (${shortcutLabel(settings.shortcuts.mini, info.platform)})`}
               onClick={() => void minute.windows.enterCompact()}
             >
-              <PictureInPicture2 />
+              <IslandIcon /> <span className="lbl">Réduire</span>
             </button>
             {live.status === 'paused' ? (
               <button className="btn small" onClick={() => void minute.recorder.resume()}>
@@ -344,7 +350,7 @@ export function MeetingView({
   );
 }
 
-/** Vumètres Moi / Eux : seul ce petit composant se redessine 11 fois par seconde. */
+/** Vumètres (micro / son de l'ordinateur) : seul ce petit composant se redessine 11 fois par seconde. */
 function Meters({ live }: { live: LiveState }) {
   const levels = useLevels(true);
   const ch = live.channels;

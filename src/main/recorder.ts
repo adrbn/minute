@@ -16,6 +16,7 @@ import type {
 } from '../shared/types';
 import { cleanResult, buildPrompt, isEcho, overlapping } from './filters';
 import { Budget, SttError, transcribe } from './groq';
+import { Voices } from './voices';
 import { settings } from './settings';
 import { newId, store } from './store';
 import { applyCorrections, mentions } from './vocabulary';
@@ -57,6 +58,14 @@ const idleState = (): LiveState => ({
   pausedMs: 0,
   channels: { me: { enabled: true, ok: true }, them: { enabled: true, ok: true } },
   queue: 0,
+});
+
+const voices = new Voices({
+  dir: (id) => store.dir(id),
+  meta: (id) => store.meta(id),
+  segments: (id) => store.segments(id),
+  setVoices: (id, v) => void store.update(id, { voices: v }),
+  putSegment: (id, seg) => store.putSegment(id, seg),
 });
 
 export class Recorder {
@@ -143,7 +152,8 @@ export class Recorder {
       durationMs: 0,
       status: 'recording',
       source: 'minute',
-      speakers: { me: cfg.meName || 'Moi', them: cfg.themName || 'Eux' },
+      speakers: { me: cfg.meName || 'Moi', them: cfg.themName || 'Participants' },
+      ...(cfg.voices ? { voices: {} } : {}),
       notes: '',
       bookmarks: [],
       wordCount: 0,
@@ -193,6 +203,7 @@ export class Recorder {
       captureSystem: systemMode !== 'off',
       systemMode,
       livePreview: cfg.livePreview,
+      voices: cfg.voices,
     });
     if (this.state.meetingId !== meetingId) return;
     if (systemMode === 'pcm' && this.hooks.systemAudio) {
@@ -257,6 +268,12 @@ export class Recorder {
     if (this.silenceTimer) clearInterval(this.silenceTimer);
     this.silenceTimer = null;
     this.clearInterims(id);
+    // intervenants : on regroupe au mieux maintenant que toute la réunion est connue
+    try {
+      for (const seg of voices.refine(id)) this.hooks.live({ type: 'segment', meetingId: id, segment: seg });
+    } catch (e) {
+      console.error('voix', e);
+    }
     store.update(id, { status: 'done', endedAt: Date.now(), durationMs: duration });
     store.refreshStats(id);
     this.state = idleState();
@@ -336,6 +353,13 @@ export class Recorder {
     this.lastFinalT0[s.ch] = s.t0;
     this.hooks.live({ type: 'interim', meetingId: id, ch: s.ch, t0: s.t0, text: '' });
     const seg: Segment = { id: segId, ch: s.ch, t0: Math.round(s.t0), t1: Math.round(s.t1), text: draft, audio: file, pending: true };
+    if (settings().get().voices) {
+      const known = Object.keys(store.meta(id)?.voices ?? {}).length;
+      const spk = voices.assign(id, seg, s.voice);
+      if (spk) seg.spk = spk;
+      // nouvelle voix : les fenêtres doivent connaître son nom (« Participant C »)
+      if (Object.keys(store.meta(id)?.voices ?? {}).length !== known) this.hooks.meetingsChanged();
+    }
     store.putSegment(id, seg);
     this.hooks.live({ type: 'segment', meetingId: id, segment: seg });
     this.queue.push({ meetingId: id, segId, ch: s.ch, file: path, tries: 0 });
@@ -466,6 +490,20 @@ export class Recorder {
       void this.run(job, dur);
     }
     this.emitState();
+  }
+
+  /** La réunion a encore de l'audio en attente ou en cours de transcription. */
+  busyWith(meetingId: string): boolean {
+    return (
+      this.state.meetingId === meetingId ||
+      this.queue.some((j) => j.meetingId === meetingId) ||
+      [...this.busy].some((k) => k.startsWith(meetingId))
+    );
+  }
+
+  /** Abandonne ce qui reste à transcrire pour une réunion supprimée. */
+  forget(meetingId: string) {
+    this.queue = this.queue.filter((j) => j.meetingId !== meetingId);
   }
 
   private async run(job: Job, dur: number) {

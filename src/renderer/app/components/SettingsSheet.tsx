@@ -221,7 +221,11 @@ function General({ settings, update }: P) {
           <input className="field" defaultValue={settings.meName === 'Moi' ? '' : settings.meName} placeholder="Moi" onBlur={(e) => void update({ meName: e.target.value.trim() || 'Moi' })} />
         </Row>
         <Row label="Les autres participants" hint="Nom par défaut de la voix de l’ordinateur.">
-          <input className="field" defaultValue={settings.themName} onBlur={(e) => void update({ themName: e.target.value.trim() || 'Eux' })} />
+          <input
+            className="field"
+            defaultValue={settings.themName === 'Eux' ? 'Participants' : settings.themName}
+            onBlur={(e) => void update({ themName: e.target.value.trim() || 'Participants' })}
+          />
         </Row>
         <Row label="Me prévenir quand on dit mon prénom" hint="Notification « On parle de vous » si Minute n’est pas au premier plan.">
           <Switch on={settings.nameAlerts} onChange={(v) => void update({ nameAlerts: v })} />
@@ -272,10 +276,17 @@ function Transcription({ settings, update }: P) {
         </Row>
       </Group>
       <Group>
-        <Row label="Langue des réunions">
+        <Row
+          label="Langue des réunions"
+          hint={
+            settings.language === 'auto'
+              ? 'Chaque phrase est écrite dans la langue où elle est dite (français, italien, anglais…).'
+              : 'Une phrase dite dans une autre langue est traduite dans celle-ci. Réunions multilingues : choisissez « Plusieurs langues ».'
+          }
+        >
           <select className="field" value={settings.language} onChange={(e) => void update({ language: e.target.value })}>
             <option value="fr">Français</option>
-            <option value="auto">Détection automatique</option>
+            <option value="auto">Plusieurs langues (détection)</option>
             <option value="it">Italiano</option>
             <option value="en">English</option>
             <option value="es">Español</option>
@@ -290,6 +301,16 @@ function Transcription({ settings, update }: P) {
         </Row>
         <Row label="Texte pendant que l’on parle" hint="Affiche un aperçu avant la fin de la phrase (un peu plus de quota Groq).">
           <Switch on={settings.livePreview} onChange={(v) => void update({ livePreview: v })} />
+        </Row>
+        <Row
+          label={
+            <>
+              Distinguer les intervenants <span className="badge-beta">bêta</span>
+            </>
+          }
+          hint="Reconnaît chaque voix : « Participant A, B, C… », chacun sa couleur, à renommer d’un clic. Calcul fait sur cet ordinateur, rien n’est envoyé."
+        >
+          <Switch on={settings.voices} onChange={(v) => void update({ voices: v })} />
         </Row>
       </Group>
       <Group title="Vocabulaire" foot="Les participants de l’agenda s’ajoutent d’eux-mêmes à chaque réunion.">
@@ -623,7 +644,14 @@ function Compact({ settings, update, info }: P) {
             <option value="never">Jamais</option>
           </select>
         </Row>
-        <Row label="Invisible dans les partages d’écran">
+        <Row
+          label="Masquer des partages d’écran et captures"
+          hint={
+            settings.miniHiddenFromCapture
+              ? 'Les participants ne la voient pas quand vous partagez votre écran — mais vos captures d’écran non plus.'
+              : 'Visible dans les captures d’écran… et dans vos partages d’écran Teams / Zoom.'
+          }
+        >
           <Switch on={settings.miniHiddenFromCapture} onChange={(v) => void update({ miniHiddenFromCapture: v })} />
         </Row>
       </Group>

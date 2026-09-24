@@ -58,8 +58,8 @@ function collapseRepeats(text: string): string {
 }
 
 /**
- * Sans casque, le micro réentend les participants : même phrase sur « Moi » et « Eux ».
- * On mesure la part des mots du segment micro présents dans ce que disait « Eux » au même moment.
+ * Sans casque, le micro réentend les participants : même phrase sur le micro et sur le son de l'ordinateur.
+ * On mesure la part des mots du segment micro présents dans ce que disait l'ordinateur au même moment.
  */
 export function isEcho(mine: Segment, theirs: Segment[]): boolean {
   const words = contentWords(mine.text);

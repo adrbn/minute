@@ -2,6 +2,27 @@ import { AlertTriangle, CheckCircle2, Info, XCircle } from 'lucide-react';
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { minute } from '../api';
 
+/** Pastille « Dynamic Island » (mode compact). */
+export function IslandIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} fill="none" aria-hidden>
+      <rect x="3" y="8.5" width="18" height="7" rx="3.5" stroke="currentColor" strokeWidth="2" />
+      <circle cx="7.5" cy="12" r="1.2" fill="currentColor" />
+    </svg>
+  );
+}
+
+/** Largeur de la fenêtre (mise en page adaptative). */
+export function useWidth(): number {
+  const [w, setW] = useState(window.innerWidth);
+  useEffect(() => {
+    const on = () => setW(window.innerWidth);
+    window.addEventListener('resize', on);
+    return () => window.removeEventListener('resize', on);
+  }, []);
+  return w;
+}
+
 // ------------------------------------------------------------------ interrupteur
 export function Switch({ on, onChange, disabled }: { on: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
   return (

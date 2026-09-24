@@ -151,7 +151,7 @@ export function importNatively(): { imported: number; skipped: number } {
         durationMs: duration,
         status: 'done',
         source: 'natively',
-        speakers: { me: cfg.meName || 'Moi', them: cfg.themName || 'Eux' },
+        speakers: { me: cfg.meName || 'Moi', them: cfg.themName || 'Participants' },
         notes: '',
         bookmarks: [],
         summary: md ? { markdown: md, generatedAt: startedAt + duration, provider: 'Natively', model: '' } : undefined,

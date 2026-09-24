@@ -2,7 +2,9 @@
    ou la Dynamic Island) : toujours sombre, quel que soit le thème, pour rester
    lisible au-dessus de n'importe quelle visio. */
 html.mini {
-  --hud: rgba(22, 22, 25, 0.93);
+  /* opaque, comme la Dynamic Island : sans flou possible derrière une fenêtre, la transparence
+     laisserait seulement deviner le texte de l'application du dessous */
+  --hud: rgb(23, 23, 26);
   --hud-edge: rgba(255, 255, 255, 0.09);
   --hud-hi: rgba(255, 255, 255, 0.12);
   --hud-text: #f5f5f7;
@@ -33,11 +35,13 @@ html.mini body {
   overflow: hidden;
   background: var(--hud);
   border-radius: 23px;
+  /* l'ombre doit s'éteindre avant le bord de la fenêtre transparente (marge de 14 px),
+     sinon elle est coupée net et dessine un rectangle autour de la forme */
   box-shadow:
     inset 0 1px 0 var(--hud-hi),
     0 0 0 1px var(--hud-edge),
-    0 6px 18px rgba(0, 0, 0, 0.32),
-    0 1px 3px rgba(0, 0, 0, 0.3);
+    0 3px 9px rgba(0, 0, 0, 0.3),
+    0 1px 2px rgba(0, 0, 0, 0.3);
   transition:
     width var(--spring-ms) var(--spring),
     height var(--spring-ms) var(--spring),
@@ -57,8 +61,8 @@ html.mini body {
   box-shadow:
     inset 0 1px 0 var(--hud-hi),
     0 0 0 1px var(--hud-edge),
-    0 14px 36px rgba(0, 0, 0, 0.42),
-    0 2px 8px rgba(0, 0, 0, 0.3);
+    0 4px 10px rgba(0, 0, 0, 0.36),
+    0 1px 3px rgba(0, 0, 0, 0.3);
 }
 
 /* Les deux contenus se relaient pendant le morphing. */
@@ -367,9 +371,9 @@ html.mini body {
   line-height: 1.45;
   font-weight: 500;
   letter-spacing: 0.005em; /* texte clair sur matériau sombre : un peu plus de chasse */
-  user-select: text;
-  cursor: text;
-  mask-image: linear-gradient(to bottom, transparent 0, black 14px, black calc(100% - 40px), transparent 100%);
+  /* on attrape les sous-titres pour déplacer la fenêtre (la molette fait défiler, « Copier » copie) */
+  cursor: grab;
+  mask-image: linear-gradient(to bottom, black calc(100% - 40px), transparent 100%);
   scrollbar-width: none;
 }
 .captions::-webkit-scrollbar {
@@ -493,8 +497,32 @@ html.mini body {
   background: var(--hud-red);
   color: white;
 }
-/* sur un panneau étroit, les libellés s'effacent au profit des icônes */
-@container (max-width: 400px) {
+/* « Terminer » et « Reprendre » ne sortent jamais du panneau : les outils secondaires
+   rétrécissent d'abord, puis perdent leur libellé */
+.hud-tool {
+  flex-shrink: 0;
+}
+.hud-tool.secondary {
+  flex-shrink: 1;
+  min-width: 30px;
+  overflow: hidden;
+}
+.hud-tool.secondary span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hud-tool.resume {
+  background: var(--hud-fill);
+}
+.hud-tool.resume:hover {
+  background: var(--hud-fill-2);
+}
+@container (max-width: 430px) {
+  .hud-tool.secondary span {
+    display: none;
+  }
+}
+@container (max-width: 300px) {
   .hud-tool span {
     display: none;
   }
@@ -503,26 +531,36 @@ html.mini body {
   container-type: inline-size;
 }
 
-.grip {
+/* coins de redimensionnement : invisibles, seul le curseur les révèle */
+.corner {
   position: absolute;
-  width: 18px;
-  height: 18px;
-  opacity: 0;
-  transition: opacity 0.18s;
+  width: 12px;
+  height: 12px;
   z-index: 3;
 }
-.grip::after {
-  content: '';
-  position: absolute;
-  inset: 5px;
-  border-radius: 2px;
-  border: 2px solid var(--hud-3);
-  border-top: none;
-  border-left: none;
+.corner.tl {
+  top: 0;
+  left: 0;
+  cursor: nwse-resize;
 }
-.shape:hover .grip,
-.shape.hover .grip {
-  opacity: 1;
+.corner.br {
+  bottom: 0;
+  right: 0;
+  cursor: nwse-resize;
+}
+.corner.tr {
+  top: 0;
+  right: 0;
+  cursor: nesw-resize;
+}
+.corner.bl {
+  bottom: 0;
+  left: 0;
+  cursor: nesw-resize;
+}
+/* le haut du fil ne s'estompe que si l'on a remonté (la première ligne reste nette) */
+.captions.scrolled {
+  mask-image: linear-gradient(to bottom, transparent 0, black 14px, black calc(100% - 40px), transparent 100%);
 }
 
 /* état « réunion enregistrée » */
@@ -603,6 +641,292 @@ html.mini body {
 }
 .spin {
   animation: spin 1s linear infinite;
+}
+
+/* ------------------------------------------------------------------ texte en direct dans la pilule */
+.ticker {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--hud-text);
+  margin-left: 2px;
+}
+.ticker.over {
+  /* trop long : on montre la fin (le plus récent), le début s'efface */
+  justify-content: flex-end;
+  mask-image: linear-gradient(to right, transparent 0, black 28px);
+}
+.ticker.muted {
+  color: var(--hud-3);
+}
+.ticker.warn {
+  color: var(--hud-orange);
+  font-weight: 600;
+}
+.ticker.error {
+  color: #ff8a80;
+  font-weight: 600;
+}
+.ticker-in {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.who-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.who-dot.me {
+  background: var(--hud-me);
+}
+.who-dot.them {
+  background: var(--hud-them);
+}
+/* commandes de la pilule : elles s'ouvrent au survol en poussant le texte */
+.pill-content .reveal {
+  max-width: 0;
+  overflow: hidden;
+  transition:
+    max-width 0.2s ease,
+    opacity 0.16s ease,
+    transform 0.16s ease;
+}
+.shape:hover .pill-content .reveal,
+.shape.hover .pill-content .reveal,
+.pill-content .reveal:has(.marked, .done) {
+  max-width: 70px;
+}
+
+/* ------------------------------------------------------------------ onglets du panneau */
+.p-tabs {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 10px;
+  background: var(--hud-fill);
+  margin-left: 4px;
+  cursor: default;
+}
+.p-tabs button {
+  height: 26px;
+  padding: 0 9px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--hud-2);
+  font-size: 12px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition:
+    background 0.12s,
+    color 0.12s;
+}
+.p-tabs button svg {
+  width: 13px;
+  height: 13px;
+  stroke-width: 2.2;
+}
+.p-tabs button:hover {
+  color: var(--hud-text);
+}
+.p-tabs button.on {
+  background: var(--hud-fill-2);
+  color: var(--hud-text);
+}
+@container (max-width: 430px) {
+  .p-tabs button span {
+    display: none;
+  }
+}
+.p-flash {
+  color: var(--hud-orange);
+  font-weight: 700;
+  animation: pop-in 0.25s var(--ease);
+}
+
+.p-notes-wrap {
+  flex: 1;
+  display: flex;
+  padding: 2px 12px 12px;
+  min-height: 0;
+}
+.p-notes {
+  flex: 1;
+  resize: none;
+  border: none;
+  outline: none;
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--hud-text);
+  font: 14px/1.5 var(--font);
+  user-select: text;
+}
+.p-notes:focus {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 70%, transparent);
+}
+.p-notes::placeholder,
+.p-ask-bar input::placeholder {
+  color: var(--hud-3);
+}
+
+.p-ask {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.p-answers {
+  flex: 1;
+  overflow-y: auto;
+  padding: 2px 16px 8px;
+  scrollbar-width: none;
+  cursor: grab;
+}
+.p-suggest p {
+  margin: 6px 0 10px;
+  color: var(--hud-2);
+  font-size: 13px;
+}
+.hud-chip-inline {
+  display: block;
+  margin: 0 0 6px;
+  height: 28px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 14px;
+  background: var(--hud-fill);
+  color: var(--hud-text);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+.hud-chip-inline:hover {
+  background: var(--hud-fill-2);
+}
+.p-qa {
+  margin: 4px 0 12px;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.p-qa .q {
+  margin: 0 0 4px;
+  font-weight: 650;
+  color: var(--hud-me);
+}
+.p-qa .md {
+  color: var(--hud-text);
+  font-size: 13.5px;
+}
+.p-qa .md p,
+.p-qa .md ul {
+  margin: 0 0 4px;
+}
+.p-qa .muted {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--hud-2);
+}
+.p-qa .muted svg {
+  width: 13px;
+  height: 13px;
+}
+.p-qa .err {
+  margin: 0;
+  color: #ffb3ad;
+}
+.p-ask-bar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 10px 10px;
+  padding: 3px 3px 3px 12px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.08);
+}
+.p-ask-bar:focus-within {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 70%, transparent);
+}
+.p-ask-bar input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--hud-text);
+  font: 13.5px var(--font);
+  user-select: text;
+}
+.hud-btn.send {
+  background: var(--accent);
+  color: white;
+  width: 28px;
+  height: 28px;
+}
+.hud-btn.send:disabled {
+  background: var(--hud-fill);
+  color: var(--hud-3);
+}
+
+/* intervenants reconnus à leur voix : teintes claires, lisibles sur le fond sombre */
+.cap .who.v1 { color: #b7a3ff; }
+.cap .who.v2 { color: #ffae63; }
+.cap .who.v3 { color: #5fd3a7; }
+.cap .who.v4 { color: #ff8ab9; }
+.cap .who.v5 { color: #7cc1ff; }
+.cap .who.v6 { color: #d6d67a; }
+.cap .vbadge {
+  display: inline-grid;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0;
+  color: #17171a;
+  background: var(--hud-them);
+  vertical-align: 1px;
+}
+.cap .who.v1 .vbadge { background: #b7a3ff; }
+.cap .who.v2 .vbadge { background: #ffae63; }
+.cap .who.v3 .vbadge { background: #5fd3a7; }
+.cap .who.v4 .vbadge { background: #ff8ab9; }
+.cap .who.v5 .vbadge { background: #7cc1ff; }
+.cap .who.v6 .vbadge { background: #d6d67a; }
+.who-dot.v1 { background: #b7a3ff; }
+.who-dot.v2 { background: #ffae63; }
+.who-dot.v3 { background: #5fd3a7; }
+.who-dot.v4 { background: #ff8ab9; }
+.who-dot.v5 { background: #7cc1ff; }
+.who-dot.v6 { background: #d6d67a; }
+
+.cap .vbadge.pending {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--hud-3);
+  vertical-align: -3px;
+}
+
+/* voix nommée : pastille allongée, texte sombre et gras sur sa couleur */
+.cap .vbadge.named {
+  width: auto;
+  height: 17px;
+  padding: 0 7px;
+  border-radius: 9px;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 11px;
 }
 
 /* ------------------------------------------------------------------ accessibilité */

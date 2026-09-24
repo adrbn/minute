@@ -134,7 +134,7 @@ export function Onboarding({
         {step === 2 && (
           <>
             <h1>Deux voix, deux sources</h1>
-            <p>Votre micro devient « {settings.meName || 'Moi'} », le son de l’ordinateur (Teams, Meet, Zoom…) devient « {settings.themName || 'Eux'} ».</p>
+            <p>Votre micro devient « {settings.meName || 'Moi'} », le son de l’ordinateur (Teams, Meet, Zoom…) devient « {settings.themName && settings.themName !== 'Eux' ? settings.themName : 'Participants'} » — et chaque voix reconnue, « Participant A, B, C… ».</p>
             <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <div className="row">
                 <Mic size={16} />

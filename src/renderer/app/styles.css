@@ -604,7 +604,7 @@ select.field {
 }
 .turn {
   display: grid;
-  grid-template-columns: 64px 1fr;
+  grid-template-columns: 84px 1fr;
   gap: 0 14px;
   padding: 7px 10px;
   margin: 0 -10px;
@@ -737,7 +737,7 @@ select.field {
 }
 .live-row {
   display: grid;
-  grid-template-columns: 64px 1fr;
+  grid-template-columns: 84px 1fr;
   gap: 0 14px;
   padding: 7px 0;
   align-items: baseline;
@@ -1901,4 +1901,302 @@ select.field {
 .disclosure:hover {
   color: var(--text);
   background: var(--hover);
+}
+
+/* ================================================================== mise en page adaptative */
+.sidebar-toggle {
+  position: fixed;
+  top: 11px;
+  left: 12px;
+  z-index: 30;
+}
+html.mac .sidebar-toggle {
+  left: 84px;
+}
+.app:not(.no-sidebar) .sidebar-toggle {
+  left: 244px; /* à droite du champ de recherche */
+  display: none;
+}
+.app.no-sidebar .sidebar {
+  display: none;
+}
+.app.no-sidebar .content .titlebar {
+  padding-left: 56px;
+}
+html.mac .app.no-sidebar .content .titlebar {
+  padding-left: 124px;
+}
+/* fenêtre étroite : la barre latérale passe par-dessus le contenu */
+.app.narrow .sidebar {
+  position: fixed;
+  z-index: 25;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 280px;
+  background: var(--bg);
+  box-shadow: var(--shadow-3);
+}
+.app.narrow:not(.no-sidebar) .sidebar-toggle {
+  display: none;
+}
+.sidebar-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 24;
+  background: rgba(0, 0, 0, 0.18);
+}
+.app.narrow .content .titlebar {
+  padding-left: 56px;
+}
+html.mac .app.narrow .content .titlebar {
+  padding-left: 124px;
+}
+
+@media (max-width: 1100px) {
+  .sidebar {
+    width: 248px;
+    min-width: 0;
+  }
+  .panel {
+    width: 312px;
+  }
+  .transcript {
+    padding: 18px 24px 110px;
+  }
+}
+@media (max-width: 1039px) {
+  /* le panneau devient un tiroir au-dessus de la transcription */
+  .panel {
+    position: absolute;
+    right: 0;
+    top: var(--titlebar);
+    bottom: 0;
+    z-index: 6;
+    width: min(340px, 92vw);
+    box-shadow: var(--shadow-3);
+    background: var(--content);
+  }
+}
+/* la barre de réunion s'adapte à la place réellement disponible (hors boutons de fenêtre) */
+.content > .titlebar {
+  container: bar / inline-size;
+}
+@container bar (max-width: 660px) {
+  .livebar .meters,
+  .meeting-sub .attendees {
+    display: none;
+  }
+}
+@container bar (max-width: 540px) {
+  .livebar .lbl {
+    display: none;
+  }
+}
+@media (max-width: 760px) {
+  .transcript {
+    padding: 14px 14px 100px;
+  }
+  .turn,
+  .live-row {
+    grid-template-columns: 60px 1fr;
+    gap: 0 10px;
+  }
+  .turn .body,
+  .live-row .body {
+    font-size: 14.5px;
+  }
+  .bookmark-row {
+    margin-left: 70px;
+  }
+  html.win .content .titlebar {
+    padding-right: 140px;
+  }
+}
+@media (max-height: 620px) {
+  .start {
+    gap: 12px;
+    padding-top: 24px;
+  }
+  .rec-button {
+    width: 76px;
+    height: 76px;
+  }
+  .rec-button i {
+    width: 52px;
+    height: 52px;
+  }
+}
+
+/* ================================================================== intervenants reconnus à leur voix */
+:root {
+  --v1: #7d5bd6;
+  --v2: #d0701f;
+  --v3: #1f8f6a;
+  --v4: #c2417a;
+  --v5: #2f7fbf;
+  --v6: #8a8a2a;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --v1: #b7a3ff;
+    --v2: #ffae63;
+    --v3: #5fd3a7;
+    --v4: #ff8ab9;
+    --v5: #7cc1ff;
+    --v6: #d6d67a;
+  }
+}
+/* après les couleurs de canal : chaque voix garde la sienne */
+.turn .who.v1, .live-row .who.v1 { color: var(--v1); }
+.turn .who.v2, .live-row .who.v2 { color: var(--v2); }
+.turn .who.v3, .live-row .who.v3 { color: var(--v3); }
+.turn .who.v4, .live-row .who.v4 { color: var(--v4); }
+.turn .who.v5, .live-row .who.v5 { color: var(--v5); }
+.turn .who.v6, .live-row .who.v6 { color: var(--v6); }
+/* voix pas encore nommée : pastille ronde avec sa lettre */
+.vbadge {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1;
+  background: var(--them);
+}
+.v1 .vbadge { background: var(--v1); }
+.v2 .vbadge { background: var(--v2); }
+.v3 .vbadge { background: var(--v3); }
+.v4 .vbadge { background: var(--v4); }
+.v5 .vbadge { background: var(--v5); }
+.v6 .vbadge { background: var(--v6); }
+.turn .who:has(.vbadge) {
+  overflow: visible;
+}
+button.who.voice:has(.vbadge):hover {
+  text-decoration: none;
+}
+button.who.voice:hover .vbadge {
+  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 22%, transparent);
+}
+button.who.voice {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  text-align: inherit;
+  cursor: pointer;
+  border-radius: 4px;
+}
+button.who.voice:hover {
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+.who-edit {
+  width: 100%;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  padding: 1px 4px;
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  background: var(--content);
+  color: inherit;
+  outline: none;
+}
+
+.badge-beta {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 6px;
+  font-size: 10.5px;
+  font-weight: 650;
+  line-height: 17px;
+  vertical-align: 1px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+/* un bouton ne s'étire pas seul : le nom s'aligne à droite, comme l'heure en dessous */
+.turn button.who.voice {
+  width: 100%;
+  text-align: right;
+}
+
+/* voix pas encore reconnue : pastille vide, qui prendra sa lettre et sa couleur */
+.vbadge.pending {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--text-3);
+  vertical-align: -4px;
+}
+
+/* voix nommée : même pastille, allongée pour le nom (blanc gras sur sa couleur) */
+.vbadge.named {
+  width: auto;
+  max-width: 100%;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 10px;
+  font-size: 11.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: inline-block;
+  line-height: 20px;
+  vertical-align: top;
+}
+
+/* « Deviner qui parle » : une ligne discrète en tête de transcription */
+.voice-namer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 0 0 14px 98px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--fill);
+  font-size: 13px;
+  color: var(--text-2);
+}
+.voice-namer .vn-lead {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.voice-namer .vn-lead .who {
+  display: inline-flex;
+}
+.voice-namer .err {
+  color: var(--red);
+}
+.voice-namer .link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.vn-guess {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px 0 5px;
+  border: none;
+  border-radius: 14px;
+  background: var(--content);
+  box-shadow: inset 0 0 0 1px var(--sep-strong);
+  font: inherit;
+  color: var(--text);
+  cursor: pointer;
+}
+.vn-guess:hover {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+@media (max-width: 760px) {
+  .voice-namer {
+    margin-left: 0;
+  }
 }

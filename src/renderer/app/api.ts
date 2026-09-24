@@ -92,9 +92,12 @@ export function useMeeting(id: string | null) {
     if (!id) return;
     let alive = true;
     const load = () =>
-      void minute.meetings.get(id).then((d) => {
-        if (alive && idRef.current === id) setData(d);
-      });
+      void minute.meetings
+        .get(id)
+        .then((d) => {
+          if (alive && idRef.current === id) setData(d);
+        })
+        .catch(() => undefined); // supprimée entre-temps : la liste se met à jour et la sélection saute
     load();
     const offLive = minute.on('live', (e: LiveEvent) => {
       if (e.meetingId !== id) return;
@@ -115,10 +118,13 @@ export function useMeeting(id: string | null) {
     });
     // les métadonnées (titre, compte-rendu…) changent aussi hors du direct
     const offMeta = minute.on('meetings', () => {
-      void minute.meetings.get(id).then((d) => {
-        if (!alive || !d || idRef.current !== id) return;
-        setData((prev) => (prev ? { ...prev, meta: d.meta } : d));
-      });
+      void minute.meetings
+        .get(id)
+        .then((d) => {
+          if (!alive || !d || idRef.current !== id) return;
+          setData((prev) => (prev ? { ...prev, meta: d.meta } : d));
+        })
+        .catch(() => undefined);
     });
     return () => {
       alive = false;

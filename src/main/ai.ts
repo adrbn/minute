@@ -1,8 +1,9 @@
 // Tout ce que l'IA fait pour l'utilisateur : compte-rendu, rattrapage,
 // questions sur la réunion, e-mail de suivi.
-import { clock, dateLabel, durationLabel, transcriptForAi } from '../shared/transcript';
+import { clock, dateLabel, durationLabel, speakerName, transcriptForAi } from '../shared/transcript';
 import type { AiEvent, AiRequest, MeetingMeta, Segment } from '../shared/types';
 import { activeProvider, chat, estimateTokens, inputBudget, LlmError, PROVIDER_LABEL } from './llm';
+import { retrieve } from './retrieval';
 import { settings } from './settings';
 import { newId, store } from './store';
 
@@ -14,7 +15,8 @@ function context(meta: MeetingMeta) {
   const cfg = settings().get();
   const me = meta.speakers.me || cfg.meName || 'Moi';
   return `Tu assistes ${me === 'Moi' ? 'l’utilisateur' : me} dans ses réunions de travail. La transcription est automatique (Whisper) :
-- « ${me} » = la personne qui utilise l’app (son micro) ; « ${meta.speakers.them || 'Eux'} » = les autres participants (son de l’ordinateur, plusieurs personnes possibles).
+- « ${me} » = la personne qui utilise l’app (son micro) ; « ${speakerName(meta, 'them')} » = les autres participants, quand leurs voix ne sont pas distinguées.
+- Les voix distinguées apparaissent sous leur nom ou « Participant A, B, C… » (séparation automatique, qui peut parfois se tromper). Si la conversation montre clairement qui est un « Participant X » (on l'appelle par son prénom et c'est lui qui répond), désigne-le par ce prénom — sans jamais compter deux fois la même personne.
 - Elle peut contenir des erreurs de reconnaissance : corrige silencieusement les mots manifestement mal transcrits grâce au contexte, sans jamais inventer de faits.
 - Réponds en français, avec un ton professionnel, clair et direct.`;
 }
@@ -137,9 +139,31 @@ export async function runAi(req: AiRequest, emit: Emit): Promise<string> {
       }
 
       const full = transcriptForAi(meta, segments);
-      const budget = inputBudget(provider);
+      const budget = inputBudget(provider, model);
       let material = full;
       let materialLabel = 'Transcription';
+
+      // Question sur une longue réunion : une seule requête avec les passages utiles
+      // (et le compte-rendu s'il existe), plutôt que de tout relire par morceaux.
+      if (req.kind === 'ask' && estimateTokens(full) > budget) {
+        const summary = meta.summary?.markdown ?? '';
+        const room = Math.max(1_500, budget - estimateTokens(summary) - 400);
+        const found = retrieve(meta, segments, req.question ?? '', Math.floor(room * 3.2));
+        if (found || summary) {
+          const parts = [
+            summary && `Compte-rendu déjà rédigé :\n${summary}`,
+            found &&
+              `Extraits de la transcription qui concernent la question (horodatés ; « … » sépare des passages éloignés) :\n${found.text}`,
+          ].filter(Boolean);
+          const text = await call(
+            context(meta),
+            `${header(meta)}\n\n${parts.join('\n\n')}\n\nQuestion : ${req.question}\n\nRéponds uniquement à partir de ces éléments, en citant les moments utiles sous la forme [mm:ss]. Tu ne vois que des extraits de la réunion : si la réponse n’y figure pas, dis que tu ne la trouves pas dans ces passages, sans affirmer que le sujet n’a pas été abordé.`,
+            { quick: true, maxTokens: 1200, onText: (t) => send(t) },
+          );
+          send(text, true);
+          return;
+        }
+      }
 
       // Réunion trop longue pour le modèle : notes détaillées par parties, puis synthèse.
       if (req.kind !== 'followup' && estimateTokens(full) > budget) {
@@ -186,6 +210,19 @@ export async function runAi(req: AiRequest, emit: Emit): Promise<string> {
           context(meta),
           `${header(meta)}\n\n${materialLabel} :\n${material}\n\nQuestion : ${req.question}\n\nRéponds uniquement à partir de la réunion, en citant les moments utiles sous la forme [mm:ss]. Si l’information n’y est pas, dis-le simplement.`,
           { quick: true, maxTokens: 1500, onText: (t) => send(t) },
+        );
+        send(text, true);
+        return;
+      }
+
+      if (req.kind === 'names') {
+        const unnamed = Object.values(meta.voices ?? {}).filter((v) => !v.name && !v.owner);
+        if (!unnamed.length) throw new Error('Toutes les voix ont déjà un nom.');
+        const who = meta.attendees?.length ? `Participants invités : ${meta.attendees.join(', ')}\n\n` : '';
+        const text = await call(
+          context(meta),
+          `${header(meta)}\n${who}Transcription :\n${full.slice(0, Math.floor(budget * 3.2))}\n\nLes voix notées « Participant A, B, C… » ont été distinguées automatiquement, sans connaître les noms. Pour chacune, donne son prénom UNIQUEMENT si la transcription le montre clairement : on s’adresse à elle par son prénom et c’est elle qui répond, elle se présente, on la remercie nommément… Si ce n’est pas clair, n’invente pas : omets-la.\nRéponds seulement par du JSON, sans texte autour, de la forme {"B": {"name": "<prénom>", "why": "<en une phrase courte, ce qui le montre, avec une citation>"}}.`,
+          { quick: true, maxTokens: 700 },
         );
         send(text, true);
         return;

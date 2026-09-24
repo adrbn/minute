@@ -189,6 +189,11 @@ export async function fetchGoogleEvents(client: GoogleClient, refreshToken: stri
 }
 
 export async function revokeGoogle(refreshToken: string) {
-  await fetch(`${REVOKE_URL}?token=${encodeURIComponent(refreshToken)}`, { method: 'POST', signal: AbortSignal.timeout(10_000) }).catch(() => undefined);
+  await fetch(REVOKE_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ token: refreshToken }),
+    signal: AbortSignal.timeout(10_000),
+  }).catch(() => undefined);
   tokenCache.delete(refreshToken);
 }

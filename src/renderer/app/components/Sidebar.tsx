@@ -3,7 +3,7 @@ import { useMemo, useRef } from 'react';
 import { clock, durationLabel } from '../../../shared/transcript';
 import type { LiveState, MeetingMeta } from '../../../shared/types';
 import { minute, useElapsed } from '../api';
-import { useMenu, useToast } from './ui';
+import { IslandIcon, useMenu, useToast } from './ui';
 
 function groupLabel(ts: number): string {
   const d = new Date(ts);
@@ -176,8 +176,16 @@ export function Sidebar({
       </div>
 
       <div className="sidebar-foot">
-        <button className="icon-btn" onClick={onSettings} title="Réglages">
+        <button className="icon-btn" onClick={onSettings} title="Réglages" aria-label="Réglages">
           <Settings />
+        </button>
+        <button
+          className="icon-btn"
+          onClick={() => void minute.windows.enterCompact()}
+          title="Passer en Dynamic Island"
+          aria-label="Passer en Dynamic Island"
+        >
+          <IslandIcon />
         </button>
         <span className="grow">
           {live && live.queue > 0 ? (

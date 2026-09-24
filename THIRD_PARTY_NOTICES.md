@@ -7,7 +7,8 @@ Minute est une application originale. Elle s'appuie sur ces composants open sour
 | [Electron](https://www.electronjs.org/) | application de bureau | MIT |
 | [React](https://react.dev/) | interface | MIT |
 | [Silero VAD](https://github.com/snakers4/silero-vad) (modèle v5) | détection de parole | MIT |
-| [ONNX Runtime Web](https://github.com/microsoft/onnxruntime) | exécution du modèle Silero | MIT |
+| [3D-Speaker — CAM++](https://github.com/modelscope/3D-Speaker) (`speech_campplus_sv_en_voxceleb_16k`), export ONNX de [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) | empreinte de voix (qui parle ?) | Apache-2.0 |
+| [ONNX Runtime Web](https://github.com/microsoft/onnxruntime) | exécution des modèles Silero et CAM++ | MIT |
 | [AudioTee](https://github.com/makeusabrew/audiotee) — © 2025 Nick Payne | capture du son système sous macOS | MIT |
 | [Lucide](https://lucide.dev/) | icônes | ISC |
 | [docx](https://github.com/dolanmiu/docx) | export Word | MIT |

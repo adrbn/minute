@@ -2,9 +2,14 @@
 // « ce qu'on voit » et « ce qu'on copie » soient toujours identiques.
 import type { Channel, MeetingMeta, Segment } from './types';
 
+/** Étiquette du son de l'ordinateur tant que les voix ne sont pas distinguées. */
+export const THEM_DEFAULT = 'Participants';
+
 export interface Turn {
   key: string;
   ch: Channel;
+  /** intervenant reconnu à sa voix */
+  spk?: string;
   t0: number;
   t1: number;
   segments: Segment[];
@@ -16,11 +21,11 @@ export function toTurns(segments: Segment[], maxGapMs = 20_000, maxTurnMs = 90_0
   const turns: Turn[] = [];
   for (const s of segments) {
     const last = turns[turns.length - 1];
-    if (last && last.ch === s.ch && s.t0 - last.t1 < maxGapMs && s.t0 - last.t0 < maxTurnMs) {
+    if (last && last.ch === s.ch && last.spk === s.spk && s.t0 - last.t1 < maxGapMs && s.t0 - last.t0 < maxTurnMs) {
       last.segments.push(s);
       last.t1 = Math.max(last.t1, s.t1);
     } else {
-      turns.push({ key: s.id, ch: s.ch, t0: s.t0, t1: s.t1, segments: [s] });
+      turns.push({ key: s.id, ch: s.ch, spk: s.spk, t0: s.t0, t1: s.t1, segments: [s] });
     }
   }
   return turns;
@@ -50,7 +55,42 @@ export function durationLabel(ms: number): string {
 }
 
 export function speakerName(meta: Pick<MeetingMeta, 'speakers'>, ch: Channel): string {
-  return ch === 'me' ? meta.speakers.me || 'Moi' : meta.speakers.them || 'Eux';
+  if (ch === 'me') return meta.speakers.me || 'Moi';
+  // « Eux » : ancienne étiquette par défaut (réunions d'avant la v0.3), remplacée partout
+  const them = meta.speakers.them;
+  return them && them !== 'Eux' ? them : THEM_DEFAULT;
+}
+
+/** Lettre d'une voix reconnue : A, B, C… puis 27, 28… */
+export const voiceLetter = (n: number) => (n >= 1 && n <= 26 ? String.fromCharCode(64 + n) : String(n));
+
+/** Nom affiché d'un tour de parole : nom donné, sinon « Participant A », sinon le nom du canal. */
+export function voiceLabel(meta: Pick<MeetingMeta, 'speakers' | 'voices'>, ch: Channel, spk?: string): string {
+  const v = spk ? meta.voices?.[spk] : undefined;
+  if (!v) return speakerName(meta, ch);
+  if (v.name) return v.name;
+  if (v.owner) return speakerName(meta, ch);
+  return `Participant ${voiceLetter(v.n)}`;
+}
+
+/**
+ * Son de l'ordinateur dont la voix n'est pas (encore) reconnue, dans une réunion où l'on
+ * distingue les voix : pastille neutre plutôt qu'une étiquette générique.
+ */
+export function voicePending(meta: Pick<MeetingMeta, 'voices'>, ch: Channel, spk?: string): boolean {
+  return ch === 'them' && meta.voices !== undefined && !(spk && meta.voices[spk]);
+}
+
+/** Voix reconnue mais pas encore nommée : sa lettre (affichée en pastille de couleur). */
+export function voiceBadge(meta: Pick<MeetingMeta, 'voices'>, spk?: string): string | null {
+  const v = spk ? meta.voices?.[spk] : undefined;
+  return v && !v.name && !v.owner ? voiceLetter(v.n) : null;
+}
+
+/** Couleur d'un intervenant (les voix distinguées ont chacune la leur). */
+export function voiceClass(meta: Pick<MeetingMeta, 'voices'>, spk?: string): string {
+  const v = spk ? meta.voices?.[spk] : undefined;
+  return v && !v.owner ? `v${((v.n - 1) % 6) + 1}` : '';
 }
 
 export function turnText(turn: Turn): string {
@@ -88,7 +128,7 @@ export function transcriptToText(
     lines.push(`${meta.title} — ${dateLabel(meta.startedAt)} (${durationLabel(meta.durationMs)})`, '');
   }
   for (const turn of toTurns(segments.filter((s) => s.text.trim()))) {
-    const who = speakerName(meta, turn.ch);
+    const who = voiceLabel(meta, turn.ch, turn.spk);
     const ts = opts.timestamps ? `[${clock(turn.t0)}] ` : '';
     lines.push(`${ts}${who} : ${turnText(turn)}`);
   }
@@ -98,7 +138,7 @@ export function transcriptToText(
 /** Transcription compacte pour les modèles d'IA : horodatée, voix explicites. */
 export function transcriptForAi(meta: MeetingMeta, segments: Segment[]): string {
   return toTurns(segments.filter((s) => s.text.trim()))
-    .map((turn) => `[${clock(turn.t0)}] ${speakerName(meta, turn.ch)} : ${turnText(turn)}`)
+    .map((turn) => `[${clock(turn.t0)}] ${voiceLabel(meta, turn.ch, turn.spk)} : ${turnText(turn)}`)
     .join('\n');
 }
 
@@ -122,7 +162,7 @@ export function transcriptToHtml(
   for (const turn of toTurns(segments.filter((s) => s.text.trim()))) {
     const color = turn.ch === 'me' ? '#0a64d8' : '#3a3a3c';
     const ts = opts.timestamps ? ` <span style="color:#8a8a8e">${clock(turn.t0)}</span>` : '';
-    out.push(`<p><b style="color:${color}">${esc(speakerName(meta, turn.ch))}</b>${ts}<br>${esc(turnText(turn))}</p>`);
+    out.push(`<p><b style="color:${color}">${esc(voiceLabel(meta, turn.ch, turn.spk))}</b>${ts}<br>${esc(turnText(turn))}</p>`);
   }
   return out.join('\n');
 }

@@ -10,14 +10,15 @@ Windows 10/11 et macOS 14.2+ (Apple Silicon et Intel).
 
 | | |
 |---|---|
-| **Transcription en direct** | Deux voix séparées (micro / son de l'ordinateur), texte provisoire pendant qu'on parle, puis définitif. |
+| **Transcription en direct** | Micro et son de l'ordinateur captés séparément, texte provisoire pendant qu'on parle, puis définitif (environ 1 s après la fin de la phrase). |
+| **Qui parle ? (bêta)** | Chaque voix est reconnue à son timbre, sur l'ordinateur : pastilles de couleur Ⓐ Ⓑ Ⓒ, un clic pour nommer (« Laura »). **Deviner qui parle** propose les prénoms d'après la conversation (« Elsa, tu peux… » → c'est B qui répond). |
 | **Copier à tout moment** | Tout, les 5 ou 10 dernières minutes, depuis le dernier moment marqué… En texte **et** mis en forme (collage propre dans Outlook, Word, Teams). Raccourci global : `Ctrl+Alt+C` / `⌃⌥⌘C`. |
 | **Moments marqués ★** | `Ctrl+Alt+M` / `⌃⌥⌘M` pendant la réunion : le passage est repéré et repris dans le compte-rendu. |
 | **Notes** | Prenez quelques notes à côté de la transcription : le compte-rendu s'articule autour d'elles. |
 | **« Vous avez décroché ? »** | Rattrapage des 2, 5 ou 10 dernières minutes en un clic, en signalant d'abord si on attend quelque chose de vous. |
-| **Demander à la réunion** | « Qu'a-t-on décidé pour le budget ? » : réponse avec renvoi aux moments précis. |
+| **Demander à la réunion** | « Qu'a-t-on décidé pour le budget ? » : réponse avec renvoi aux moments précis — même sur une réunion de 2 h (seuls les passages utiles sont relus). |
 | **Compte-rendu automatique** | À la fin : titre, en bref, décisions, actions (cases à cocher), points clés, questions ouvertes. Puis l'**e-mail de suivi** en un clic. |
-| **Mode compact** | `Ctrl+Alt+T` / `⌃⌥⌘T` : la fenêtre s’efface au profit d’une **Dynamic Island** flottante (chrono, ondes Moi/Eux, ★, copier). Un clic la déplie en **panneau de sous-titres** façon Sous-titres en direct de macOS, avec le rattrapage intégré au fil. Se déplace comme l’image dans l’image : on la lance, elle file vers le coin le plus proche. Ne vole jamais le focus à la visio, **invisible lors d’un partage d’écran**. |
+| **Dynamic Island** | Bouton **Réduire** (ou `Ctrl+Alt+T` / `⌃⌥⌘T`, ou réduire la fenêtre pendant une réunion) : la fenêtre s’efface au profit d’une île flottante. En pastille, la dernière phrase défile en direct (et un problème s’affiche en clair). Dépliée : **Direct** (sous-titres), **Notes**, **Question** — sans rouvrir l’app. Posée où l’on veut, aimantée près des bords, lancée d’un geste vers un coin ; redimensionnable par ses coins. Ne vole jamais le focus à la visio ; masquable des partages d’écran (réglage). |
 | **Historique et recherche** | Toutes les réunions, recherche plein texte insensible aux accents, saut direct au passage. |
 | **Réécouter** | Clic sur l'horodatage d'un passage (audio conservé 30 jours par défaut). |
 | **Corriger** | Double-clic sur une phrase pour la corriger. Vocabulaire personnalisé (noms, sigles) pour que Whisper les écrive juste. |
@@ -49,7 +50,8 @@ Pour les comptes-rendus, la clé Groq suffit. On peut aussi choisir **Claude**, 
 
 Les réunions sont stockées **sur votre ordinateur**, dans `Documents/Minute` (un dossier lisible par
 réunion). Seul l'audio des phrases part chez Groq pour être transcrit. Seul le texte part chez le
-fournisseur d'IA choisi pour les comptes-rendus.
+fournisseur d'IA choisi pour les comptes-rendus. La reconnaissance des voix est calculée **sur l'ordinateur**
+(modèle CAM++, rien n'est envoyé).
 
 ## Limites de l'offre gratuite Groq
 

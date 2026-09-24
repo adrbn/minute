@@ -14,6 +14,17 @@ export interface Segment {
   /** audio capté, transcription en attente (file d'attente, hors-ligne, limite Groq) */
   pending?: boolean;
   edited?: boolean;
+  /** intervenant reconnu à sa voix (clé de MeetingMeta.voices) */
+  spk?: string;
+}
+
+/** Un intervenant distingué à sa voix. */
+export interface Voice {
+  /** numéro affiché (« Participant B ») ; 0 pour l'utilisateur */
+  n: number;
+  name?: string;
+  /** la voix de l'utilisateur, dans son micro */
+  owner?: boolean;
 }
 
 export interface Bookmark {
@@ -54,6 +65,8 @@ export interface MeetingMeta {
   attendees?: string[];
   /** réunion de l'agenda à l'origine de l'enregistrement */
   eventId?: string;
+  /** intervenants distingués à leur voix */
+  voices?: Record<string, Voice>;
 }
 
 export interface MeetingFull {
@@ -167,6 +180,10 @@ export interface Settings {
   /** alerte quand quelqu'un prononce votre prénom */
   nameAlerts: boolean;
   learned: LearnedCorrection[];
+  /** réduire la fenêtre pendant une réunion ouvre la Dynamic Island */
+  minimizeToCompact: boolean;
+  /** distinguer les intervenants à leur voix (calcul local) */
+  voices: boolean;
 }
 
 export interface CopyOptions {
@@ -184,7 +201,7 @@ export interface SearchHit {
   snippet: string;
 }
 
-export type AiKind = 'summary' | 'catchup' | 'ask' | 'followup';
+export type AiKind = 'summary' | 'catchup' | 'ask' | 'followup' | 'names';
 
 export interface AiRequest {
   kind: AiKind;
@@ -227,6 +244,8 @@ export interface CompactLayout {
   anchor: Anchor;
   margin: number;
   pill: { w: number; h: number };
+  /** la fenêtre compacte est affichée (et non simplement préchargée) */
+  active: boolean;
 }
 
 export interface MinuteAPI {
@@ -275,8 +294,11 @@ export interface MinuteAPI {
     compactLayout(): Promise<CompactLayout>;
     /** déplacement direct (coordonnées écran) — vitesse en px/s au relâchement */
     compactDrag(phase: 'start' | 'move' | 'end', x: number, y: number, vx?: number, vy?: number): void;
-    compactResize(phase: 'start' | 'move' | 'end', dx: number, dy: number): void;
+    /** `corner` : le coin saisi ; le coin opposé reste fixe */
+    compactResize(phase: 'start' | 'move' | 'end', dx: number, dy: number, corner?: Anchor): void;
     compactAck(): void;
+    /** Windows : la fenêtre compacte prend le clavier (saisie) puis le rend */
+    compactFocus(on: boolean): void;
     showMain(meetingId?: string): Promise<void>;
     openExternal(url: string): Promise<void>;
     openPrivacySettings(kind: 'microphone' | 'audio'): Promise<void>;
@@ -323,6 +345,8 @@ export interface EngineStartOptions {
   /** 'display' = boucle système via Chromium (Windows) ; 'pcm' = PCM poussé par le main (macOS / AudioTee) */
   systemMode: 'display' | 'pcm' | 'off';
   livePreview: boolean;
+  /** calculer l'empreinte de voix de chaque extrait (séparation des intervenants) */
+  voices: boolean;
 }
 
 export interface EngineSegment {
@@ -332,6 +356,8 @@ export interface EngineSegment {
   /** PCM 16 bits mono 16 kHz */
   pcm: ArrayBuffer;
   interim: boolean;
+  /** empreinte de la voix (512 valeurs), si la séparation des voix est active */
+  voice?: number[];
 }
 
 export interface EngineBridge {

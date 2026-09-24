@@ -16,7 +16,7 @@ await build({
   format: 'esm',
   outdir,
   outExtension: { '.js': '.mjs' },
-  external: ['electron'],
+  alias: { electron: join(root, 'tests/electron-stub.mjs') },
   logLevel: 'warning',
 });
 const r = spawnSync(process.execPath, ['--test', ...names.map((n) => join(outdir, n + '.test.mjs'))], { stdio: 'inherit' });

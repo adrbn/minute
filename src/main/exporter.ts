@@ -7,7 +7,7 @@ import {
   dateLabel,
   durationLabel,
   markdownToHtml,
-  speakerName,
+  voiceLabel,
   toTurns,
   transcriptToHtml,
   transcriptToText,
@@ -70,7 +70,7 @@ export function meetingToMarkdown(meta: MeetingMeta, segments: Segment[]): strin
   }
   out.push('## Transcription', '');
   for (const turn of toTurns(segments.filter((s) => s.text.trim()))) {
-    out.push(`**${speakerName(meta, turn.ch)}** · ${clock(turn.t0)}  `, turnText(turn), '');
+    out.push(`**${voiceLabel(meta, turn.ch, turn.spk)}** · ${clock(turn.t0)}  `, turnText(turn), '');
   }
   return out.join('\n');
 }
@@ -120,7 +120,7 @@ async function meetingToDocx(meta: MeetingMeta, segments: Segment[]): Promise<Bu
       new Paragraph({
         spacing: { before: 160 },
         children: [
-          new TextRun({ text: speakerName(meta, turn.ch), bold: true, color: turn.ch === 'me' ? '0A64D8' : '3A3A3C' }),
+          new TextRun({ text: voiceLabel(meta, turn.ch, turn.spk), bold: true, color: turn.ch === 'me' ? '0A64D8' : '3A3A3C' }),
           new TextRun({ text: `  ${clock(turn.t0)}`, color: '8A8A8E', size: 18 }),
         ],
       }),

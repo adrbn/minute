@@ -21,6 +21,9 @@ let engineReady: Promise<void> | null = null;
 let onEngineCrash: () => void = () => undefined;
 let extraWindows: () => BrowserWindow[] = () => [];
 let beforeShowMain: () => void = () => undefined;
+let onMinimize: () => boolean = () => false;
+/** Réduire la fenêtre pendant une réunion peut ouvrir la Dynamic Island à la place. */
+export const setOnMinimize = (fn: () => boolean) => (onMinimize = fn);
 
 export const registerExtraWindows = (fn: () => BrowserWindow[]) => (extraWindows = fn);
 export const setBeforeShowMain = (fn: () => void) => (beforeShowMain = fn);
@@ -53,14 +56,15 @@ export function allUiWindows(): BrowserWindow[] {
 
 export function createMain(): BrowserWindow {
   if (getMain()) return main!;
-  const bounds = settings().appState<{ x: number; y: number; width: number; height: number }>('mainBounds');
+  // « mainBounds2 » : les tailles mémorisées avant la v0.3 (trop grandes par défaut) sont ignorées
+  const bounds = settings().appState<{ x: number; y: number; width: number; height: number }>('mainBounds2');
   main = new BrowserWindow({
-    width: bounds?.width ?? 1180,
-    height: bounds?.height ?? 780,
+    width: bounds?.width ?? 1000,
+    height: bounds?.height ?? 680,
     x: bounds?.x,
     y: bounds?.y,
-    minWidth: 760,
-    minHeight: 520,
+    minWidth: 600,
+    minHeight: 460,
     show: false,
     title: 'Minute',
     icon: isWin ? join(paths.icons(), 'app.png') : undefined,
@@ -82,10 +86,13 @@ export function createMain(): BrowserWindow {
   void main.loadURL(paths.page('index'));
   main.once('ready-to-show', () => main?.show());
   const saveBounds = () => {
-    if (main && !main.isMinimized() && !main.isMaximized()) settings().appState('mainBounds', main.getBounds());
+    if (main && !main.isMinimized() && !main.isMaximized()) settings().appState('mainBounds2', main.getBounds());
   };
   main.on('resized', saveBounds);
   main.on('moved', saveBounds);
+  main.on('minimize', () => {
+    if (onMinimize()) main?.hide();
+  });
   main.on('close', (e) => {
     if (quitting) return;
     // Minute reste disponible (barre des menus / zone de notification) : la fermeture masque.

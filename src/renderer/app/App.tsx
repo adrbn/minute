@@ -7,6 +7,8 @@ import { SearchResults } from './components/SearchResults';
 import { SettingsSheet, type SettingsSection } from './components/SettingsSheet';
 import { Sidebar } from './components/Sidebar';
 import { StartView } from './components/StartView';
+import { useWidth } from './components/ui';
+import { PanelLeft } from 'lucide-react';
 
 export function App() {
   const info = useInfo();
@@ -19,6 +21,10 @@ export function App() {
   const [secrets, setSecrets] = useState<Record<SecretName, boolean> | null>(null);
   const [focusAt, setFocusAt] = useState<{ t: number; key: number } | null>(null);
   const [renameSignal, setRenameSignal] = useState(0);
+  const width = useWidth();
+  const narrow = width < 820;
+  const [sidebar, setSidebar] = useState(() => window.innerWidth >= 820);
+  useEffect(() => setSidebar(!narrow), [narrow]);
 
   const refreshSecrets = useCallback(() => void minute.secrets.status().then(setSecrets), []);
   useEffect(refreshSecrets, [refreshSecrets, showSettings, settings]);
@@ -102,14 +108,26 @@ export function App() {
   };
 
   return (
-    <div className="app">
+    <div className={`app ${sidebar ? '' : 'no-sidebar'} ${narrow ? 'narrow' : ''}`}>
+      <button
+        className="icon-btn sidebar-toggle no-drag"
+        onClick={() => setSidebar((v) => !v)}
+        title={sidebar ? 'Masquer la barre latérale' : 'Afficher la barre latérale'}
+        aria-label="Barre latérale"
+      >
+        <PanelLeft />
+      </button>
+      {narrow && sidebar && <div className="sidebar-scrim" onClick={() => setSidebar(false)} />}
       <Sidebar
         meetings={meetings}
         selected={query ? null : selected}
         live={live}
         query={query}
         onQuery={setQuery}
-        onSelect={(id) => open(id)}
+        onSelect={(id) => {
+          open(id);
+          if (narrow) setSidebar(false);
+        }}
         onNew={() => {
           setSelected(null);
           setQuery('');
