@@ -1,0 +1,87 @@
+# Construit Minute pour macOS et Windows.
+# - Lancement manuel (onglet Actions › Build › Run workflow) ou en poussant un tag « v* ».
+# - Sans secrets Apple : app Mac signée « ad hoc » (fonctionne, mais macOS demande
+#   une validation au 1er lancement). Avec les secrets ci-dessous : signée + notarisée.
+#     MAC_CERT_P12_BASE64, MAC_CERT_PASSWORD   certificat « Developer ID Application » (.p12 en base64)
+#     APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID   notarisation
+name: Build
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+jobs:
+  mac:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: AudioTee (capture du son système, binaire universel)
+        run: |
+          git clone https://github.com/makeusabrew/audiotee.git "$RUNNER_TEMP/audiotee"
+          git -C "$RUNNER_TEMP/audiotee" checkout 56ac954369a09318e46b88a6eec33c2d2b0d32a3
+          cd "$RUNNER_TEMP/audiotee"
+          swift build -c release --arch arm64 --arch x86_64
+          mkdir -p "$GITHUB_WORKSPACE/resources/mac"
+          cp .build/apple/Products/Release/audiotee "$GITHUB_WORKSPACE/resources/mac/audiotee"
+          chmod +x "$GITHUB_WORKSPACE/resources/mac/audiotee"
+          lipo -info "$GITHUB_WORKSPACE/resources/mac/audiotee"
+      - run: npm test
+      - name: Construire l’app
+        env:
+          CSC_LINK: ${{ secrets.MAC_CERT_P12_BASE64 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          npm run build
+          if [ -n "$CSC_LINK" ]; then
+            EXTRA=""
+            [ -n "$APPLE_ID" ] && EXTRA="-c.mac.notarize=true"
+            npx electron-builder --mac --publish never $EXTRA
+          else
+            unset CSC_LINK CSC_KEY_PASSWORD
+            CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --mac --publish never -c.mac.identity=-
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Minute-macOS
+          path: |
+            release/*.dmg
+            release/*.zip
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run dist:win
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Minute-Windows
+          path: release/*.exe
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [mac, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*

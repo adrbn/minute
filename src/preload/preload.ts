@@ -1,0 +1,62 @@
+import { contextBridge, ipcRenderer } from 'electron';
+import type { MinuteAPI } from '../shared/types';
+
+const invoke = (channel: string, ...args: unknown[]) => ipcRenderer.invoke(channel, ...args);
+
+const api: MinuteAPI = {
+  info: () => invoke('info'),
+  settings: {
+    get: () => invoke('settings:get'),
+    set: (patch) => invoke('settings:set', patch),
+    chooseStorageDir: () => invoke('settings:chooseStorageDir'),
+  },
+  secrets: {
+    status: () => invoke('secrets:status'),
+    set: (name, value) => invoke('secrets:set', name, value),
+    test: (name) => invoke('secrets:test', name),
+    listModels: (p) => invoke('secrets:listModels', p),
+  },
+  meetings: {
+    list: () => invoke('meetings:list'),
+    get: (id) => invoke('meetings:get', id),
+    update: (id, patch) => invoke('meetings:update', id, patch),
+    remove: (id) => invoke('meetings:remove', id),
+    editSegment: (id, segId, text) => invoke('meetings:editSegment', id, segId, text),
+    deleteSegment: (id, segId) => invoke('meetings:deleteSegment', id, segId),
+    reveal: (id) => invoke('meetings:reveal', id),
+    exportTo: (id, format) => invoke('meetings:export', id, format),
+    copy: (id, opts) => invoke('meetings:copy', id, opts),
+    search: (q) => invoke('meetings:search', q),
+    retryPending: (id) => invoke('meetings:retry', id),
+  },
+  recorder: {
+    state: () => invoke('recorder:state'),
+    start: (opts) => invoke('recorder:start', opts),
+    stop: () => invoke('recorder:stop'),
+    pause: () => invoke('recorder:pause'),
+    resume: () => invoke('recorder:resume'),
+    bookmark: (label) => invoke('recorder:bookmark', label),
+  },
+  ai: {
+    run: (req) => invoke('ai:run', req),
+    cancel: (id) => invoke('ai:cancel', id),
+  },
+  windows: {
+    toggleMini: () => invoke('windows:toggleMini'),
+    showMain: (id) => invoke('windows:showMain', id),
+    openExternal: (url) => invoke('windows:openExternal', url),
+    openPrivacySettings: (kind) => invoke('windows:privacy', kind),
+  },
+  natively: {
+    detect: () => invoke('natively:detect'),
+    importAll: () => invoke('natively:import'),
+  },
+  audioUrl: (meetingId, file) => `minute-audio://m/${encodeURIComponent(meetingId)}/${encodeURIComponent(file)}`,
+  on: ((event: string, cb: (payload: unknown) => void) => {
+    const listener = (_e: Electron.IpcRendererEvent, payload: unknown) => cb(payload);
+    ipcRenderer.on(event, listener);
+    return () => ipcRenderer.removeListener(event, listener);
+  }) as MinuteAPI['on'],
+};
+
+contextBridge.exposeInMainWorld('minute', api);

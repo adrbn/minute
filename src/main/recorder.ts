@@ -1,0 +1,556 @@
+// Chef d'orchestre d'une réunion : reçoit les extraits audio découpés par le
+// moteur, les fait transcrire par Groq (file d'attente persistante, reprise
+// hors-ligne, respect des limites), nettoie, dédoublonne, enregistre et diffuse.
+import { Notification, systemPreferences } from 'electron';
+import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import type {
+  Channel,
+  EngineSegment,
+  EngineStartOptions,
+  Levels,
+  LiveEvent,
+  LiveState,
+  MeetingMeta,
+  Segment,
+} from '../shared/types';
+import { cleanResult, buildPrompt, isEcho, overlapping } from './filters';
+import { Budget, SttError, transcribe } from './groq';
+import { settings } from './settings';
+import { newId, store } from './store';
+import { pcm16ToWav } from './wav';
+
+export interface RecorderHooks {
+  live(e: LiveEvent): void;
+  state(s: LiveState): void;
+  levels(l: Levels): void;
+  meetingsChanged(): void;
+  toast(text: string, kind?: 'info' | 'success' | 'warn' | 'error'): void;
+  engineStart(o: EngineStartOptions): Promise<void>;
+  engineSend(channel: string, payload?: unknown): void;
+  systemAudio: null | {
+    start(onPcm: (pcm: Buffer) => void, onError: (msg: string) => void): Promise<void>;
+    stop(): void;
+  };
+  /** Réunion terminée et entièrement transcrite. */
+  finished(meetingId: string): void;
+  showMini(): void;
+  showMain(meetingId?: string): void;
+}
+
+interface Job {
+  meetingId: string;
+  segId: string;
+  ch: Channel;
+  file: string;
+  tries: number;
+}
+
+const idleState = (): LiveState => ({
+  meetingId: null,
+  status: 'idle',
+  startedAt: 0,
+  pausedMs: 0,
+  channels: { me: { enabled: true, ok: true }, them: { enabled: true, ok: true } },
+  queue: 0,
+});
+
+export class Recorder {
+  state: LiveState = idleState();
+  readonly budget = new Budget();
+  private queue: Job[] = [];
+  private inflight = 0;
+  private busy = new Set<string>();
+  private wakeTimer: NodeJS.Timeout | null = null;
+  private holdUntil = 0;
+  private authBlocked = false;
+  private failures = 0;
+  private recent = new Map<string, Record<Channel, string>>();
+  private interimBusy: Record<Channel, boolean> = { me: false, them: false };
+  private lastInterim: Record<Channel, { t0: number; text: string } | null> = { me: null, them: null };
+  private lastFinalT0: Record<Channel, number> = { me: -1, them: -1 };
+  private echoCount = 0;
+  private lastSpeechAt = 0;
+  private autoStopWarned = false;
+  private silenceTimer: NodeJS.Timeout | null = null;
+  private stoppedResolve: (() => void) | null = null;
+  private finishedPending = new Set<string>();
+
+  constructor(private hooks: RecorderHooks) {}
+
+  // ---------------------------------------------------------------- état
+  private emitState() {
+    this.state = { ...this.state, queue: this.queue.length + this.inflight };
+    this.hooks.state(this.state);
+  }
+
+  private notice(kind: 'info' | 'warn' | 'error', text: string | null) {
+    this.state = { ...this.state, notice: text ? { kind, text } : undefined };
+    this.emitState();
+  }
+
+  elapsed(): number {
+    const s = this.state;
+    if (!s.meetingId) return 0;
+    const paused = s.pausedMs + (s.pausedAt ? Date.now() - s.pausedAt : 0);
+    return Date.now() - s.startedAt - paused;
+  }
+
+  // ---------------------------------------------------------------- cycle de vie
+  async start(opts: { title?: string } = {}): Promise<{ ok: boolean; error?: string }> {
+    if (this.state.status !== 'idle') return { ok: false, error: 'Un enregistrement est déjà en cours.' };
+    const cfg = settings().get();
+    if (!settings().secret('groq')) {
+      return { ok: false, error: 'Ajoutez votre clé Groq dans les Réglages pour transcrire.' };
+    }
+    if (process.platform === 'darwin') {
+      const st = systemPreferences.getMediaAccessStatus('microphone');
+      if (st !== 'granted') {
+        const ok = await systemPreferences.askForMediaAccess('microphone');
+        if (!ok) return { ok: false, error: 'Minute n’a pas accès au micro (Réglages Système › Confidentialité › Micro).' };
+      }
+    }
+    const now = Date.now();
+    const meta: MeetingMeta = {
+      id: newId(),
+      title: opts.title?.trim() || defaultTitle(now),
+      titleIsAuto: !opts.title?.trim(),
+      startedAt: now,
+      durationMs: 0,
+      status: 'recording',
+      source: 'minute',
+      speakers: { me: cfg.meName || 'Moi', them: cfg.themName || 'Eux' },
+      notes: '',
+      bookmarks: [],
+      wordCount: 0,
+      preview: '',
+      hasAudio: true,
+      language: cfg.language,
+    };
+    store.create(meta);
+    this.recent.set(meta.id, { me: '', them: '' });
+    this.echoCount = 0;
+    this.autoStopWarned = false;
+    this.lastSpeechAt = now;
+    this.lastInterim = { me: null, them: null };
+    this.lastFinalT0 = { me: -1, them: -1 };
+    const systemMode: EngineStartOptions['systemMode'] = !cfg.captureSystem
+      ? 'off'
+      : process.platform === 'darwin'
+        ? 'pcm'
+        : 'display';
+    this.state = {
+      ...idleState(),
+      meetingId: meta.id,
+      status: 'starting',
+      startedAt: now,
+      channels: { me: { enabled: true, ok: true }, them: { enabled: systemMode !== 'off', ok: true } },
+    };
+    this.emitState();
+    this.hooks.meetingsChanged();
+    try {
+      await this.hooks.engineStart({
+        startedAt: now,
+        micDeviceId: cfg.micDeviceId,
+        captureSystem: systemMode !== 'off',
+        systemMode,
+        livePreview: cfg.livePreview,
+      });
+      if (systemMode === 'pcm' && this.hooks.systemAudio) {
+        await this.hooks.systemAudio.start(
+          (pcm) => this.hooks.engineSend('engine:sys-pcm', pcm),
+          (msg) => this.channelStatus('them', false, msg),
+        );
+      }
+    } catch (e) {
+      this.channelStatus('me', false, (e as Error).message);
+    }
+    this.state = { ...this.state, status: 'recording' };
+    this.emitState();
+    this.silenceTimer = setInterval(() => this.checkSilence(), 15_000);
+    if (cfg.miniOnStart) this.hooks.showMini();
+    return { ok: true };
+  }
+
+  pause() {
+    const id = this.state.meetingId;
+    if (this.state.status !== 'recording' || !id) return;
+    this.hooks.engineSend('engine:pause');
+    this.state = { ...this.state, status: 'paused', pausedAt: Date.now() };
+    store.update(id, { status: 'paused' });
+    this.emitState();
+  }
+
+  resume() {
+    const id = this.state.meetingId;
+    if (this.state.status !== 'paused' || !id) return;
+    this.hooks.engineSend('engine:resume');
+    const pausedMs = this.state.pausedMs + (this.state.pausedAt ? Date.now() - this.state.pausedAt : 0);
+    this.state = { ...this.state, status: 'recording', pausedMs, pausedAt: undefined };
+    store.update(id, { status: 'recording' });
+    this.lastSpeechAt = Date.now();
+    this.emitState();
+  }
+
+  async stop() {
+    const id = this.state.meetingId;
+    if (!id || this.state.status === 'stopping' || this.state.status === 'idle') return;
+    const duration = this.elapsed();
+    this.state = { ...this.state, status: 'stopping' };
+    this.emitState();
+    // le moteur envoie ses derniers extraits puis confirme
+    await new Promise<void>((resolve) => {
+      this.stoppedResolve = resolve;
+      this.hooks.engineSend('engine:stop');
+      setTimeout(resolve, 3500);
+    });
+    this.stoppedResolve = null;
+    this.hooks.systemAudio?.stop();
+    if (this.silenceTimer) clearInterval(this.silenceTimer);
+    this.silenceTimer = null;
+    this.clearInterims(id);
+    store.update(id, { status: 'done', endedAt: Date.now(), durationMs: duration });
+    store.refreshStats(id);
+    this.state = idleState();
+    this.state.notice = undefined;
+    this.emitState();
+    this.hooks.meetingsChanged();
+    this.finishedPending.add(id);
+    this.maybeFinished(id);
+  }
+
+  engineStopped() {
+    this.stoppedResolve?.();
+  }
+
+  bookmark(label?: string) {
+    const id = this.state.meetingId;
+    if (!id) return;
+    const meta = store.meta(id);
+    if (!meta) return;
+    const bm = { id: newId(), t: Math.max(0, this.elapsed() - 4000), label: label?.trim() || 'Moment important' };
+    store.update(id, { bookmarks: [...meta.bookmarks, bm] });
+    this.hooks.live({ type: 'bookmark', meetingId: id, bookmark: bm });
+    this.hooks.toast('★ Moment marqué', 'success');
+  }
+
+  channelStatus(ch: Channel, ok: boolean, error?: string) {
+    this.state = {
+      ...this.state,
+      channels: { ...this.state.channels, [ch]: { ...this.state.channels[ch], ok, error } },
+    };
+    this.emitState();
+  }
+
+  levels(l: Levels) {
+    if (l.meSpeaking || l.themSpeaking) {
+      this.lastSpeechAt = Date.now();
+      this.autoStopWarned = false;
+    }
+    this.hooks.levels(l);
+  }
+
+  private checkSilence() {
+    const mins = settings().get().autoStopMinutes;
+    if (!mins || this.state.status !== 'recording' || this.autoStopWarned) return;
+    if (Date.now() - this.lastSpeechAt < mins * 60_000) return;
+    this.autoStopWarned = true;
+    this.notice('info', `Plus personne ne parle depuis ${mins} min — la réunion est peut-être terminée.`);
+    if (Notification.isSupported()) {
+      const n = new Notification({
+        title: 'La réunion semble terminée',
+        body: `Aucune parole depuis ${mins} minutes. Cliquez pour arrêter ou continuer.`,
+        silent: true,
+      });
+      n.on('click', () => this.hooks.showMain(this.state.meetingId ?? undefined));
+      n.show();
+    }
+  }
+
+  // ---------------------------------------------------------------- extraits audio
+  onEngineSegment(s: EngineSegment) {
+    const id = this.state.meetingId;
+    if (!id) return;
+    if (s.interim) {
+      void this.onInterim(id, s);
+      return;
+    }
+    const segId = newId();
+    const file = `${segId}.wav`;
+    const path = store.audioFile(id, file);
+    if (!path) return;
+    writeFileSync(path, pcm16ToWav(Buffer.from(s.pcm)));
+    const draft = this.lastInterim[s.ch]?.t0 === s.t0 ? this.lastInterim[s.ch]!.text : '';
+    this.lastInterim[s.ch] = null;
+    this.lastFinalT0[s.ch] = s.t0;
+    this.hooks.live({ type: 'interim', meetingId: id, ch: s.ch, t0: s.t0, text: '' });
+    const seg: Segment = { id: segId, ch: s.ch, t0: Math.round(s.t0), t1: Math.round(s.t1), text: draft, audio: file, pending: true };
+    store.putSegment(id, seg);
+    this.hooks.live({ type: 'segment', meetingId: id, segment: seg });
+    this.queue.push({ meetingId: id, segId, ch: s.ch, file: path, tries: 0 });
+    this.pump();
+  }
+
+  private async onInterim(meetingId: string, s: EngineSegment) {
+    const key = settings().secret('groq');
+    if (!key || this.interimBusy[s.ch] || this.authBlocked) return;
+    const dur = s.pcm.byteLength / 32000;
+    // les aperçus passent après les vraies transcriptions et ne s'accumulent jamais
+    if (this.queue.length > 1 || this.budget.delayFor(dur, 'interim') > 0) return;
+    this.interimBusy[s.ch] = true;
+    this.budget.record(dur);
+    const cfg = settings().get();
+    try {
+      const r = await transcribe(
+        key,
+        pcm16ToWav(Buffer.from(s.pcm)),
+        { model: cfg.sttModel, language: cfg.language, prompt: buildPrompt(cfg.vocabulary, this.recent.get(meetingId)?.[s.ch] ?? ''), timeoutMs: 15_000 },
+        this.budget,
+      );
+      const text = cleanResult(r);
+      if (this.state.meetingId !== meetingId || this.lastFinalT0[s.ch] >= s.t0 || !text) return;
+      this.lastInterim[s.ch] = { t0: s.t0, text };
+      this.hooks.live({ type: 'interim', meetingId, ch: s.ch, t0: s.t0, text });
+    } catch (e) {
+      if (e instanceof SttError && e.kind === 'rate') this.budget.block(e.retryAfterMs);
+    } finally {
+      this.interimBusy[s.ch] = false;
+    }
+  }
+
+  private clearInterims(meetingId: string) {
+    for (const ch of ['me', 'them'] as Channel[]) {
+      this.lastInterim[ch] = null;
+      this.hooks.live({ type: 'interim', meetingId, ch, t0: 0, text: '' });
+    }
+  }
+
+  // ---------------------------------------------------------------- file de transcription
+  /** Au démarrage : reprend les extraits jamais transcrits (crash, hors-ligne…). */
+  recover() {
+    for (const meta of store.list()) {
+      if (meta.status === 'recording' || meta.status === 'paused') {
+        const segs = store.segments(meta.id);
+        const last = segs[segs.length - 1];
+        store.update(meta.id, {
+          status: 'interrupted',
+          endedAt: meta.startedAt + (last?.t1 ?? 0),
+          durationMs: last?.t1 ?? 0,
+        });
+        store.refreshStats(meta.id);
+        this.finishedPending.add(meta.id);
+      }
+      for (const s of store.segments(meta.id)) {
+        if (!s.pending || !s.audio) continue;
+        const file = store.audioFile(meta.id, s.audio);
+        if (file && existsSync(file)) {
+          this.queue.push({ meetingId: meta.id, segId: s.id, ch: s.ch, file, tries: 0 });
+          this.finishedPending.add(meta.id);
+        } else {
+          store.removeSegment(meta.id, s.id);
+        }
+      }
+    }
+    if (this.queue.length) this.pump();
+  }
+
+  retryMeeting(meetingId: string): number {
+    this.authBlocked = false;
+    this.holdUntil = 0;
+    let n = 0;
+    for (const s of store.segments(meetingId)) {
+      if (!s.pending || !s.audio) continue;
+      if (this.queue.some((j) => j.segId === s.id)) continue;
+      const file = store.audioFile(meetingId, s.audio);
+      if (file && existsSync(file)) {
+        this.queue.push({ meetingId, segId: s.id, ch: s.ch, file, tries: 0 });
+        n++;
+      }
+    }
+    this.pump();
+    return n;
+  }
+
+  /** À appeler quand la clé Groq change. */
+  unblock() {
+    this.authBlocked = false;
+    this.holdUntil = 0;
+    if (this.state.notice?.kind === 'error') this.notice('info', null);
+    this.pump();
+  }
+
+  private schedule(ms: number) {
+    if (this.wakeTimer) clearTimeout(this.wakeTimer);
+    this.wakeTimer = setTimeout(() => {
+      this.wakeTimer = null;
+      this.pump();
+    }, Math.max(50, Math.min(ms, 120_000)));
+  }
+
+  private pump() {
+    if (this.authBlocked) return this.emitState();
+    const now = Date.now();
+    if (now < this.holdUntil) {
+      this.schedule(this.holdUntil - now);
+      return this.emitState();
+    }
+    while (this.inflight < 2 && this.queue.length) {
+      const idx = this.queue.findIndex((j) => !this.busy.has(j.meetingId + j.ch));
+      if (idx < 0) break;
+      const job = this.queue[idx];
+      const dur = fileDuration(job.file);
+      const wait = this.budget.delayFor(dur, 'final');
+      if (wait > 0) {
+        if (wait > 6000) this.notice('warn', 'Limite gratuite Groq atteinte : les phrases arrivent avec un peu de retard, rien n’est perdu.');
+        this.schedule(wait);
+        break;
+      }
+      this.queue.splice(idx, 1);
+      void this.run(job, dur);
+    }
+    this.emitState();
+  }
+
+  private async run(job: Job, dur: number) {
+    const key = settings().secret('groq');
+    const busyKey = job.meetingId + job.ch;
+    this.inflight++;
+    this.busy.add(busyKey);
+    try {
+      if (!key) throw new SttError('Clé Groq manquante', 'auth');
+      if (!existsSync(job.file)) {
+        this.finalize(job, '');
+        return;
+      }
+      this.budget.record(dur);
+      const cfg = settings().get();
+      const r = await transcribe(
+        key,
+        readFileSync(job.file),
+        { model: cfg.sttModel, language: cfg.language, prompt: buildPrompt(cfg.vocabulary, this.recentText(job.meetingId, job.ch)) },
+        this.budget,
+      );
+      this.failures = 0;
+      if (this.state.notice && this.state.notice.kind !== 'error' && !this.state.notice.text.startsWith('Plus personne')) {
+        this.notice('info', null);
+      }
+      this.finalize(job, cleanResult(r));
+    } catch (e) {
+      const err = e instanceof SttError ? e : new SttError((e as Error).message, 'network');
+      this.queue.unshift(job);
+      if (err.kind === 'auth') {
+        this.authBlocked = true;
+        this.notice('error', 'Clé Groq manquante ou refusée — ouvrez les Réglages. Vos phrases sont gardées en attente.');
+      } else if (err.kind === 'rate') {
+        this.budget.block(err.retryAfterMs);
+      } else if (err.kind === 'bad') {
+        job.tries++;
+        if (job.tries >= 3) {
+          this.queue.shift();
+          this.finalize(job, '');
+        }
+      } else {
+        job.tries++;
+        this.failures++;
+        this.holdUntil = Date.now() + Math.min(60_000, 1000 * 2 ** Math.min(job.tries, 6));
+        if (this.failures >= 2) {
+          this.notice('warn', 'Connexion perdue : l’audio est gardé et sera transcrit dès le retour du réseau.');
+        }
+      }
+    } finally {
+      this.inflight--;
+      this.busy.delete(busyKey);
+      this.pump();
+    }
+  }
+
+  private recentText(meetingId: string, ch: Channel): string {
+    let r = this.recent.get(meetingId);
+    if (!r) {
+      const segs = store.segments(meetingId).filter((s) => !s.pending && s.text);
+      r = {
+        me: segs.filter((s) => s.ch === 'me').slice(-4).map((s) => s.text).join(' '),
+        them: segs.filter((s) => s.ch === 'them').slice(-4).map((s) => s.text).join(' '),
+      };
+      this.recent.set(meetingId, r);
+    }
+    return r[ch];
+  }
+
+  private finalize(job: Job, text: string) {
+    const { meetingId } = job;
+    const segs = store.segments(meetingId);
+    const seg = segs.find((s) => s.id === job.segId);
+    const keepAudio = settings().get().keepAudioDays !== 0;
+    if (!seg) {
+      rmSync(job.file, { force: true });
+      return this.maybeFinished(meetingId);
+    }
+    if (!text) {
+      store.removeSegment(meetingId, seg.id);
+      rmSync(job.file, { force: true });
+      this.hooks.live({ type: 'remove', meetingId, id: seg.id });
+      return this.maybeFinished(meetingId);
+    }
+    const done: Segment = { ...seg, text, pending: undefined };
+    if (!keepAudio) {
+      rmSync(job.file, { force: true });
+      done.audio = undefined;
+    }
+    const settled = segs.filter((s) => !s.pending && s.text);
+    // Écho : la même phrase captée par le micro ET par le son de l'ordinateur.
+    if (done.ch === 'me' && isEcho(done, overlapping(settled.filter((s) => s.ch === 'them'), done))) {
+      store.removeSegment(meetingId, done.id);
+      this.hooks.live({ type: 'remove', meetingId, id: done.id });
+      this.onEcho();
+      return this.maybeFinished(meetingId);
+    }
+    if (done.ch === 'them') {
+      for (const mine of overlapping(settled.filter((s) => s.ch === 'me'), done)) {
+        if (isEcho(mine, [done])) {
+          store.removeSegment(meetingId, mine.id);
+          this.hooks.live({ type: 'remove', meetingId, id: mine.id });
+          this.onEcho();
+        }
+      }
+    }
+    store.putSegment(meetingId, done);
+    this.hooks.live({ type: 'segment', meetingId, segment: done });
+    const r = this.recent.get(meetingId);
+    if (r) r[done.ch] = (r[done.ch] + ' ' + text).slice(-600);
+    this.maybeFinished(meetingId);
+  }
+
+  private onEcho() {
+    this.echoCount++;
+    if (this.echoCount === 3) {
+      this.hooks.toast('Écho détecté : sans casque, votre micro réentend les autres. Minute retire les doublons automatiquement.', 'info');
+    }
+  }
+
+  private maybeFinished(meetingId: string) {
+    if (!this.finishedPending.has(meetingId)) return;
+    if (this.state.meetingId === meetingId) return;
+    const stillQueued = this.queue.some((j) => j.meetingId === meetingId);
+    const stillPending = store.segments(meetingId).some((s) => s.pending);
+    if (stillQueued || stillPending) return;
+    this.finishedPending.delete(meetingId);
+    store.compact(meetingId);
+    this.hooks.meetingsChanged();
+    this.hooks.finished(meetingId);
+  }
+}
+
+function fileDuration(file: string): number {
+  try {
+    return Math.max(0, statSync(file).size - 44) / 32000;
+  } catch {
+    return 10;
+  }
+}
+
+function defaultTitle(ts: number): string {
+  const d = new Date(ts);
+  const h = d.getHours();
+  const moment = h < 12 ? 'du matin' : h < 18 ? 'de l’après-midi' : 'du soir';
+  return `Réunion ${moment} — ${d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}`;
+}

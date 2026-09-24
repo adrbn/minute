@@ -1,0 +1,146 @@
+{
+  "name": "minute",
+  "productName": "Minute",
+  "version": "0.1.0",
+  "description": "Transcription de réunions en direct — Moi / Eux, copiable à tout moment.",
+  "author": "Adrien Robino",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "dist/main/main.cjs",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "start": "node scripts/build.mjs && electron .",
+    "test": "node scripts/test.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "icons": "python scripts/make-icons.py",
+    "dist:win": "node scripts/build.mjs && electron-builder --win --x64 --publish never",
+    "dist:mac": "node scripts/build.mjs && electron-builder --mac --publish never",
+    "mock:groq": "node scripts/mock-groq.mjs"
+  },
+  "devDependencies": {
+    "@anthropic-ai/sdk": "^0.128.0",
+    "@types/node": "^26.6.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "docx": "^9.7.2",
+    "electron": "^44.4.5",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.2",
+    "lucide-react": "^1.48.0",
+    "onnxruntime-web": "1.30",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.0"
+  },
+  "allowScripts": {
+    "electron@44.4.5": true,
+    "esbuild@0.28.2": true
+  },
+  "build": {
+    "appId": "fr.minute.app",
+    "productName": "Minute",
+    "copyright": "© 2026 Adrien Robino",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/icons",
+        "to": "icons"
+      },
+      {
+        "from": "THIRD_PARTY_NOTICES.md",
+        "to": "THIRD_PARTY_NOTICES.md"
+      }
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "artifactName": "Minute-${version}-Windows.${ext}"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "runAfterFinish": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Minute",
+      "deleteAppDataOnUninstall": false
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "category": "public.app-category.productivity",
+      "icon": "build/icon.png",
+      "minimumSystemVersion": "14.2",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "extraResources": [
+        {
+          "from": "resources/mac/audiotee",
+          "to": "bin/audiotee"
+        }
+      ],
+      "binaries": [
+        "Contents/Resources/bin/audiotee"
+      ],
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Minute transcrit ce que vous dites pendant vos réunions.",
+        "NSAudioCaptureUsageDescription": "Minute transcrit la voix des autres participants (Teams, Meet, Zoom…).",
+        "NSHumanReadableCopyright": "© 2026 Adrien Robino"
+      },
+      "artifactName": "Minute-${version}-macOS-${arch}.${ext}"
+    },
+    "dmg": {
+      "title": "Minute",
+      "contents": [
+        {
+          "x": 150,
+          "y": 190
+        },
+        {
+          "x": 390,
+          "y": 190,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ],
+      "window": {
+        "width": 540,
+        "height": 380
+      }
+    }
+  }
+}
