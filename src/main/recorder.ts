@@ -150,7 +150,7 @@ export class Recorder {
       const st = systemPreferences.getMediaAccessStatus('microphone');
       if (st !== 'granted') {
         const ok = await systemPreferences.askForMediaAccess('microphone');
-        if (!ok) return { ok: false, error: t('Minute n’a pas accès au micro (Réglages Système › Confidentialité › Micro).') };
+        if (!ok) return { ok: false, error: t('Accès au microphone refusé (Réglages Système › Confidentialité et sécurité › Microphone).') };
       }
     }
     const now = Date.now();
@@ -669,7 +669,7 @@ export class Recorder {
   private onEcho() {
     this.echoCount++;
     if (this.echoCount === 3) {
-      this.hooks.toast(t('Écho détecté : sans casque, votre micro réentend les autres. Minute retire les doublons automatiquement.'), 'info');
+      this.hooks.toast(t('Écho détecté : sans casque, le microphone capte aussi les haut-parleurs. Les doublons sont supprimés automatiquement.'), 'info');
     }
   }
 

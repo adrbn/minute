@@ -7,7 +7,7 @@
 ### Vos réunions, transcrites en direct.
 
 Minute écrit chaque mot pendant que les gens parlent encore, et sait qui a dit quoi.<br/>
-Copiez n’importe quel passage, rattrapez ce que vous avez manqué, posez une question à la réunion, obtenez le compte-rendu. Sans quitter votre visio.
+Copiez n’importe quel passage, rattrapez ce que vous avez manqué, posez une question à la réunion, obtenez le compte-rendu. Sans quitter votre appel.
 
 <br/>
 
@@ -36,9 +36,9 @@ La plupart des outils de prise de notes vous font attendre la fin de la réunion
 impossible de copier ce qui vient d’être décidé ou de vérifier un chiffre, et si vous avez décroché deux minutes,
 c’est perdu.
 
-Minute écrit la transcription **pendant** la réunion, environ une seconde après chaque phrase. Il écoute votre micro
-et le son de votre ordinateur séparément : ça marche avec Teams, Zoom, Meet ou n’importe quoi d’autre, sans robot
-qui rejoint l’appel.
+Minute écrit la transcription **pendant** la réunion, environ une seconde après chaque phrase. Il capte le microphone
+et l’audio système comme deux sources distinctes : il fonctionne avec Teams, Zoom, Meet ou toute autre application,
+sans ajouter de robot à l’appel.
 
 ## Ce que fait Minute
 
@@ -92,16 +92,16 @@ et lancez-le. Il s’installe pour votre compte, sans droits d’administrateur.
 **Applications**.
 
 > La première fois, clic droit sur Minute › **Ouvrir**. Si macOS dit que l’app est endommagée, lancez
-> `xattr -cr /Applications/Minute.app` dans le Terminal. À la première réunion, autorisez **Micro** et
+> `xattr -cr /Applications/Minute.app` dans le Terminal. À la première réunion, autorisez **Microphone** et
 > **Enregistrement audio du système**.
 
 ## Démarrer
 
 1. **Créez une clé Groq gratuite** (une minute, voir plus bas) et collez-la quand Minute la demande.
-2. Vérifiez que la barre de niveau de votre micro bouge.
-3. Cliquez sur le bouton rouge, ou faites <kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>R</kbd> depuis n’importe quelle app.
+2. Vérifiez que le vumètre du microphone réagit.
+3. Cliquez sur le bouton rouge, ou utilisez le raccourci global <kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>R</kbd>.
 
-Pendant la réunion, cliquez sur **Réduire** : Minute se range dans sa Dynamic Island et vous laisse votre visio.
+En cours de réunion, le bouton **Réduire** passe la fenêtre en Dynamic Island.
 
 ## Clés et connexions
 
@@ -148,7 +148,7 @@ une fois un client OAuth pour tout le monde.
 5. Copiez l’**ID client** et le **code secret** ; dans Minute : **Réglages › Agenda › Avancé**, collez,
    **Enregistrer**, puis **Se connecter avec Google**.
 
-Minute lit seulement vos événements (titre, horaires, participants, lien de visio), rien d’autre dans votre compte.
+Minute lit seulement vos événements (titre, horaires, participants, lien de l’appel), rien d’autre dans votre compte.
 
 ### Mode confidentiel (sans clé)
 
@@ -189,7 +189,7 @@ défaut : chaque phrase reste dans sa langue.
 <details>
 <summary><b>Rien ne s’affiche pour les autres participants</b></summary>
 
-Vérifiez que **Le son de la visio** est activé sur l’écran d’accueil. Sous macOS, autorisez **Enregistrement audio
+Vérifiez que **Audio système** est activé sur l’écran d’accueil. Sous macOS, autorisez **Enregistrement audio
 du système** dans *Réglages Système › Confidentialité et sécurité*.
 </details>
 

@@ -265,14 +265,14 @@ function onMeetingAppStarted(app: string) {
   const ev = calendar.current();
   detectedSnooze = Date.now() + 90_000;
   notifyAction(
-    ev ? t('« {title} » a commencé', { title: ev.title }) : t('Visio détectée'),
-    t('{app} utilise votre micro — cliquez pour transcrire.', { app: appLabel(app) }),
+    ev ? t('« {title} » a commencé', { title: ev.title }) : t('Appel détecté'),
+    t('{app} utilise le microphone. Cliquez pour transcrire l’appel.', { app: appLabel(app) }),
     () => void startFromContext({ event: ev, inBackground: true }),
   );
 }
 function onMeetingAppEnded(app: string) {
   if (recorder.state.status !== 'recording') return;
-  notifyAction(t('La visio semble terminée'), t('{app} n’utilise plus le micro — cliquez pour arrêter la transcription.', { app: appLabel(app) }), () =>
+  notifyAction(t('Appel terminé ?'), t('{app} a libéré le microphone. Cliquez pour arrêter la transcription.', { app: appLabel(app) }), () =>
     void recorder.stop(),
   );
 }

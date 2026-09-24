@@ -322,7 +322,7 @@ function Privacy({ settings, update }: { settings: Settings; update: (p: Partial
             <option value={0}>{t('Sans limite')}</option>
           </select>
         </Row>
-        <Row label={t('Informer les participants')} hint={t('Un message prêt à coller dans la conversation de la visio : transparence, et chacun peut s’y opposer.')}>
+        <Row label={t('Informer les participants')} hint={t('Message à publier dans le chat de l’appel pour informer les participants de la transcription.')}>
           <button className="btn" onClick={() => void notice()}>
             {copied ? <Check size={14} /> : <Copy size={14} />} {copied ? t('Copié') : t('Copier le message')}
           </button>
@@ -777,17 +777,17 @@ function Audio({ settings, update }: P) {
   const devices = useAudioInputs();
   return (
     <Group>
-      <Row label={t('Micro')}>
+      <Row label={t('Microphone')}>
         <select className="field" value={settings.micDeviceId} onChange={(e) => void update({ micDeviceId: e.target.value })}>
-          <option value="">{t('Micro par défaut du système')}</option>
+          <option value="">{t('Périphérique par défaut')}</option>
           {devices.map((d) => (
             <option key={d.deviceId} value={d.deviceId}>
-              {d.label || t('Micro')}
+              {d.label || t('Microphone')}
             </option>
           ))}
         </select>
       </Row>
-      <Row label={t('Son de l’ordinateur')} hint={t('La voix des autres en visio (Teams, Meet, Zoom…).')}>
+      <Row label={t('Audio système')} hint={t('Capture les participants distants (Teams, Zoom, Meet…).')}>
         <Switch on={settings.captureSystem} onChange={(v) => void update({ captureSystem: v })} />
       </Row>
       <Row label={t('Garder l’audio')} hint={t('Pour réécouter une phrase en cliquant sur son heure.')}>
@@ -940,7 +940,7 @@ function Calendars({ settings, update, info }: P) {
           <Switch on={settings.openAtLogin} onChange={(v) => void update({ openAtLogin: v })} />
         </Row>
         {info.platform === 'win32' && (
-          <Row label={t('Détecter les visios')} hint={t('Quand Teams, Zoom ou Meet utilise le micro, Minute propose de transcrire — et d’arrêter à la fin.')}>
+          <Row label={t('Détecter les appels')} hint={t('Propose la transcription quand Teams, Zoom ou Meet active le microphone, puis son arrêt en fin d’appel.')}>
             <Switch on={settings.meetingDetection} onChange={(v) => void update({ meetingDetection: v })} />
           </Row>
         )}
@@ -1041,7 +1041,7 @@ function Compact({ settings, update, info }: P) {
   };
   return (
     <>
-      <Group foot={t('Le mode compact remplace la fenêtre pendant la visio : une Dynamic Island discrète, qui se déplie en sous-titres.')}>
+      <Group foot={t('Pendant une réunion, la fenêtre se réduit en Dynamic Island, extensible en sous-titres.')}>
         <Row label={t('Passer en mode compact au démarrage')}>
           <select className="field" value={settings.compactOnStart} onChange={(e) => void update({ compactOnStart: e.target.value as Settings['compactOnStart'] })}>
             <option value="background">{t('Si Minute est en arrière-plan')}</option>
@@ -1080,7 +1080,7 @@ function Compact({ settings, update, info }: P) {
           <Switch on={settings.miniHiddenFromCapture} onChange={(v) => void update({ miniHiddenFromCapture: v })} />
         </Row>
       </Group>
-      <Group title={t('Raccourcis — depuis n’importe quelle application')}>
+      <Group title={t('Raccourcis globaux')}>
         {(
           [
             ['toggleRecord', 'Démarrer / arrêter'],

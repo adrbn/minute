@@ -139,10 +139,10 @@ export function Onboarding({
 
         {step === 2 && (
           <>
-            <h1>{t('Deux voix, deux sources')}</h1>
+            <h1>{t('Deux sources audio')}</h1>
             <p>
               {t(
-                'Votre micro devient « {me} », le son de l’ordinateur (Teams, Meet, Zoom…) devient « {them} » — et chaque voix reconnue, « Participant A, B, C… ».',
+                'Le microphone est étiqueté « {me} », l’audio système (Teams, Zoom, Meet…) « {them} ». Chaque voix distinguée devient « Participant A, B, C… ».',
                 {
                   me: settings.meName || t('Moi'),
                   them: settings.themName && settings.themName !== 'Eux' ? settings.themName : t('Participants'),
@@ -152,12 +152,12 @@ export function Onboarding({
             <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <div className="row">
                 <Mic size={16} />
-                <b style={{ flex: 1 }}>{t('Micro')}</b>
+                <b style={{ flex: 1 }}>{t('Microphone')}</b>
                 <select className="field" style={{ maxWidth: 300 }} value={settings.micDeviceId} onChange={(e) => void update({ micDeviceId: e.target.value })}>
-                  <option value="">{t('Micro par défaut')}</option>
+                  <option value="">{t('Périphérique par défaut')}</option>
                   {devices.map((d) => (
                     <option key={d.deviceId} value={d.deviceId}>
-                      {d.label || t('Micro')}
+                      {d.label || t('Microphone')}
                     </option>
                   ))}
                 </select>
@@ -181,13 +181,13 @@ export function Onboarding({
               </div>
               <div className="row">
                 <MonitorSpeaker size={16} />
-                <b style={{ flex: 1 }}>{t('Son de l’ordinateur')}</b>
+                <b style={{ flex: 1 }}>{t('Audio système')}</b>
                 <Switch on={settings.captureSystem} onChange={(v) => void update({ captureSystem: v })} />
               </div>
               {p === 'darwin' && (
                 <div className="faint">
                   {t(
-                    'Au premier enregistrement, macOS demandera l’accès au micro et à « l’enregistrement audio du système » : acceptez les deux.',
+                    'Au premier enregistrement, macOS demande l’accès au microphone et à l’enregistrement audio du système : autorisez les deux.',
                   )}
                 </div>
               )}

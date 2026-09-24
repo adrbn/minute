@@ -60,7 +60,7 @@ export function StartView({
   const now = Date.now();
   const upcoming = (cal?.events ?? []).filter((e) => e.end > now).slice(0, 5);
   const current = upcoming.find((e) => e.start - 10 * 60_000 <= now && now < e.end);
-  const micName = devices.find((d) => d.deviceId === settings.micDeviceId)?.label || t('Micro par défaut');
+  const micName = devices.find((d) => d.deviceId === settings.micDeviceId)?.label || t('Périphérique par défaut');
 
   return (
     <div className="content">
@@ -89,7 +89,7 @@ export function StartView({
                       }`
                     : ''
                 }`
-              : t('Cliquez sur le bouton rouge : Minute écoute et écrit tout, en direct.')}
+              : t('Transcription en direct du microphone et de l’audio système.')}
           </p>
         </div>
 
@@ -100,12 +100,12 @@ export function StartView({
               <Mic />
             </span>
             <span className="listen-text">
-              <b>{t('Votre micro')}</b>
-              <select value={settings.micDeviceId} onChange={(e) => void update({ micDeviceId: e.target.value })} aria-label={t('Micro')}>
-                <option value="">{t('Micro par défaut')}</option>
+              <b>{t('Microphone')}</b>
+              <select value={settings.micDeviceId} onChange={(e) => void update({ micDeviceId: e.target.value })} aria-label={t('Microphone')}>
+                <option value="">{t('Périphérique par défaut')}</option>
                 {devices.map((d) => (
                   <option key={d.deviceId} value={d.deviceId}>
-                    {d.label || t('Micro')}
+                    {d.label || t('Microphone')}
                   </option>
                 ))}
               </select>
@@ -114,7 +114,7 @@ export function StartView({
               <button
                 className="source-alert"
                 onClick={() => void minute.windows.openPrivacySettings('microphone')}
-                title={t('Micro inaccessible — ouvrir les autorisations')}
+                title={t('Microphone inaccessible — ouvrir les autorisations')}
               >
                 <AlertTriangle />
               </button>
@@ -129,15 +129,15 @@ export function StartView({
               <MonitorSpeaker />
             </span>
             <span className="listen-text">
-              <b>{t('Le son de la visio')}</b>
-              <span>{t('Teams, Zoom, Meet… : la voix des autres participants')}</span>
+              <b>{t('Audio système')}</b>
+              <span>{t('Participants distants (Teams, Zoom, Meet…)')}</span>
             </span>
             <Switch on={settings.captureSystem} onChange={(v) => void update({ captureSystem: v })} />
           </label>
         </div>
 
         <p className="start-shortcut">
-          {t('Depuis n’importe quelle application :')}{' '}
+          {t('Raccourci global :')}{' '}
           <span className="keys">
             {shortcutKeys(shortcutLabel(settings.shortcuts.toggleRecord, info.platform)).map((k, i) => (
               <kbd key={i}>{k}</kbd>
@@ -165,7 +165,7 @@ export function StartView({
                           </span>
                         )}
                         {ev.link && (
-                          <a href="#" onClick={() => void minute.windows.openExternal(ev.link!)} title={t('Rejoindre la visio')}>
+                          <a href="#" onClick={() => void minute.windows.openExternal(ev.link!)} title={t('Rejoindre l’appel')}>
                             <Link2 /> {t('Rejoindre')}
                           </a>
                         )}
@@ -182,7 +182,7 @@ export function StartView({
             <p className="faint agenda-empty">{t('Aucune réunion prévue dans les prochains jours.')}</p>
           ) : (
             <button className="link-btn" onClick={() => onOpenSettings('calendar')}>
-              <CalendarDays /> {t('Connecter votre agenda pour retrouver vos réunions ici')}
+              <CalendarDays /> {t('Connecter un agenda (Google, Outlook, iCal)')}
             </button>
           )}
         </div>

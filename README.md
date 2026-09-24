@@ -35,9 +35,9 @@ Copy any part, catch up on what you missed, ask the meeting a question, get the 
 Most note-takers make you wait until the meeting is over to see a single line. Until then you can't copy
 what was just decided, you can't check a figure, and if your mind wandered for two minutes, it's gone.
 
-Minute writes the transcript **during** the meeting, about a second after each sentence. It listens to your
-microphone and to your computer's audio separately — so it works with Teams, Zoom, Meet or anything else,
-without joining the call as a bot.
+Minute writes the transcript **during** the meeting, about a second after each sentence. It captures your
+microphone and the system audio as two separate sources, so it works with Teams, Zoom, Meet or any other app,
+without adding a bot to the call.
 
 ## What it does
 
@@ -95,9 +95,9 @@ and run it. It installs for your account, no admin rights needed.
 
 1. **Get a free Groq key** — one minute, see below — and paste it when Minute asks.
 2. Check that your microphone's level bar moves.
-3. Click the red button, or press <kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>R</kbd> from any app.
+3. Click the red button, or use the global shortcut <kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>R</kbd>.
 
-During the meeting, click **Minimize**: Minute tucks itself into its Dynamic Island and leaves you your call.
+During a meeting, **Minimize** turns the window into the Dynamic Island.
 
 ## Keys and connections
 
@@ -183,7 +183,7 @@ own language.
 <details>
 <summary><b>Nothing shows up for the other participants</b></summary>
 
-Make sure **Call audio** is on, on the home screen. On macOS, allow **System Audio Recording** in
+Make sure **System audio** is on, on the home screen. On macOS, allow **System Audio Recording** in
 *System Settings › Privacy & Security*.
 </details>
 
