@@ -26,6 +26,11 @@ await esbuild({
   ...common,
   entryPoints: [resolve(root, 'src/main/main.ts')],
   outfile: resolve(root, 'dist/main/main.cjs'),
+  // identifiants OAuth Google intégrés au build (secrets GitHub ou fichier .env local)
+  define: {
+    __GOOGLE_CLIENT_ID__: JSON.stringify(process.env.MINUTE_GOOGLE_CLIENT_ID ?? ''),
+    __GOOGLE_CLIENT_SECRET__: JSON.stringify(process.env.MINUTE_GOOGLE_CLIENT_SECRET ?? ''),
+  },
 });
 await esbuild({
   ...common,

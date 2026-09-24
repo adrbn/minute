@@ -72,7 +72,7 @@ class SettingsStore {
   private file = join(app.getPath('userData'), 'settings.json');
   private secretsFile = join(app.getPath('userData'), 'secrets.json');
   private value: Settings;
-  private secrets: Partial<Record<SecretName, string>>;
+  private secrets: Partial<Record<string, string>>;
   private listeners = new Set<(s: Settings) => void>();
 
   constructor() {
@@ -109,13 +109,13 @@ class SettingsStore {
   }
 
   // --- Clés API : chiffrées par l'OS (DPAPI sous Windows, Trousseau sous macOS).
-  private loadSecrets(): Partial<Record<SecretName, string>> {
+  private loadSecrets(): Partial<Record<string, string>> {
     const raw = readJson<Record<string, string>>(this.secretsFile);
     if (!raw) return {};
-    const out: Partial<Record<SecretName, string>> = {};
+    const out: Partial<Record<string, string>> = {};
     for (const [k, v] of Object.entries(raw)) {
       try {
-        out[k as SecretName] = safeStorage.isEncryptionAvailable()
+        out[k] = safeStorage.isEncryptionAvailable()
           ? safeStorage.decryptString(Buffer.from(v, 'base64'))
           : Buffer.from(v, 'base64').toString('utf8');
       } catch {
@@ -143,6 +143,15 @@ class SettingsStore {
   setSecret(name: SecretName, value: string) {
     this.secrets[name] = value.trim();
     this.saveSecrets();
+  }
+
+  /** Secret libre (ex. jeton Google d'un compte), chiffré comme les clés. */
+  vault(key: string, value?: string | null): string | undefined {
+    if (value === undefined) return this.secrets[key] || undefined;
+    if (value === null) delete this.secrets[key];
+    else this.secrets[key] = value;
+    this.saveSecrets();
+    return value ?? undefined;
   }
 
   secretStatus(): Record<SecretName, boolean> {

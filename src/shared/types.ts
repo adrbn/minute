@@ -100,7 +100,10 @@ export type SecretName = 'groq' | 'anthropic' | 'gemini' | 'openai';
 export type LlmProvider = 'groq' | 'anthropic' | 'gemini' | 'openai';
 
 export interface CalendarSource {
+  /** 'google' : compte connecté (OAuth) ; 'ics' : lien iCal privé */
+  kind?: 'ics' | 'google';
   name: string;
+  /** lien iCal, ou « google:<e-mail> » pour un compte connecté */
   url: string;
 }
 
@@ -282,6 +285,11 @@ export interface MinuteAPI {
     state(): Promise<CalendarState>;
     refresh(): Promise<CalendarState>;
     test(url: string): Promise<{ ok: boolean; message: string }>;
+    /** « Se connecter avec Google » : ouvre le navigateur, renvoie l'e-mail connecté */
+    connectGoogle(): Promise<{ ok: boolean; message: string }>;
+    disconnect(url: string): Promise<void>;
+    googleClient(): Promise<{ configured: boolean; builtIn: boolean; id: string }>;
+    setGoogleClient(id: string, secret: string): Promise<void>;
   };
   vocabulary: {
     suggestions(): Promise<{ term: string; count: number; meetings: number }[]>;

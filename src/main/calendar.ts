@@ -4,6 +4,7 @@
 // participants et le lien de visio.
 import ICAL from 'ical.js';
 import type { CalendarEvent, CalendarSource } from '../shared/types';
+import { fetchGoogleEvents, type GoogleClient } from './google';
 
 const WINDOW_BEFORE = 12 * 3600_000;
 const WINDOW_AFTER = 8 * 24 * 3600_000;
@@ -119,6 +120,8 @@ export class CalendarService {
   constructor(
     private readonly sources: () => CalendarSource[],
     private readonly onChange: () => void,
+    /** identifiants OAuth + jeton du compte Google */
+    private readonly google: (src: CalendarSource) => { client: GoogleClient; refreshToken: string } | null,
   ) {}
 
   start() {
@@ -135,7 +138,11 @@ export class CalendarService {
     const errors: Record<string, string> = {};
     for (const src of this.sources()) {
       try {
-        all.push(...(await fetchCalendar(src)));
+        if (src.kind === 'google') {
+          const g = this.google(src);
+          if (!g) throw new Error('Compte Google à reconnecter.');
+          all.push(...(await fetchGoogleEvents(g.client, g.refreshToken, src.name)));
+        } else all.push(...(await fetchCalendar(src)));
       } catch (e) {
         errors[src.url] = (e as Error).message;
       }

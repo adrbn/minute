@@ -58,6 +58,10 @@ const api: MinuteAPI = {
     state: () => invoke('calendar:state'),
     refresh: () => invoke('calendar:refresh'),
     test: (url) => invoke('calendar:test', url),
+    connectGoogle: () => invoke('calendar:connectGoogle'),
+    disconnect: (url) => invoke('calendar:disconnect', url),
+    googleClient: () => invoke('calendar:googleClient'),
+    setGoogleClient: (id, secret) => invoke('calendar:setGoogleClient', id, secret),
   },
   vocabulary: {
     suggestions: () => invoke('vocabulary:suggestions'),

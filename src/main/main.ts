@@ -20,6 +20,7 @@ import { pathToFileURL } from 'node:url';
 import type { AiRequest, CalendarEvent, EngineSegment, Levels, LlmProvider, SecretName, Settings } from '../shared/types';
 import { cancelAi, runAi } from './ai';
 import { CalendarService, fetchCalendar } from './calendar';
+import { googleSignIn, revokeGoogle, type GoogleClient } from './google';
 import { startMeetingDetector } from './meetingDetector';
 import { learnFromEdit, mergeLearned, suggestTerms, vocabularyList } from './vocabulary';
 import {
@@ -147,9 +148,31 @@ const recorder = new Recorder({
 });
 
 // ------------------------------------------------------------------ agenda et détection des visios
+// Identifiants OAuth Google : intégrés à la compilation (MINUTE_GOOGLE_CLIENT_ID/SECRET),
+// ou saisis dans les réglages avancés.
+declare const __GOOGLE_CLIENT_ID__: string;
+declare const __GOOGLE_CLIENT_SECRET__: string;
+function googleClient(): (GoogleClient & { builtIn: boolean }) | null {
+  const saved = settings().vault('googleClient');
+  if (saved) {
+    try {
+      const c = JSON.parse(saved) as GoogleClient;
+      if (c.id) return { ...c, builtIn: false };
+    } catch {
+      /* ignoré */
+    }
+  }
+  return __GOOGLE_CLIENT_ID__ ? { id: __GOOGLE_CLIENT_ID__, secret: __GOOGLE_CLIENT_SECRET__, builtIn: true } : null;
+}
+
 const calendar = new CalendarService(
   () => settings().get().calendars,
   () => broadcast('calendar', calendarState()),
+  (src) => {
+    const client = googleClient();
+    const refreshToken = settings().vault(src.url);
+    return client && refreshToken ? { client, refreshToken } : null;
+  },
 );
 const calendarState = () => ({ events: calendar.upcoming(Date.now(), 12), errors: calendar.errors, lastSync: calendar.lastSync });
 
@@ -438,6 +461,40 @@ function wireIpc() {
       return { ok: false, message: (e as Error).message };
     }
   });
+  handle('calendar:googleClient', () => {
+    const c = googleClient();
+    return { configured: !!c, builtIn: !!c?.builtIn, id: c?.id ?? '' };
+  });
+  handle('calendar:setGoogleClient', (_e, id: string, secret: string) => {
+    settings().vault('googleClient', id.trim() ? JSON.stringify({ id: id.trim(), secret: secret.trim() }) : null);
+  });
+  handle('calendar:connectGoogle', async () => {
+    const client = googleClient();
+    if (!client) return { ok: false, message: 'Identifiants OAuth Google manquants (Réglages › Agenda › Avancé).' };
+    try {
+      const { refreshToken, email } = await googleSignIn(client);
+      const key = `google:${email}`;
+      settings().vault(key, refreshToken);
+      const cals = settings().get().calendars.filter((c) => c.url !== key);
+      const next = settings().set({ calendars: [...cals, { kind: 'google', name: email, url: key }] });
+      broadcast('settings', next);
+      showMain();
+      await calendar.sync();
+      const n = calendar.upcoming(Date.now(), 50).length;
+      return { ok: true, message: `${email} connecté — ${n} réunion${n > 1 ? 's' : ''} à venir.` };
+    } catch (e) {
+      return { ok: false, message: (e as Error).message };
+    }
+  });
+  handle('calendar:disconnect', async (_e, url: string) => {
+    const token = settings().vault(url);
+    if (token && url.startsWith('google:')) await revokeGoogle(token);
+    if (token) settings().vault(url, null);
+    const next = settings().set({ calendars: settings().get().calendars.filter((c) => c.url !== url) });
+    broadcast('settings', next);
+    await calendar.sync();
+  });
+
   handle('vocabulary:suggestions', () => {
     const cfg = settings().get();
     const recent = store

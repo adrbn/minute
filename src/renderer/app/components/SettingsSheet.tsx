@@ -11,7 +11,7 @@ import {
   RefreshCw,
   Sparkles,
   SlidersHorizontal,
-  Trash2,
+
   Type,
   X,
 } from 'lucide-react';
@@ -389,63 +389,102 @@ function Audio({ settings, update }: P) {
 }
 
 // ------------------------------------------------------------------ Agenda
+function GoogleMark() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden>
+      <path fill="#4285F4" d="M22.5 12.3c0-.8-.1-1.5-.2-2.2H12v4.2h5.9a5 5 0 0 1-2.2 3.3v2.7h3.5c2.1-1.9 3.3-4.7 3.3-8Z" />
+      <path fill="#34A853" d="M12 23c3 0 5.5-1 7.2-2.7l-3.5-2.7c-1 .6-2.2 1-3.7 1-2.9 0-5.3-1.9-6.2-4.5H2.2v2.8A11 11 0 0 0 12 23Z" />
+      <path fill="#FBBC05" d="M5.8 14.1a6.6 6.6 0 0 1 0-4.2V7.1H2.2a11 11 0 0 0 0 9.8l3.6-2.8Z" />
+      <path fill="#EA4335" d="M12 5.4c1.6 0 3.1.6 4.2 1.7l3.1-3.1A11 11 0 0 0 2.2 7.1l3.6 2.8C6.7 7.3 9.1 5.4 12 5.4Z" />
+    </svg>
+  );
+}
+
 function Calendars({ settings, update, info }: P) {
   const toast = useToast();
   const [state, setState] = useState<CalendarState | null>(null);
+  const [client, setClient] = useState<{ configured: boolean; builtIn: boolean; id: string } | null>(null);
+  const [connecting, setConnecting] = useState(false);
   const [adding, setAdding] = useState<{ name: string; url: string; busy?: boolean; msg?: string; ok?: boolean } | null>(null);
+  const [advanced, setAdvanced] = useState(false);
+  const [cid, setCid] = useState('');
+  const [csecret, setCsecret] = useState('');
   useEffect(() => {
     void minute.calendar.state().then(setState);
+    void minute.calendar.googleClient().then((c) => {
+      setClient(c);
+      setCid(c.builtIn ? '' : c.id);
+    });
     return minute.on('calendar', setState);
   }, []);
-  const add = async () => {
+
+  const connectGoogle = async () => {
+    setConnecting(true);
+    const r = await minute.calendar.connectGoogle();
+    setConnecting(false);
+    toast(r.message, r.ok ? 'success' : 'error');
+  };
+  const addIcs = async () => {
     if (!adding?.url.trim()) return;
     setAdding({ ...adding, busy: true, msg: undefined });
     const r = await minute.calendar.test(adding.url.trim());
     if (!r.ok) return setAdding({ ...adding, busy: false, ok: false, msg: r.message });
-    await update({ calendars: [...settings.calendars, { name: adding.name.trim() || 'Agenda', url: adding.url.trim() }] });
+    await update({ calendars: [...settings.calendars, { kind: 'ics', name: adding.name.trim() || 'Agenda', url: adding.url.trim() }] });
     toast(r.message, 'success');
     setAdding(null);
   };
+  const saveClient = async () => {
+    await minute.calendar.setGoogleClient(cid, csecret);
+    const c = await minute.calendar.googleClient();
+    setClient(c);
+    setCsecret('');
+    toast(c.configured ? 'Identifiants Google enregistrés' : 'Identifiants retirés', 'success');
+  };
+
   return (
     <>
-      <Group
-        foot={
-          <>
-            Google Agenda : Paramètres de l’agenda › Intégrer l’agenda › <b>Adresse secrète au format iCal</b>. Outlook / Teams : Paramètres ›
-            Calendrier › Calendriers partagés › Publier › <b>lien ICS</b>. Le lien reste sur cet ordinateur.
-          </>
-        }
-      >
+      <Group>
         {settings.calendars.map((c) => (
           <Row
             key={c.url}
-            label={c.name}
-            hint={state?.errors[c.url] ? <span className="ko">{state.errors[c.url]}</span> : state?.lastSync ? `Synchronisé ${relativeTime(state.lastSync)}` : 'Synchronisation…'}
+            label={
+              <span className="cal-name">
+                {c.kind === 'google' ? <GoogleMark /> : <CalendarDays size={16} />} {c.name}
+              </span>
+            }
+            hint={state?.errors[c.url] ? <span className="ko">{state.errors[c.url]}</span> : state?.lastSync ? `À jour ${relativeTime(state.lastSync)}` : 'Synchronisation…'}
           >
-            <button
-              className="icon-btn"
-              aria-label="Retirer"
-              title="Retirer cet agenda"
-              onClick={() => void update({ calendars: settings.calendars.filter((x) => x.url !== c.url) })}
-            >
-              <Trash2 />
+            <button className="btn small ghost" onClick={() => void minute.calendar.disconnect(c.url)}>
+              {c.kind === 'google' ? 'Déconnecter' : 'Retirer'}
             </button>
           </Row>
         ))}
+        <Row
+          label={settings.calendars.some((c) => c.kind === 'google') ? 'Ajouter un autre compte Google' : 'Google Agenda'}
+          hint={
+            client && !client.configured
+              ? 'Il manque les identifiants OAuth de votre organisation (Avancé, plus bas).'
+              : 'Votre navigateur s’ouvre sur la page de connexion Google ; l’accès est en lecture seule.'
+          }
+        >
+          <button className="btn google-btn" onClick={() => void connectGoogle()} disabled={connecting || !client?.configured}>
+            {connecting ? <Loader2 className="spin" /> : <GoogleMark />} {connecting ? 'En attente du navigateur…' : 'Se connecter avec Google'}
+          </button>
+        </Row>
         {adding ? (
-          <Row label="Nouvel agenda" col>
+          <Row label="Lien iCal privé" col>
             <div className="stack-6">
-              <input className="field" placeholder="Nom (ex. Google IFI)" value={adding.name} onChange={(e) => setAdding({ ...adding, name: e.target.value })} />
+              <input className="field" placeholder="Nom (ex. Outlook)" value={adding.name} onChange={(e) => setAdding({ ...adding, name: e.target.value })} />
               <div className="row">
                 <input
                   className="field"
-                  placeholder="https://calendar.google.com/calendar/ical/…/basic.ics"
+                  placeholder="https://… .ics"
                   value={adding.url}
                   autoFocus
                   onChange={(e) => setAdding({ ...adding, url: e.target.value })}
-                  onKeyDown={(e) => e.key === 'Enter' && void add()}
+                  onKeyDown={(e) => e.key === 'Enter' && void addIcs()}
                 />
-                <button className="btn primary" onClick={() => void add()} disabled={adding.busy || !adding.url.trim()}>
+                <button className="btn primary" onClick={() => void addIcs()} disabled={adding.busy || !adding.url.trim()}>
                   {adding.busy ? <Loader2 className="spin" /> : 'Ajouter'}
                 </button>
                 <button className="btn ghost" onClick={() => setAdding(null)}>
@@ -456,9 +495,9 @@ function Calendars({ settings, update, info }: P) {
             </div>
           </Row>
         ) : (
-          <Row label={settings.calendars.length ? 'Ajouter un autre agenda' : 'Connecter un agenda'} hint="Google Agenda, Outlook / Teams, iCloud… via leur lien iCal privé.">
+          <Row label="Autre agenda (Outlook, iCloud…)" hint="Par son lien iCal privé.">
             <button className="btn" onClick={() => setAdding({ name: '', url: '' })}>
-              <Plus /> Ajouter
+              <Plus /> Lien iCal
             </button>
           </Row>
         )}
@@ -480,6 +519,30 @@ function Calendars({ settings, update, info }: P) {
           </Row>
         )}
       </Group>
+      <button className="disclosure" onClick={() => setAdvanced((v) => !v)} aria-expanded={advanced}>
+        {advanced ? '▾' : '▸'} Avancé — identifiants OAuth Google
+      </button>
+      {advanced && (
+        <Group
+          foot={
+            client?.builtIn
+              ? 'Cette version de Minute contient déjà les identifiants de votre organisation. Vous pouvez les remplacer.'
+              : 'Créés une fois pour toute l’organisation dans Google Cloud (application de bureau, audience « Interne »).'
+          }
+        >
+          <Row label="ID client" col>
+            <input className="field" value={cid} placeholder={client?.builtIn ? 'Identifiants intégrés' : '…apps.googleusercontent.com'} onChange={(e) => setCid(e.target.value)} />
+          </Row>
+          <Row label="Code secret du client" col>
+            <div className="row">
+              <input className="field" type="password" value={csecret} placeholder="GOCSPX-…" onChange={(e) => setCsecret(e.target.value)} />
+              <button className="btn" onClick={() => void saveClient()}>
+                Enregistrer
+              </button>
+            </div>
+          </Row>
+        </Group>
+      )}
     </>
   );
 }
