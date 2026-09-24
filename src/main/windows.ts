@@ -22,6 +22,38 @@ let onEngineCrash: () => void = () => undefined;
 let extraWindows: () => BrowserWindow[] = () => [];
 let beforeShowMain: () => void = () => undefined;
 let onMinimize: () => boolean = () => false;
+let onBackground: () => void = () => undefined;
+/** La fenêtre principale perd le premier plan (clic dans une autre application). */
+export const setOnBackground = (fn: () => void) => (onBackground = fn);
+
+/** Fondu d'opacité de la fenêtre (courbe « ease-out »), sans jamais bloquer. */
+export function fadeWindow(w: BrowserWindow, from: number, to: number, ms = 170): Promise<void> {
+  return new Promise((resolve) => {
+    const steps = 10;
+    let i = 0;
+    try {
+      w.setOpacity(from);
+    } catch {
+      return resolve();
+    }
+    const t = setInterval(() => {
+      i++;
+      const k = 1 - Math.pow(1 - i / steps, 3);
+      try {
+        if (!w.isDestroyed()) w.setOpacity(from + (to - from) * k);
+      } catch {
+        /* fenêtre fermée entre-temps */
+      }
+      if (i >= steps) {
+        clearInterval(t);
+        resolve();
+      }
+    }, ms / steps);
+  });
+}
+let fadeInNext = false;
+/** Le prochain affichage de la fenêtre principale se fera en fondu (retour depuis la Dynamic Island). */
+export const fadeInOnNextShow = () => (fadeInNext = true);
 /** Réduire la fenêtre pendant une réunion peut ouvrir la Dynamic Island à la place. */
 export const setOnMinimize = (fn: () => boolean) => (onMinimize = fn);
 
@@ -71,7 +103,7 @@ export function createMain(): BrowserWindow {
     backgroundColor: isMac || isWin11 ? '#00000000' : nativeTheme.shouldUseDarkColors ? '#1c1c1e' : '#f5f5f7',
     titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
     trafficLightPosition: { x: 18, y: 18 },
-    titleBarOverlay: isMac ? undefined : { color: '#00000000', symbolColor: overlaySymbols(), height: 48 },
+    titleBarOverlay: isMac ? undefined : { color: '#00000000', symbolColor: overlaySymbols(), height: 52 },
     vibrancy: isMac ? 'sidebar' : undefined,
     visualEffectState: 'followWindow',
     backgroundMaterial: isWin11 ? 'mica' : undefined,
@@ -99,6 +131,7 @@ export function createMain(): BrowserWindow {
   };
   main.on('resized', saveBounds);
   main.on('moved', saveBounds);
+  main.on('blur', () => onBackground());
   main.on('minimize', () => {
     if (onMinimize()) main?.hide();
   });
@@ -117,7 +150,7 @@ export function createMain(): BrowserWindow {
     }
   });
   nativeTheme.on('updated', () => {
-    if (!isMac && getMain()) main!.setTitleBarOverlay({ color: '#00000000', symbolColor: overlaySymbols(), height: 48 });
+    if (!isMac && getMain()) main!.setTitleBarOverlay({ color: '#00000000', symbolColor: overlaySymbols(), height: 52 });
   });
   return main;
 }
@@ -126,8 +159,18 @@ export function showMain() {
   beforeShowMain();
   const w = createMain();
   if (w.isMinimized()) w.restore();
+  const fade = fadeInNext && !w.isVisible();
+  fadeInNext = false;
+  if (fade) {
+    try {
+      w.setOpacity(0);
+    } catch {
+      /* opacité non gérée : affichage direct */
+    }
+  }
   w.show();
   w.focus();
+  if (fade) void fadeWindow(w, 0, 1, 200);
   return w;
 }
 

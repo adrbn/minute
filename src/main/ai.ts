@@ -2,7 +2,7 @@
 // questions sur la réunion, e-mail de suivi.
 import { clock, dateLabel, durationLabel, speakerName, transcriptForAi } from '../shared/transcript';
 import type { AiEvent, AiRequest, MeetingMeta, Segment } from '../shared/types';
-import { activeProvider, chat, estimateTokens, inputBudget, LlmError, PROVIDER_LABEL } from './llm';
+import { activeProvider, chat, chatLocal, estimateTokens, findLocalLlm, inputBudget, LlmError, PROVIDER_LABEL } from './llm';
 import { retrieve } from './retrieval';
 import { settings } from './settings';
 import { newId, store } from './store';
@@ -113,13 +113,21 @@ export async function runAi(req: AiRequest, emit: Emit): Promise<string> {
     try {
       const meta = store.meta(req.meetingId);
       if (!meta) throw new Error('Réunion introuvable');
-      const active = activeProvider();
+      // mode confidentiel : seulement une IA installée sur cet ordinateur (le texte ne sort pas)
+      const local = settings().get().privacyMode ? await findLocalLlm() : null;
+      if (settings().get().privacyMode && !local) {
+        throw new Error('Mode confidentiel : aucune IA locale détectée (Ollama ou LM Studio). La transcription, elle, fonctionne.');
+      }
+      const active = local ? { provider: 'openai' as const, model: local.model } : activeProvider();
       if (!active) throw new Error('Ajoutez une clé d’IA (Groq suffit) dans les Réglages.');
       const { provider, model } = active;
       const segments = store.segments(req.meetingId).filter((s) => s.text);
       const call = (system: string, user: string, opts: { quick?: boolean; maxTokens: number; onText?: (t: string) => void }) =>
         withRetry(
-          () => chat(provider, model, { system, user, ...opts, signal: ctrl.signal }),
+          () =>
+            local
+              ? chatLocal(local.base, local.model, { system, user, ...opts, signal: ctrl.signal })
+              : chat(provider, model, { system, user, ...opts, signal: ctrl.signal }),
           (msg) => send('', false, { progress: msg }),
           ctrl.signal,
         );
@@ -139,7 +147,7 @@ export async function runAi(req: AiRequest, emit: Emit): Promise<string> {
       }
 
       const full = transcriptForAi(meta, segments);
-      const budget = inputBudget(provider, model);
+      const budget = local ? 12_000 : inputBudget(provider, model);
       let material = full;
       let materialLabel = 'Transcription';
 

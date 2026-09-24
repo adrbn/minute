@@ -929,6 +929,36 @@ html.mini body {
   font-size: 11px;
 }
 
+/* apparition de l'île : elle « éclot » depuis son centre, avec le ressort d'Apple.
+   Tant qu'elle n'est pas active (préchargée, ou pas encore prévenue), elle reste invisible :
+   la première image affichée par Windows ne peut donc jamais être un flash. */
+.shape.dormant {
+  opacity: 0;
+  transition: none;
+}
+.shape.enter {
+  animation: island-in 0.5s var(--spring) both;
+}
+@keyframes island-in {
+  0% {
+    opacity: 0;
+    scale: 0.86;
+  }
+  60% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 1;
+    scale: 1;
+  }
+}
+
+/* l'utilisateur : pastille rouge, texte blanc */
+.cap .vbadge.me {
+  background: #ff453a;
+  color: #fff;
+}
+
 /* ------------------------------------------------------------------ accessibilité */
 @media (prefers-reduced-motion: reduce) {
   .shape {

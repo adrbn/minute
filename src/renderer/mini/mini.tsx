@@ -3,6 +3,7 @@
 import {
   AppWindow,
   ArrowUp,
+  Settings as SettingsIcon,
   Captions,
   Check,
   Copy,
@@ -178,29 +179,15 @@ function useFlash(ms = 1400): [boolean, () => void] {
   return [on, fire];
 }
 
-// ------------------------------------------------------------------ forme préférée pendant une réunion
-const SHAPE_KEY = 'minute.liveShape';
-function liveShape(): 'pill' | 'panel' {
-  try {
-    return localStorage.getItem(SHAPE_KEY) === 'pill' ? 'pill' : 'panel';
-  } catch {
-    return 'panel';
-  }
-}
-/** Choix explicite de l'utilisateur : retenu pour les prochaines réunions. */
-function chooseShape(shape: 'pill' | 'panel') {
-  try {
-    localStorage.setItem(SHAPE_KEY, shape);
-  } catch {
-    /* stockage indisponible : le choix vaut pour cette fois */
-  }
-  void minute.windows.setCompactShape(shape);
-}
+// ------------------------------------------------------------------ passage pilule ↔ panneau (le temps de cette ouverture)
+const chooseShape = (shape: 'pill' | 'panel') => void minute.windows.setCompactShape(shape);
 
 // ------------------------------------------------------------------ fenêtre compacte
 function Compact() {
   const info = useInfo();
   const [cfg] = useSettings();
+  const cfgRef = useRef(cfg);
+  cfgRef.current = cfg;
   const live = useLiveState();
   const [lay, setLay] = useState<CompactLayout | null>(null);
   const layRef = useRef<CompactLayout | null>(null);
@@ -231,6 +218,18 @@ function Compact() {
   const prevLive = useRef<string | null>(null);
   // préchargée en arrière-plan, la fenêtre n'est « active » qu'une fois affichée
   const [active, setActive] = useState(false);
+  // apparition : petit ressort (sauf si l'utilisateur réduit les animations)
+  const [entering, setEntering] = useState(false);
+  const wasActive = useRef(false);
+  useEffect(() => {
+    if (active && !wasActive.current && !reduceMotion()) {
+      setEntering(true);
+      const t = window.setTimeout(() => setEntering(false), 700);
+      wasActive.current = active;
+      return () => clearTimeout(t);
+    }
+    wasActive.current = active;
+  }, [active]);
   useEffect(
     () =>
       minute.on('compact', (on) => {
@@ -350,7 +349,8 @@ function Compact() {
     if (!active || !hasLay || !live) return;
     const current = layRef.current?.shape;
     if (liveMeeting) {
-      const want = liveShape();
+      // forme choisie dans les réglages (la pastille par défaut), à chaque ouverture
+      const want = cfgRef.current?.compactShape === 'panel' ? 'panel' : 'pill';
       if (current !== want) void minute.windows.setCompactShape(want);
     } else if (!endedId && current === 'panel') {
       void minute.windows.setCompactShape('pill');
@@ -559,6 +559,9 @@ function Compact() {
           >
             <span className="rec" /> Démarrer
           </button>
+          <button className="hud-btn" title="Réglages" aria-label="Réglages" onClick={() => void minute.windows.openSettings('compact')}>
+            <SettingsIcon />
+          </button>
           <button className="hud-btn" title="Ouvrir la fenêtre Minute" aria-label="Ouvrir la fenêtre Minute" onClick={openMain}>
             <AppWindow />
           </button>
@@ -609,6 +612,9 @@ function Compact() {
             onClick={() => chooseShape('pill')}
           >
             <IslandIcon />
+          </button>
+          <button className="hud-btn" title="Réglages" aria-label="Réglages" onClick={() => void minute.windows.openSettings('compact')}>
+            <SettingsIcon />
           </button>
           <button className="hud-btn" title="Ouvrir la fenêtre Minute" aria-label="Ouvrir la fenêtre Minute" onClick={openMain}>
             <AppWindow />
@@ -724,6 +730,8 @@ function Compact() {
                 <span className={`who ${voiceClass(meta, t.spk)}`} title={voiceLabel(meta, t.ch, t.spk)}>
                   {voicePending(meta, t.ch, t.spk) ? (
                     <span className="vbadge pending" />
+                  ) : t.ch === 'me' && (!t.spk || meta.voices?.[t.spk]?.owner || !meta.voices?.[t.spk]) ? (
+                    <span className="vbadge named me">{speakerName(meta, 'me')}</span>
                   ) : voiceBadge(meta, t.spk) ? (
                     <span className="vbadge">{voiceBadge(meta, t.spk)}</span>
                   ) : t.spk && meta.voices?.[t.spk]?.name ? (
@@ -744,7 +752,15 @@ function Compact() {
             if (!it && !speaking) return null;
             return (
               <p key={ch} className={`cap ${ch} ghost`}>
-                <span className="who">{voicePending(meta, ch) ? <span className="vbadge pending" /> : speakerName(meta, ch)}</span>
+                <span className="who">
+                  {voicePending(meta, ch) ? (
+                    <span className="vbadge pending" />
+                  ) : ch === 'me' ? (
+                    <span className="vbadge named me">{speakerName(meta, ch)}</span>
+                  ) : (
+                    speakerName(meta, ch)
+                  )}
+                </span>
                 {it?.text}
                 {speaking && (
                   <span className="wave">
@@ -812,7 +828,7 @@ function Compact() {
 
   return (
     <div
-      className={`shape ${isPanel ? 'is-panel' : 'is-pill'} ${hover ? 'hover' : ''} ${endedId && !recording ? 'ended' : ''}`}
+      className={`shape ${isPanel ? 'is-panel' : 'is-pill'} ${hover ? 'hover' : ''} ${endedId && !recording ? 'ended' : ''} ${entering ? 'enter' : ''} ${active ? '' : 'dormant'}`}
       style={pos}
       onPointerEnter={() => setHover(true)}
       onPointerLeave={() => setHover(false)}

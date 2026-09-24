@@ -11,7 +11,7 @@
 import { BrowserWindow, ipcMain, screen, type Rectangle } from 'electron';
 import type { Anchor, CompactLayout, CompactShape } from '../shared/types';
 import { settings } from './settings';
-import { getMain, paths, registerExtraWindows, secureWeb, setBeforeShowMain, showMain } from './windows';
+import { fadeInOnNextShow, fadeWindow, getMain, paths, registerExtraWindows, secureWeb, setBeforeShowMain, showMain } from './windows';
 
 const isMac = process.platform === 'darwin';
 const isWin = process.platform === 'win32';
@@ -38,7 +38,7 @@ let win: BrowserWindow | null = null;
 let active = false;
 let geo: Geo = {
   v: 2,
-  shape: 'panel', // pendant une réunion : les sous-titres d'abord, on voit que tout fonctionne
+  shape: 'pill', // la pastille, qui montre la dernière phrase ; les sous-titres sont à un clic
   anchor: isMac ? 'tr' : 'br', // Windows : loin des boutons de fenêtre et des barres d'outils des visios
   panel: { w: 460, h: 340 },
 };
@@ -143,11 +143,20 @@ export function applyCompactPrivacy(hidden: boolean) {
   getCompactWindow()?.setContentProtection(hidden);
 }
 
-/** Passe en mode compact : la fenêtre principale s'efface. */
-export function enterCompact() {
+/** Passe en mode compact : la fenêtre principale s'efface (en fondu si `animate`). */
+export function enterCompact(opts: { animate?: boolean } = {}) {
   const w = create();
   active = true;
-  getMain()?.hide();
+  const main = getMain();
+  if (main && opts.animate && main.isVisible() && !main.isMinimized()) {
+    void fadeWindow(main, 1, 0).then(() => {
+      if (!active) return fadeWindow(main, main.getOpacity(), 1); // revenu entre-temps
+      main.hide();
+      main.setOpacity(1);
+    });
+  } else {
+    main?.hide();
+  }
   const show = () => {
     // taille ou écran changés depuis la dernière fois : la forme reste entièrement visible
     const b = w.getBounds();
@@ -168,7 +177,10 @@ export function exitCompact(opts: { showMain?: boolean } = {}) {
   sendLayout();
   getCompactWindow()?.hide();
   emitActive();
-  if (opts.showMain !== false) showMain();
+  if (opts.showMain !== false) {
+    fadeInOnNextShow();
+    showMain();
+  }
 }
 
 export function toggleCompact() {

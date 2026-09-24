@@ -1,9 +1,9 @@
-import { Clock, Download, FileText, FolderOpen, Hourglass, Pencil, Pin, PinOff, Search, Settings, SquarePen, Star, Trash2, X } from 'lucide-react';
+import { Clock, Download, FileText, FolderOpen, Hourglass, Lock, Merge, Pencil, Pin, PinOff, Search, Settings, SquarePen, Star, Trash2, X } from 'lucide-react';
 import { useMemo, useRef } from 'react';
 import { clock, durationLabel } from '../../../shared/transcript';
 import type { LiveState, MeetingMeta } from '../../../shared/types';
 import { minute, useElapsed } from '../api';
-import { IslandIcon, useMenu, useToast } from './ui';
+import { AppGlyph, IslandIcon, useMenu, useToast } from './ui';
 
 function groupLabel(ts: number): string {
   const d = new Date(ts);
@@ -28,6 +28,7 @@ export function Sidebar({
   onNew,
   onSettings,
   onRename,
+  privacy = false,
 }: {
   meetings: MeetingMeta[];
   selected: string | null;
@@ -38,6 +39,8 @@ export function Sidebar({
   onNew: () => void;
   onSettings: () => void;
   onRename: (id: string) => void;
+  /** mode confidentiel actif : repère permanent */
+  privacy?: boolean;
 }) {
   const menu = useMenu();
   const toast = useToast();
@@ -60,8 +63,42 @@ export function Sidebar({
     return out;
   }, [meetings, liveId]);
 
-  const contextMenu = (e: React.MouseEvent, m: MeetingMeta) =>
-    menu.open(e, [
+  const merge = async (a: MeetingMeta, b: MeetingMeta) => {
+    if (!confirm(`Réunir « ${a.title} » et « ${b.title} » en une seule réunion ?\nLa plus récente est ajoutée à la suite de l’autre ; le compte-rendu sera à refaire.`)) return;
+    try {
+      const id = await minute.meetings.merge(a.id, b.id);
+      onSelect(id);
+      toast('Réunions fusionnées', 'success');
+    } catch (err) {
+      toast((err as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''), 'error');
+    }
+  };
+  const when = (m: MeetingMeta, ref: MeetingMeta) => {
+    const d = new Date(m.startedAt);
+    const hm = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    return new Date(ref.startedAt).toDateString() === d.toDateString()
+      ? hm
+      : `${d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })} ${hm}`;
+  };
+
+  const contextMenu = (e: React.MouseEvent, m: MeetingMeta) => {
+    // voisines dans le temps (hors réunion en cours) : les candidates naturelles à une fusion
+    const chrono = meetings.filter((x) => x.id !== liveId).sort((x, y) => x.startedAt - y.startedAt);
+    const i = chrono.findIndex((x) => x.id === m.id);
+    const before = i > 0 ? chrono[i - 1] : null;
+    const after = i >= 0 && i < chrono.length - 1 ? chrono[i + 1] : null;
+    const mergeItems =
+      m.id === liveId
+        ? []
+        : [
+            ...(before
+              ? [{ label: 'Fusionner avec la précédente', hint: when(before, m), icon: <Merge />, onClick: () => void merge(before, m) }]
+              : []),
+            ...(after
+              ? [{ label: 'Fusionner avec la suivante', hint: when(after, m), icon: <Merge />, onClick: () => void merge(m, after) }]
+              : []),
+          ];
+    return menu.open(e, [
       { label: 'Renommer', icon: <Pencil />, onClick: () => onRename(m.id) },
       {
         label: m.pinned ? 'Désépingler' : 'Épingler',
@@ -72,6 +109,7 @@ export function Sidebar({
       { label: 'Exporter en Word', icon: <FileText />, onClick: () => void exportAs(m.id, 'docx') },
       { label: 'Exporter en Markdown', icon: <Download />, onClick: () => void exportAs(m.id, 'md') },
       { label: 'Afficher dans le dossier', icon: <FolderOpen />, onClick: () => void minute.meetings.reveal(m.id) },
+      ...(mergeItems.length ? [{ separator: true }, ...mergeItems] : []),
       { separator: true },
       {
         label: 'Placer dans la corbeille',
@@ -84,6 +122,7 @@ export function Sidebar({
         },
       },
     ]);
+  };
 
   const exportAs = async (id: string, f: 'md' | 'docx') => {
     const path = await minute.meetings.exportTo(id, f);
@@ -92,7 +131,22 @@ export function Sidebar({
 
   return (
     <aside className="sidebar">
-      <div className="titlebar drag">
+      <div className="titlebar drag sidebar-top">
+        <span className="brand" aria-hidden>
+          <AppGlyph />
+          Minute
+        </span>
+        {privacy && (
+          <span className="privacy-badge" title="Mode confidentiel : tout reste sur cet ordinateur">
+            <Lock /> Confidentiel
+          </span>
+        )}
+        <span className="spacer" />
+        <button className="icon-btn no-drag" onClick={onNew} title="Nouvelle réunion (Ctrl+N)" aria-label="Nouvelle réunion">
+          <SquarePen />
+        </button>
+      </div>
+      <div className="sidebar-search">
         <div className="search no-drag">
           <Search />
           <input
@@ -109,9 +163,6 @@ export function Sidebar({
             </button>
           )}
         </div>
-        <button className="icon-btn no-drag" onClick={onNew} title="Nouvelle réunion (Ctrl+N)" aria-label="Nouvelle réunion">
-          <SquarePen />
-        </button>
       </div>
 
       {live?.meetingId ? (

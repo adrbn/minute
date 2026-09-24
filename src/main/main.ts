@@ -14,10 +14,10 @@ import {
   systemPreferences,
   type IpcMainInvokeEvent,
 } from 'electron';
-import { appendFileSync, existsSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, renameSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import type { AiRequest, CalendarEvent, EngineSegment, Levels, LlmProvider, SecretName, Settings } from '../shared/types';
+import type { AiRequest, CalendarEvent, EngineSegment, Levels, LlmProvider, SecretName, Segment, Settings } from '../shared/types';
 import { cancelAi, runAi } from './ai';
 import { CalendarService, fetchCalendar } from './calendar';
 import { googleSignIn, revokeGoogle, type GoogleClient } from './google';
@@ -41,7 +41,11 @@ import { createMacSystemAudio, openMacPrivacy } from './macAudio';
 import { detectNatively, importNatively } from './natively';
 import { Recorder } from './recorder';
 import { settings } from './settings';
-import { store } from './store';
+import { planMerge, planSplit } from './merge';
+import { installLocal, localStatus, onLocalStatus, removeLocalModel, stopLocal, type LocalModel } from './localStt';
+import { findLocalLlm } from './llm';
+import { installNetworkGuard, participantNotice, setPrivacy } from './privacy';
+import { newId, store } from './store';
 import { pcm16ToWav } from './wav';
 import {
   allUiWindows,
@@ -57,6 +61,7 @@ import {
   refreshTray,
   setEngineCrashHandler,
   setOnMinimize,
+  setOnBackground,
   setQuitting,
   showMain,
 } from './windows';
@@ -123,7 +128,17 @@ const recorder = new Recorder({
   systemAudio: isMac ? createMacSystemAudio() : null,
   finished: (id) => {
     const meta = store.meta(id);
-    if (!meta || meta.summary || !settings().get().autoSummary || meta.wordCount < 40) return;
+    if (!meta) return;
+    // rien n'a été dit ni noté (essai de micro, démarrage par erreur) : on n'encombre pas l'historique
+    const empty = !store.segments(id).some((s) => s.text.trim()) && !meta.notes.trim() && !meta.bookmarks.length;
+    if (empty && meta.source === 'minute') {
+      void store.remove(id).then(() => {
+        broadcast('meetings');
+        toast('Rien n’a été capté : la réunion n’a pas été conservée.');
+      });
+      return;
+    }
+    if (meta.summary || !settings().get().autoSummary || meta.wordCount < 40) return;
     void runAi({ kind: 'summary', meetingId: id }, (e) => {
       broadcast('ai', e);
       if (e.done) broadcast('meetings');
@@ -228,13 +243,45 @@ function onMeetingAppEnded(app: string) {
   );
 }
 
+/** Mode confidentiel : les réunions plus anciennes que la durée de conservation sont supprimées définitivement. */
+function purgeExpired() {
+  const cfg = settings().get();
+  if (!cfg.privacyMode || !cfg.retentionDays) return;
+  const limit = Date.now() - cfg.retentionDays * 86_400_000;
+  let n = 0;
+  for (const m of store.list()) {
+    if (m.startedAt < limit && !m.pinned && !recorder.busyWith(m.id)) {
+      store.removePermanently(m.id);
+      n++;
+    }
+  }
+  if (n) broadcast('meetings');
+}
+
 // ------------------------------------------------------------------ actions communes (UI, menu, raccourcis)
+let stopArmedAt = 0;
+/** « Control+Alt+R » → « Ctrl+Alt+R » (ou ⌃⌥⌘R sur Mac) pour les messages. */
+const shortcutText = (accel: string) =>
+  isMac
+    ? accel.replace(/Control\+?/g, '⌃').replace(/Alt\+?/g, '⌥').replace(/Command\+?/g, '⌘').replace(/Shift\+?/g, '⇧')
+    : accel.replace(/Control/g, 'Ctrl').replace(/Command/g, 'Win');
 const actions = {
   async toggleRecord() {
     const st = recorder.state.status;
     if (st === 'idle') {
       await startFromContext({ inBackground: !BrowserWindow.getFocusedWindow() });
     } else if (st === 'recording' || st === 'paused') {
+      // une fausse manip ne doit pas couper la réunion : il faut appuyer une seconde fois
+      if (Date.now() - stopArmedAt > 3000) {
+        stopArmedAt = Date.now();
+        recorder.notice('warn', `Appuyez encore sur ${shortcutText(settings().get().shortcuts.toggleRecord)} pour terminer la réunion`);
+        setTimeout(() => {
+          if (Date.now() - stopArmedAt >= 3000 && recorder.state.notice?.text.startsWith('Appuyez encore')) recorder.notice('info', null);
+        }, 3100);
+        return;
+      }
+      stopArmedAt = 0;
+      recorder.notice('info', null);
       await recorder.stop();
       notify('Réunion enregistrée', 'Le compte-rendu se prépare.');
     }
@@ -309,7 +356,22 @@ function wireIpc() {
     if (patch.storageDir && patch.storageDir !== before.storageDir && (recorder.state.meetingId || recorder.busyTranscribing)) {
       throw new Error('Impossible de changer de dossier pendant un enregistrement ou une transcription en cours.');
     }
+    if (patch.privacyMode !== undefined && patch.privacyMode !== before.privacyMode) {
+      if (recorder.state.meetingId) throw new Error('Terminez la réunion en cours avant de changer de mode.');
+      if (patch.privacyMode) {
+        const st = localStatus();
+        const model = patch.localModel ?? before.localModel;
+        if (!st.supported) throw new Error('Le mode confidentiel est proposé sous Windows.');
+        if (!st.engine || !st.models[model]) throw new Error('Téléchargez d’abord le moteur de transcription local.');
+      }
+    }
     const next = settings().set(patch);
+    if (patch.privacyMode !== undefined) {
+      setPrivacy(next.privacyMode);
+      if (!next.privacyMode) stopLocal();
+      if (next.privacyMode) purgeExpired();
+    }
+    if (patch.retentionDays !== undefined) purgeExpired();
     if (patch.storageDir && patch.storageDir !== before.storageDir) {
       store.load(next.storageDir);
       broadcast('meetings');
@@ -321,6 +383,23 @@ function wireIpc() {
     broadcast('settings', next);
     refreshTray();
     return next;
+  });
+  // ---------------------------------------------------------------- mode confidentiel
+  handle('local:status', () => localStatus());
+  handle('local:install', async (_e, model: LocalModel) => {
+    if (settings().get().privacyMode) throw new Error('Le téléchargement se fait avant d’activer le mode confidentiel.');
+    await installLocal(model === 'small' ? 'small' : 'turbo');
+    return localStatus();
+  });
+  handle('local:remove', (_e, model: LocalModel) => {
+    if (settings().get().privacyMode && settings().get().localModel === model) throw new Error('Modèle utilisé par le mode confidentiel.');
+    removeLocalModel(model);
+    return localStatus();
+  });
+  handle('local:llm', () => findLocalLlm());
+  handle('privacy:notice', () => {
+    const cfg = settings().get();
+    return participantNotice(cfg.privacyMode, cfg.meName);
   });
   handle('settings:chooseStorageDir', async (e) => {
     const { dialog } = await import('electron');
@@ -369,6 +448,63 @@ function wireIpc() {
     const m = store.update(id, patch);
     broadcast('meetings');
     return m;
+  });
+  // ---------------------------------------------------------------- fusionner / séparer
+  /** Déplace les extraits audio (et les empreintes de voix) d'une réunion à l'autre. */
+  const moveAssets = (from: string, to: string, segs: Segment[]) => {
+    for (const s of segs) {
+      if (!s.audio) continue;
+      const src = store.audioFile(from, s.audio);
+      const dst = store.audioFile(to, s.audio);
+      try {
+        if (src && dst && existsSync(src)) renameSync(src, dst);
+      } catch (e) {
+        logError(`fusion audio ${s.audio}`, e);
+      }
+    }
+    const fromDir = store.dir(from);
+    const toDir = store.dir(to);
+    const prints = fromDir && join(fromDir, 'voices.jsonl');
+    if (!prints || !toDir || !existsSync(prints)) return;
+    const ids = new Set(segs.map((s) => s.id));
+    const lines = readFileSync(prints, 'utf8')
+      .split('\n')
+      .filter((l) => {
+        const m = /"id":"([^"]+)"/.exec(l);
+        return m && ids.has(m[1]);
+      });
+    if (lines.length) appendFileSync(join(toDir, 'voices.jsonl'), lines.join('\n') + '\n', 'utf8');
+  };
+  handle('meetings:merge', async (_e, idA: string, idB: string) => {
+    const ma = store.meta(idA);
+    const mb = store.meta(idB);
+    if (!ma || !mb || idA === idB) throw new Error('Réunions introuvables.');
+    if (recorder.busyWith(idA) || recorder.busyWith(idB)) throw new Error('Une des réunions est encore en cours : attendez la fin de la transcription.');
+    const [a, b] = ma.startedAt <= mb.startedAt ? [ma, mb] : [mb, ma];
+    const bSegs = store.segments(b.id);
+    const plan = planMerge(a, store.segments(a.id), b, bSegs);
+    moveAssets(b.id, a.id, bSegs);
+    store.writeSegments(a.id, plan.segments);
+    store.update(a.id, plan.patch);
+    store.refreshStats(a.id);
+    await store.remove(b.id);
+    broadcast('meetings');
+    return a.id;
+  });
+  handle('meetings:split', (_e, id: string, segId: string) => {
+    const meta = store.meta(id);
+    if (!meta) throw new Error('Réunion introuvable.');
+    if (recorder.busyWith(id)) throw new Error('Réunion en cours : attendez la fin de la transcription.');
+    const plan = planSplit(meta, store.segments(id), segId, newId());
+    store.create(plan.newMeta);
+    store.writeSegments(plan.newMeta.id, plan.move);
+    moveAssets(id, plan.newMeta.id, plan.move);
+    store.writeSegments(id, plan.keep);
+    store.update(id, plan.keepPatch);
+    store.refreshStats(id);
+    store.refreshStats(plan.newMeta.id);
+    broadcast('meetings');
+    return plan.newMeta.id;
   });
   handle('meetings:remove', async (_e, id: string) => {
     if (recorder.state.meetingId === id) await recorder.stop();
@@ -439,6 +575,15 @@ function wireIpc() {
   });
   handle('compact:shape', (_e, shape: 'pill' | 'panel') => setCompactShape(shape));
   handle('compact:layout', () => compactLayout());
+  // Réglages depuis la Dynamic Island : on quitte l'île, la fenêtre revient, puis la feuille s'ouvre
+  // (une fois la page prête, si la fenêtre vient d'être recréée).
+  handle('windows:settings', (_e, section?: string) => {
+    if (isCompact()) exitCompact({ showMain: true });
+    const w = showMain();
+    const send = () => w.webContents.send('navigate', { view: 'settings', section: typeof section === 'string' ? section : undefined });
+    if (w.webContents.isLoading()) w.webContents.once('did-finish-load', () => setTimeout(send, 120));
+    else send();
+  });
   handle('windows:showMain', (_e, meetingId?: string) => {
     showMain();
     if (meetingId) broadcast('navigate', { meetingId });
@@ -607,6 +752,12 @@ app.whenReady().then(() => {
   nativeTheme.themeSource = cfg.theme;
   store.load(cfg.storageDir);
   store.purgeOldAudio(cfg.keepAudioDays);
+  // mode confidentiel : verrou réseau posé avant toute fenêtre, réunions expirées supprimées
+  installNetworkGuard();
+  setPrivacy(cfg.privacyMode);
+  purgeExpired();
+  setInterval(purgeExpired, 6 * 3600_000);
+  onLocalStatus((s) => broadcast('localStatus', s));
 
   // Interface servie depuis app://minute/ (fetch, WASM et worklets s'y comportent comme sur le web)
   const rendererRoot = resolve(paths.renderer());
@@ -675,6 +826,18 @@ app.whenReady().then(() => {
     if (!recorder.state.meetingId || !settings().get().minimizeToCompact) return false;
     enterCompact();
     return true;
+  });
+  // pendant une réunion, cliquer dans une autre application fait place à la Dynamic Island
+  setOnBackground(() => {
+    if (!recorder.state.meetingId || !settings().get().autoCompact || isCompact()) return;
+    setTimeout(() => {
+      const w = getMain();
+      if (!w || w.isDestroyed() || w.isFocused() || !w.isVisible() || w.isMinimized() || !w.isEnabled()) return;
+      // le premier plan est passé à une autre fenêtre de Minute (dialogue, outils) : on ne bouge pas
+      if (BrowserWindow.getFocusedWindow() || w.webContents.isDevToolsFocused()) return;
+      if (!recorder.state.meetingId || isCompact()) return;
+      enterCompact({ animate: true });
+    }, 400);
   });
   calendar.start();
   setInterval(checkReminders, 20_000);

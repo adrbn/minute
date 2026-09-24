@@ -15,7 +15,7 @@ export const DEFAULT_MODELS: Record<LlmProvider, string> = {
 export function defaultSettings(): Settings {
   return {
     onboarded: false,
-    language: 'fr',
+    language: 'auto', // chaque phrase dans sa langue (sinon Whisper traduit tout en français)
     sttModel: 'whisper-large-v3-turbo',
     vocabulary: '',
     livePreview: true,
@@ -52,6 +52,11 @@ export function defaultSettings(): Settings {
     nameAlerts: true,
     learned: [],
     minimizeToCompact: true,
+    autoCompact: true,
+    compactShape: 'pill',
+    privacyMode: false,
+    localModel: 'turbo',
+    retentionDays: 30,
     palette: 'system',
     voices: true,
   };

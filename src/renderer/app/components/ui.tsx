@@ -12,6 +12,31 @@ export function IslandIcon({ size = 16 }: { size?: number }) {
   );
 }
 
+/** Emblème de Minute (comme l'icône de l'app) : carré arrondi bleu, ondes blanches. */
+export function AppGlyph({ size = 18 }: { size?: number }) {
+  return (
+    <svg viewBox="0 0 20 20" width={size} height={size} aria-hidden>
+      <defs>
+        <linearGradient id="app-glyph" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#5692ff" />
+          <stop offset="0.6" stopColor="#3a54de" />
+          <stop offset="1" stopColor="#282c96" />
+        </linearGradient>
+      </defs>
+      <rect x="0.5" y="0.5" width="19" height="19" rx="4.6" fill="url(#app-glyph)" />
+      {[
+        [5.2, 3.2],
+        [7.9, 5.6],
+        [10.6, 4],
+        [13.3, 2.2],
+        [16, 1.2],
+      ].map(([x, h], k) => (
+        <rect key={k} x={x - 0.8} y={10 - h} width="1.6" height={h * 2} rx="0.8" fill="#fff" opacity={[0.92, 1, 0.96, 0.85, 0.75][k]} />
+      ))}
+    </svg>
+  );
+}
+
 /** Largeur de la fenêtre (mise en page adaptative). */
 export function useWidth(): number {
   const [w, setW] = useState(window.innerWidth);

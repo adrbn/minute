@@ -5,6 +5,10 @@ import {
   ExternalLink,
   FolderOpen,
   Import,
+  Info,
+  ShieldCheck,
+  Check,
+  Copy,
   Keyboard,
   Loader2,
   Plus,
@@ -16,9 +20,9 @@ import {
   X,
 } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
-import type { AppInfo, CalendarState, LlmProvider, NativelyInfo, SecretName, Settings, Shortcuts } from '../../../shared/types';
+import type { AppInfo, CalendarState, LlmProvider, LocalStatus, NativelyInfo, SecretName, Settings, Shortcuts } from '../../../shared/types';
 import { minute, relativeTime, shortcutLabel } from '../api';
-import { Switch, useAudioInputs, useToast } from './ui';
+import { AppGlyph, Switch, useAudioInputs, useToast } from './ui';
 
 const PROVIDERS: { id: LlmProvider; label: string; hint: string; url: string }[] = [
   { id: 'groq', label: 'Groq', hint: 'La même clé que la transcription. Gratuit et rapide.', url: 'https://console.groq.com/keys' },
@@ -27,7 +31,7 @@ const PROVIDERS: { id: LlmProvider; label: string; hint: string; url: string }[]
   { id: 'openai', label: 'OpenAI', hint: 'Modèles GPT.', url: 'https://platform.openai.com/api-keys' },
 ];
 
-export type SettingsSection = 'general' | 'transcription' | 'audio' | 'calendar' | 'ai' | 'compact' | 'data';
+export type SettingsSection = 'general' | 'transcription' | 'audio' | 'calendar' | 'ai' | 'compact' | 'privacy' | 'data' | 'about';
 
 const SECTIONS: { id: SettingsSection; label: string; icon: ReactNode }[] = [
   { id: 'general', label: 'Général', icon: <SlidersHorizontal /> },
@@ -36,7 +40,9 @@ const SECTIONS: { id: SettingsSection; label: string; icon: ReactNode }[] = [
   { id: 'calendar', label: 'Agenda', icon: <CalendarDays /> },
   { id: 'ai', label: 'Intelligence', icon: <Sparkles /> },
   { id: 'compact', label: 'Mode compact', icon: <Keyboard /> },
+  { id: 'privacy', label: 'Confidentialité', icon: <ShieldCheck /> },
   { id: 'data', label: 'Données', icon: <Database /> },
+  { id: 'about', label: 'À propos', icon: <Info /> },
 ];
 
 export function KeyField({ name, onSaved }: { name: SecretName; onSaved?: (ok: boolean) => void }) {
@@ -124,7 +130,6 @@ function ShortcutInput({ value, platform, onChange }: { value: string; platform:
   );
 }
 
-/** Une ligne de réglage : libellé (+ explication) à gauche, contrôle à droite. */
 /** Thèmes de couleur : [clé, nom, accent, fond] (aperçu des pastilles, en clair). */
 const PALETTES: [string, string, string, string][] = [
   ['system', 'Système', 'var(--os-accent, #0a84ff)', '#f5f5f7'],
@@ -138,6 +143,7 @@ const PALETTES: [string, string, string, string][] = [
   ['minuit', 'Minuit', '#2f6fe0', '#eef2f8'],
 ];
 
+/** Une ligne de réglage : libellé (+ explication) à gauche, contrôle à droite. */
 function Row({ label, hint, children, col }: { label: ReactNode; hint?: ReactNode; children?: ReactNode; col?: boolean }) {
   return (
     <div className={`setting ${col ? 'col' : ''}`}>
@@ -157,6 +163,233 @@ function Group({ title, children, foot }: { title?: string; children: ReactNode;
       <div className="card">{children}</div>
       {foot && <p className="group-foot">{foot}</p>}
     </section>
+  );
+}
+
+// ------------------------------------------------------------------ mode confidentiel
+const LOCAL_MODELS = [
+  { id: 'turbo' as const, name: 'Précis', detail: 'large v3 turbo · 547 Mo' },
+  { id: 'small' as const, name: 'Rapide', detail: 'small · 181 Mo, pour un ordinateur modeste' },
+];
+const mo = (b: number) => `${Math.round(b / 1048576)} Mo`;
+
+function Privacy({ settings, update }: { settings: Settings; update: (p: Partial<Settings>) => Promise<void>; info: AppInfo }) {
+  const toast = useToast();
+  const [st, setSt] = useState<LocalStatus | null>(null);
+  const [llm, setLlm] = useState<{ base: string; model: string } | null | undefined>(undefined);
+  const [copied, setCopied] = useState(false);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    void minute.local.status().then(setSt);
+    void minute.local.llm().then(setLlm);
+    return minute.on('localStatus', setSt);
+  }, []);
+  if (!st) return null;
+  const on = settings.privacyMode;
+  const model = settings.localModel;
+  const ready = st.engine && st.models[model];
+  const err = (e: unknown) => toast((e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''), 'error');
+  const install = async () => {
+    setBusy(true);
+    try {
+      setSt(await minute.local.install(model));
+      toast('Moteur local installé', 'success');
+    } catch (e) {
+      err(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const toggle = async (v: boolean) => {
+    try {
+      await update({ privacyMode: v });
+      toast(v ? 'Mode confidentiel activé : rien ne sort de cet ordinateur' : 'Mode confidentiel désactivé', v ? 'success' : 'info');
+    } catch (e) {
+      err(e);
+    }
+  };
+  const notice = async () => {
+    await navigator.clipboard.writeText(await minute.local.notice());
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  };
+  if (!st.supported)
+    return (
+      <Group title="Mode confidentiel">
+        <Row label="Proposé sous Windows" hint="La transcription locale et le verrou réseau sont disponibles dans la version Windows de Minute." />
+      </Group>
+    );
+  const checks: [boolean, string, string][] = [
+    [on, 'Transcription sur cet ordinateur', on ? `whisper.cpp, modèle ${LOCAL_MODELS.find((m) => m.id === model)?.name.toLowerCase()} — l’audio ne quitte pas la machine` : 'Aujourd’hui : Groq (l’audio des phrases part chez Groq)'],
+    [on, 'Connexions vers l’extérieur bloquées', on ? 'Aucune requête ne quitte l’ordinateur (vérifié à chaque envoi)' : 'Aujourd’hui : transcription, IA et agenda passent par Internet'],
+    [on || settings.keepAudioDays === 0, 'Aucun enregistrement audio conservé', 'L’audio de chaque phrase est effacé dès qu’elle est transcrite'],
+    [on && settings.retentionDays > 0, 'Suppression automatique', on && settings.retentionDays ? `Réunions effacées définitivement après ${settings.retentionDays} jours (sauf épinglées)` : 'Aucune durée de conservation'],
+  ];
+  return (
+    <>
+      <div className={`privacy-hero ${on ? 'on' : ''}`}>
+        <ShieldCheck size={30} />
+        <div>
+          <b>Mode confidentiel</b>
+          <p>
+            Pour les réunions sensibles (RH, diplomatie, données personnelles) : tout reste sur cet ordinateur, conformément au
+            principe de minimisation du RGPD.
+          </p>
+        </div>
+        <Switch on={on} onChange={(v) => void toggle(v)} disabled={!ready && !on} />
+      </div>
+
+      {!ready && (
+        <Group title="1 · Installer la transcription locale" foot="Une seule fois, avant d’activer le mode : ensuite, plus aucune connexion n’est nécessaire.">
+          <Row label="Modèle" col>
+            <div className="segmented wide">
+              {LOCAL_MODELS.map((m) => (
+                <button key={m.id} className={model === m.id ? 'active' : ''} onClick={() => void update({ localModel: m.id })} disabled={busy}>
+                  {m.name} {st.models[m.id] && '✓'}
+                </button>
+              ))}
+            </div>
+            <div className="d" style={{ marginTop: 6 }}>
+              {LOCAL_MODELS.find((m) => m.id === model)?.detail}
+            </div>
+          </Row>
+          <Row label={st.download ? `Téléchargement : ${st.download.what}` : 'Moteur whisper.cpp + modèle'} col>
+            {st.download ? (
+              <div className="progress">
+                <i style={{ width: `${st.download.total ? (100 * st.download.received) / st.download.total : 5}%` }} />
+                <span>
+                  {mo(st.download.received)}
+                  {st.download.total ? ` / ${mo(st.download.total)}` : ''}
+                </span>
+              </div>
+            ) : (
+              <button className="btn primary" onClick={() => void install()} disabled={busy}>
+                {busy ? <Loader2 size={14} className="spin" /> : null} Télécharger ({model === 'turbo' ? '≈ 567 Mo' : '≈ 201 Mo'})
+              </button>
+            )}
+            {st.error && <span className="test-msg ko">{st.error}</span>}
+          </Row>
+        </Group>
+      )}
+
+      <Group title={on ? 'Ce qui est garanti' : 'Ce que le mode change'}>
+        {checks.map(([ok, label, hint]) => (
+          <Row
+            key={label}
+            label={
+              <span className="check-row">
+                <span className={`check ${ok ? 'ok' : ''}`}>{ok ? <Check size={12} strokeWidth={3} /> : null}</span>
+                {label}
+              </span>
+            }
+            hint={hint}
+          />
+        ))}
+        <Row
+          label={
+            <span className="check-row">
+              <span className={`check ${on && llm ? 'ok' : ''}`}>{on && llm ? <Check size={12} strokeWidth={3} /> : null}</span>
+              Comptes-rendus par une IA locale
+            </span>
+          }
+          hint={
+            llm
+              ? `Détectée sur cet ordinateur : ${llm.model}`
+              : 'Aucune IA locale détectée (Ollama ou LM Studio) : en mode confidentiel, pas de compte-rendu automatique — la transcription fonctionne.'
+          }
+        />
+      </Group>
+
+      <Group title="Réglages">
+        <Row label="Conserver les réunions" hint="En mode confidentiel, suppression définitive au-delà (les réunions épinglées sont gardées).">
+          <select className="field" value={settings.retentionDays} onChange={(e) => void update({ retentionDays: Number(e.target.value) })}>
+            <option value={7}>7 jours</option>
+            <option value={30}>30 jours</option>
+            <option value={90}>90 jours</option>
+            <option value={365}>1 an</option>
+            <option value={0}>Sans limite</option>
+          </select>
+        </Row>
+        <Row label="Informer les participants" hint="Un message prêt à coller dans la conversation de la visio : transparence, et chacun peut s’y opposer.">
+          <button className="btn" onClick={() => void notice()}>
+            {copied ? <Check size={14} /> : <Copy size={14} />} {copied ? 'Copié' : 'Copier le message'}
+          </button>
+        </Row>
+      </Group>
+    </>
+  );
+}
+
+/** Logo GitHub (marque officielle, utilisée pour renvoyer vers GitHub). */
+function GitHubMark() {
+  return (
+    <svg viewBox="0 0 16 16" width="20" height="20" aria-hidden fill="currentColor">
+      <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
+    </svg>
+  );
+}
+
+/** Tasse (Ko-fi) : dessin simple, pas le logo de la marque. */
+function CupMark() {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 8h13v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V8z" fill="currentColor" fillOpacity="0.18" />
+      <path d="M17 9.5h1.5a2.5 2.5 0 0 1 0 5H17" />
+      <path d="M9.2 12.4c.6-1.2 2.6-1.2 2.6.3 0 1.1-1.5 1.8-2.6 2.6-1.1-.8-2.6-1.5-2.6-2.6 0-1.5 2-1.5 2.6-.3z" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+const OPEN_SOURCE: [string, string][] = [
+  ['Electron', 'MIT'],
+  ['React', 'MIT'],
+  ['Silero VAD', 'MIT'],
+  ['CAM++ (3D-Speaker)', 'Apache-2.0'],
+  ['ONNX Runtime Web', 'MIT'],
+  ['AudioTee (macOS)', 'MIT'],
+  ['Lucide', 'ISC'],
+  ['docx', 'MIT'],
+];
+
+function About({ info }: { info: AppInfo }) {
+  const system = info.platform === 'darwin' ? 'macOS' : info.platform === 'win32' ? 'Windows' : 'Linux';
+  return (
+    <div className="about">
+      <div className="about-hero">
+        <AppGlyph size={72} />
+        <h2>Minute</h2>
+        <p className="about-version">
+          Version {info.version} · {system}
+        </p>
+        <p className="about-tagline">Vos réunions, transcrites en direct — et rien ne vous échappe.</p>
+      </div>
+      <div className="about-links">
+        <button className="link-card github" onClick={() => void minute.windows.openExternal('https://github.com/adrbn')}>
+          <GitHubMark />
+          <span>
+            <b>GitHub</b>
+            <small>github.com/adrbn</small>
+          </span>
+          <ExternalLink size={14} className="go" />
+        </button>
+        <button className="link-card kofi" onClick={() => void minute.windows.openExternal('https://ko-fi.com/adrbn')}>
+          <CupMark />
+          <span>
+            <b>Offrir un café</b>
+            <small>ko-fi.com/adrbn</small>
+          </span>
+          <ExternalLink size={14} className="go" />
+        </button>
+      </div>
+      <p className="about-by">Conçu et développé par adrbn.</p>
+      <Group title="Composants open source" foot="Merci à leurs auteurs. Détails et licences complètes : THIRD_PARTY_NOTICES.md.">
+        {OPEN_SOURCE.map(([name, lic]) => (
+          <Row key={name} label={name}>
+            <span className="faint">{lic}</span>
+          </Row>
+        ))}
+      </Group>
+    </div>
   );
 }
 
@@ -215,7 +448,9 @@ export function SettingsSheet({
             {section === 'calendar' && <Calendars {...props} />}
             {section === 'ai' && <Intelligence {...props} />}
             {section === 'compact' && <Compact {...props} />}
+            {section === 'privacy' && <Privacy {...props} />}
             {section === 'data' && <Data {...props} />}
+            {section === 'about' && <About info={info} />}
           </div>
         </div>
       </div>
@@ -315,8 +550,8 @@ function Transcription({ settings, update }: P) {
           }
         >
           <select className="field" value={settings.language} onChange={(e) => void update({ language: e.target.value })}>
-            <option value="fr">Français</option>
             <option value="auto">Plusieurs langues (détection)</option>
+            <option value="fr">Français uniquement</option>
             <option value="it">Italiano</option>
             <option value="en">English</option>
             <option value="es">Español</option>
@@ -673,6 +908,26 @@ function Compact({ settings, update, info }: P) {
             <option value="always">Toujours</option>
             <option value="never">Jamais</option>
           </select>
+        </Row>
+        <Row label="Pendant une réunion, l’île s’ouvre avec">
+          <div className="segmented">
+            {(
+              [
+                ['pill', 'La pastille'],
+                ['panel', 'Les sous-titres'],
+              ] as const
+            ).map(([v, l]) => (
+              <button key={v} className={(settings.compactShape ?? 'pill') === v ? 'active' : ''} onClick={() => void update({ compactShape: v })}>
+                {l}
+              </button>
+            ))}
+          </div>
+        </Row>
+        <Row
+          label="Quand Minute passe au second plan"
+          hint="Pendant une réunion, cliquer dans une autre application (Teams, navigateur…) remplace la fenêtre par la Dynamic Island."
+        >
+          <Switch on={settings.autoCompact} onChange={(v) => void update({ autoCompact: v })} />
         </Row>
         <Row
           label="Masquer des partages d’écran et captures"

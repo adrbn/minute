@@ -2,6 +2,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { parseIcs } from '../src/main/calendar';
+import { planMerge, planSplit } from '../src/main/merge';
+import { isLocalUrl, participantNotice } from '../src/main/privacy';
 import { retrieve } from '../src/main/retrieval';
 import { Voices, type VoiceStore } from '../src/main/voices';
 import { toTurns, voiceLabel } from '../src/shared/transcript';
@@ -216,4 +218,57 @@ test('voix : une même personne découpée en deux groupes est réunie en fin de
   assert.equal(new Set(segs.map((s) => s.spk)).size, 1);
   assert.equal(Object.keys(meta.voices!).length, 1);
   assert.equal(voiceLabel(meta, 'them', segs[0].spk), 'Participant A');
+});
+
+test('fusion : un enregistrement coupé puis relancé redevient une seule réunion', () => {
+  const base = { speakers: { me: 'Moi', them: 'Participants' }, bookmarks: [], notes: '', hasAudio: true } as unknown as MeetingMeta;
+  const a = { ...base, id: 'a', title: 'Point DELF', startedAt: 1_000_000, durationMs: 60_000, notes: 'relancer Laura',
+    voices: { them1: { n: 1, name: 'Laura' }, me1: { n: 0, owner: true } } } as MeetingMeta;
+  const b = { ...base, id: 'b', title: 'Réunion', startedAt: 1_000_000 + 90_000, durationMs: 30_000,
+    bookmarks: [{ id: 'x', t: 5_000, label: 'budget' }],
+    voices: { them1: { n: 1 }, me1: { n: 0, owner: true } } } as MeetingMeta;
+  const seg = (id: string, t0: number, spk?: string): Segment => ({ id, ch: spk?.startsWith('me') ? 'me' : 'them', t0, t1: t0 + 3000, text: id, spk });
+  const plan = planMerge(a, [seg('a1', 0, 'them1'), seg('a2', 10_000, 'me1')], b, [seg('b1', 2_000, 'them1'), seg('b2', 8_000, 'me1')]);
+  // la suite est placée 90 s plus loin, dans l'ordre
+  assert.deepEqual(plan.segments.map((s) => [s.id, s.t0]), [['a1', 0], ['a2', 10_000], ['b1', 92_000], ['b2', 98_000]]);
+  // la voix « them1 » de b n'est pas Laura : elle devient une nouvelle lettre ; l'utilisateur reste une seule voix
+  assert.equal(plan.segments[2].spk, 'them2');
+  assert.equal(plan.segments[3].spk, 'me1');
+  assert.equal(plan.patch.voices!.them2.n, 2);
+  assert.equal(plan.patch.durationMs, 120_000);
+  assert.equal(plan.patch.bookmarks![0].t, 95_000);
+  assert.equal(plan.patch.notes, 'relancer Laura');
+  assert.ok('summary' in plan.patch && plan.patch.summary === undefined);
+});
+
+test('séparation : la phrase choisie ouvre une nouvelle réunion, horodatée depuis zéro', () => {
+  const meta = { id: 'm', title: 'Comité', startedAt: 5_000_000, durationMs: 100_000, notes: 'n', hasAudio: true,
+    speakers: { me: 'Moi', them: 'Participants' },
+    bookmarks: [{ id: 'k1', t: 10_000, label: 'a' }, { id: 'k2', t: 70_000, label: 'b' }],
+    voices: { them1: { n: 1, name: 'Laura' }, them2: { n: 2 } } } as unknown as MeetingMeta;
+  const segs: Segment[] = [
+    { id: 's1', ch: 'them', t0: 0, t1: 4_000, text: 'un', spk: 'them1' },
+    { id: 's2', ch: 'them', t0: 50_000, t1: 55_000, text: 'deux', spk: 'them2' },
+    { id: 's3', ch: 'them', t0: 60_000, t1: 64_000, text: 'trois', spk: 'them2' },
+  ];
+  const p = planSplit(meta, segs, 's2', 'new');
+  assert.deepEqual(p.keep.map((s) => s.id), ['s1']);
+  assert.deepEqual(p.move.map((s) => [s.id, s.t0]), [['s2', 0], ['s3', 10_000]]);
+  assert.equal(p.newMeta.startedAt, 5_050_000);
+  assert.equal(p.newMeta.title, 'Comité (suite)');
+  assert.deepEqual(Object.keys(p.newMeta.voices!), ['them2']);
+  assert.deepEqual(p.newMeta.bookmarks.map((b) => b.t), [20_000]);
+  assert.equal(p.keepPatch.durationMs, 4_000);
+  assert.throws(() => planSplit(meta, segs, 's1', 'x'));
+});
+
+test('mode confidentiel : seul l’ordinateur lui-même reste joignable', () => {
+  for (const ok of ['http://127.0.0.1:8123/inference', 'http://localhost:11434/v1/models', 'app://minute/index.html', 'minute-audio://m/a.wav', 'blob:app://minute/x', 'data:text/plain,a'])
+    assert.equal(isLocalUrl(ok), true, ok);
+  for (const ko of ['https://api.groq.com/openai/v1/audio/transcriptions', 'https://www.googleapis.com/calendar/v3', 'http://192.168.1.10:8080/', 'https://127.0.0.1.evil.com/', 'pas une url'])
+    assert.equal(isLocalUrl(ko), false, ko);
+  // le message aux participants ne promet que ce que l'app garantit
+  assert.match(participantNotice(true, 'Stef'), /Stef utilise Minute.*sur son ordinateur.*aucun son ni aucun texte/);
+  assert.match(participantNotice(false, 'Moi'), /^Pour information : J’utilise Minute.*service en ligne.*mon ordinateur/);
+  assert.doesNotMatch(participantNotice(false, 'Stef'), /audio/);
 });

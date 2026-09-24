@@ -74,12 +74,41 @@ export async function chat(provider: LlmProvider, model: string, req: ChatReques
   return chatOpenAiCompatible(provider, key, model, req);
 }
 
+/** IA installée sur cet ordinateur (mode confidentiel) : Ollama ou LM Studio, API compatible OpenAI. */
+const LOCAL_LLM = ['http://127.0.0.1:11434/v1', 'http://127.0.0.1:1234/v1'];
+let localCache: { at: number; found: { base: string; model: string } | null } | null = null;
+export async function findLocalLlm(): Promise<{ base: string; model: string } | null> {
+  if (localCache && Date.now() - localCache.at < 30_000) return localCache.found;
+  let found: { base: string; model: string } | null = null;
+  for (const base of LOCAL_LLM) {
+    try {
+      const r = await fetch(`${base}/models`, { signal: AbortSignal.timeout(1200) });
+      if (!r.ok) continue;
+      const j = (await r.json()) as { data?: { id: string }[] };
+      const id = j.data?.map((m) => m.id).find((m) => !/embed/i.test(m));
+      if (id) {
+        found = { base, model: id };
+        break;
+      }
+    } catch {
+      /* rien sur ce port */
+    }
+  }
+  localCache = { at: Date.now(), found };
+  return found;
+}
+
+export async function chatLocal(base: string, model: string, req: ChatRequest): Promise<string> {
+  return chatOpenAiCompatible('openai', '', model, req, true, base);
+}
+
 async function chatOpenAiCompatible(
   provider: Exclude<LlmProvider, 'anthropic'>,
   key: string,
   model: string,
   req: ChatRequest,
   plain = false,
+  base?: string,
 ): Promise<string> {
   const body: Record<string, unknown> = {
     model,
@@ -96,9 +125,9 @@ async function chatOpenAiCompatible(
   }
   let res: Response;
   try {
-    res = await fetch(`${BASES[provider]}/chat/completions`, {
+    res = await fetch(`${base ?? BASES[provider]}/chat/completions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+      headers: { 'Content-Type': 'application/json', ...(key ? { Authorization: `Bearer ${key}` } : {}) },
       body: JSON.stringify(body),
       signal: req.signal,
     });

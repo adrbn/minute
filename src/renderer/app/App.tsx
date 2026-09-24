@@ -60,7 +60,7 @@ export function App() {
           setSelected(t.meetingId);
           setQuery('');
         }
-        if (t.view === 'settings') setShowSettings('general');
+        if (t.view === 'settings') setShowSettings((t.section as SettingsSection) || 'general');
         if (t.view === 'new') {
           setSelected(null);
           setQuery('');
@@ -123,6 +123,7 @@ export function App() {
       {narrow && sidebar && <div className="sidebar-scrim" onClick={() => setSidebar(false)} />}
       <Sidebar
         meetings={meetings}
+        privacy={!!settings?.privacyMode}
         selected={query ? null : selected}
         live={live}
         query={query}

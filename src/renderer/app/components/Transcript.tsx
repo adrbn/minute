@@ -1,4 +1,4 @@
-import { ArrowDown, Copy, LoaderCircle, Play, Sparkles, Square, Star, Trash2, X } from 'lucide-react';
+import { ArrowDown, Copy, LoaderCircle, Play, Scissors, Sparkles, Square, Star, Trash2, X } from 'lucide-react';
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   clock,
@@ -118,6 +118,13 @@ function VoiceName({ meta, turn }: { meta: MeetingMeta; turn: Turn }) {
     return (
       <span className="who" title="Voix non reconnue (phrase trop courte)">
         <span className="vbadge pending" />
+      </span>
+    );
+  // l'utilisateur lui-même : son nom en pastille rouge
+  if (turn.ch === 'me' && (!v || v.owner))
+    return (
+      <span className="who">
+        <span className="vbadge named me">{label}</span>
       </span>
     );
   if (!turn.spk || !v) return <span className="who">{label}</span>;
@@ -273,7 +280,13 @@ export function Transcript({
     return (
       <div className={`live-row ${ch}`} key={`ghost-${ch}`}>
         <span className="who">
-          {voicePending(meta, ch) ? <span className="vbadge pending" title="Voix en cours de reconnaissance" /> : speakerName(meta, ch)}
+          {voicePending(meta, ch) ? (
+            <span className="vbadge pending" title="Voix en cours de reconnaissance" />
+          ) : ch === 'me' ? (
+            <span className="vbadge named me">{speakerName(meta, ch)}</span>
+          ) : (
+            speakerName(meta, ch)
+          )}
         </span>
         <span className="body">
           {it?.text}
@@ -290,6 +303,7 @@ export function Transcript({
   };
 
   const hasAudio = segments.some((s) => s.audio);
+  const firstTurnKey = rows.find((r) => r.kind !== 'bm')?.turn.key;
 
   return (
     <div className="transcript-wrap">
@@ -363,6 +377,22 @@ export function Transcript({
                     <button className="icon-btn" onClick={() => void copyTurn(r.turn)} title="Copier ce passage">
                       <Copy />
                     </button>
+                    {!live && r.turn.key !== firstTurnKey && (
+                      <button
+                        className="icon-btn"
+                        title="Séparer ici : ce passage et la suite deviennent une nouvelle réunion"
+                        onClick={async () => {
+                          try {
+                            await minute.meetings.split(meta.id, r.turn.segments[0].id);
+                            toast(`Réunion séparée : la suite est dans « ${meta.title} (suite) »`, 'success');
+                          } catch (err) {
+                            toast((err as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''), 'error');
+                          }
+                        }}
+                      >
+                        <Scissors />
+                      </button>
+                    )}
                     <button
                       className="icon-btn"
                       title="Supprimer ce passage"

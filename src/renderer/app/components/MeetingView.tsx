@@ -19,6 +19,7 @@ import {
   Trash2,
   Users,
   X,
+  LoaderCircle,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { clock, dateLabel, durationLabel } from '../../../shared/transcript';
@@ -209,11 +210,13 @@ export function MeetingView({
 
         {isLive && live ? (
           <div className="livebar no-drag">
-            <div className="timer">
-              <span className={`dot ${live.status === 'paused' ? 'paused' : 'pulse'}`} />
-              {clock(elapsed)}
+            <div className="live-status" title={live.status === 'paused' ? 'En pause' : 'Enregistrement en cours'}>
+              <div className="timer">
+                <span className={`dot ${live.status === 'paused' ? 'paused' : 'pulse'}`} />
+                {clock(elapsed)}
+              </div>
+              <Meters live={live} />
             </div>
-            <Meters live={live} />
             <button
               className="icon-btn"
               title={`Marquer un moment (${shortcutLabel(settings.shortcuts.bookmark, info.platform)})`}
@@ -224,13 +227,6 @@ export function MeetingView({
             <button className="icon-btn" title="Copier" onClick={copyMenu}>
               <Copy />
             </button>
-            <button
-              className="btn small"
-              title={`Réduire en Dynamic Island — la réunion continue (${shortcutLabel(settings.shortcuts.mini, info.platform)})`}
-              onClick={() => void minute.windows.enterCompact()}
-            >
-              <IslandIcon /> <span className="lbl">Réduire</span>
-            </button>
             {live.status === 'paused' ? (
               <button className="btn small" onClick={() => void minute.recorder.resume()}>
                 <Play /> Reprendre
@@ -240,12 +236,25 @@ export function MeetingView({
                 <Pause />
               </button>
             )}
+            <button className={`icon-btn ${panel ? 'on' : ''}`} title="Panneau latéral" onClick={() => setPanel((p) => !p)}>
+              <PanelRight />
+            </button>
+            <span className="livebar-gap" />
             <button
-              className="btn small stop-btn"
+              className="btn small primary reduce-btn"
+              title={`Réduire en Dynamic Island — la réunion continue (${shortcutLabel(settings.shortcuts.mini, info.platform)})`}
+              onClick={() => void minute.windows.enterCompact()}
+            >
+              <IslandIcon /> <span className="lbl">Réduire</span>
+            </button>
+            <button
+              className="stop-round"
+              title={live.status === 'stopping' ? 'Finalisation…' : 'Terminer la réunion'}
+              aria-label="Terminer la réunion"
               onClick={() => void minute.recorder.stop()}
               disabled={live.status === 'stopping' || live.status === 'starting'}
             >
-              <Square fill="currentColor" size={12} /> {live.status === 'stopping' ? 'Finalisation…' : 'Terminer'}
+              {live.status === 'stopping' ? <LoaderCircle size={15} className="spin" /> : <Square fill="currentColor" size={11} />}
             </button>
           </div>
         ) : (
@@ -258,9 +267,11 @@ export function MeetingView({
             </button>
           </div>
         )}
-        <button className={`icon-btn no-drag ${panel ? 'on' : ''}`} title="Panneau latéral" onClick={() => setPanel((p) => !p)}>
-          <PanelRight />
-        </button>
+        {!(isLive && live) && (
+          <button className={`icon-btn no-drag ${panel ? 'on' : ''}`} title="Panneau latéral" onClick={() => setPanel((p) => !p)}>
+            <PanelRight />
+          </button>
+        )}
       </div>
 
       {notice && (

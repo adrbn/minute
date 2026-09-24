@@ -131,6 +131,15 @@ export interface CalendarEvent {
   source: string;
 }
 
+export interface LocalStatus {
+  supported: boolean;
+  engine: boolean;
+  models: Record<'turbo' | 'small', boolean>;
+  running: boolean;
+  download?: { what: string; received: number; total: number };
+  error?: string;
+}
+
 export interface CalendarState {
   events: CalendarEvent[];
   errors: Record<string, string>;
@@ -184,6 +193,16 @@ export interface Settings {
   learned: LearnedCorrection[];
   /** réduire la fenêtre pendant une réunion ouvre la Dynamic Island */
   minimizeToCompact: boolean;
+  /** pendant une réunion, la fenêtre qui passe au second plan laisse place à la Dynamic Island */
+  autoCompact: boolean;
+  /** forme de la Dynamic Island à l'ouverture pendant une réunion */
+  compactShape: 'panel' | 'pill';
+  /** mode confidentiel : transcription locale, verrou réseau, rien de conservé au-delà du nécessaire */
+  privacyMode: boolean;
+  /** modèle Whisper local (mode confidentiel) */
+  localModel: 'turbo' | 'small';
+  /** mode confidentiel : réunions supprimées définitivement au-delà de N jours (0 = jamais) */
+  retentionDays: number;
   /** distinguer les intervenants à leur voix (calcul local) */
   voices: boolean;
 }
@@ -268,6 +287,10 @@ export interface MinuteAPI {
     get(id: string): Promise<MeetingFull | null>;
     update(id: string, patch: Partial<MeetingMeta>): Promise<MeetingMeta | null>;
     remove(id: string): Promise<void>;
+    /** réunit deux réunions en une (la plus ancienne garde son titre) ; renvoie l'id conservé */
+    merge(a: string, b: string): Promise<string>;
+    /** coupe la réunion avant cette phrase ; renvoie l'id de la nouvelle réunion (la suite) */
+    split(id: string, segId: string): Promise<string>;
     editSegment(id: string, segId: string, text: string): Promise<void>;
     deleteSegment(id: string, segId: string): Promise<void>;
     reveal(id: string): Promise<void>;
@@ -302,8 +325,18 @@ export interface MinuteAPI {
     /** Windows : la fenêtre compacte prend le clavier (saisie) puis le rend */
     compactFocus(on: boolean): void;
     showMain(meetingId?: string): Promise<void>;
+    /** quitte la Dynamic Island et ouvre les réglages de l'app (section donnée) */
+    openSettings(section?: string): Promise<void>;
     openExternal(url: string): Promise<void>;
     openPrivacySettings(kind: 'microphone' | 'audio'): Promise<void>;
+  };
+  /** mode confidentiel : moteur de transcription local, IA locale, message aux participants */
+  local: {
+    status(): Promise<LocalStatus>;
+    install(model: 'turbo' | 'small'): Promise<LocalStatus>;
+    remove(model: 'turbo' | 'small'): Promise<LocalStatus>;
+    llm(): Promise<{ base: string; model: string } | null>;
+    notice(): Promise<string>;
   };
   calendar: {
     state(): Promise<CalendarState>;
@@ -328,7 +361,8 @@ export interface MinuteAPI {
   on(event: 'levels', cb: (l: Levels) => void): () => void;
   on(event: 'meetings', cb: () => void): () => void;
   on(event: 'ai', cb: (e: AiEvent) => void): () => void;
-  on(event: 'navigate', cb: (target: { meetingId?: string; view?: string }) => void): () => void;
+  on(event: 'localStatus', cb: (s: LocalStatus) => void): () => void;
+  on(event: 'navigate', cb: (target: { meetingId?: string; view?: string; section?: string }) => void): () => void;
   on(event: 'toast', cb: (t: { text: string; kind?: 'info' | 'success' | 'warn' | 'error' }) => void): () => void;
   on(event: 'settings', cb: (s: Settings) => void): () => void;
   on(event: 'compactLayout', cb: (l: CompactLayout) => void): () => void;

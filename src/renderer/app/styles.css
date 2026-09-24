@@ -2435,3 +2435,290 @@ button.who.voice:hover {
   font-size: 12px;
   color: var(--text-2);
 }
+
+/* ================================================================== barre de réunion : l'action principale dans le coin */
+.livebar-gap {
+  width: 4px;
+}
+.reduce-btn {
+  gap: 6px;
+}
+.reduce-btn svg {
+  width: 15px;
+  height: 15px;
+}
+/* « Terminer » : pastille rouge avec le carré d'arrêt, compacte mais sans ambiguïté */
+.stop-round {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: none;
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  color: #fff;
+  background: var(--red);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--red) 40%, transparent);
+  cursor: pointer;
+  transition:
+    transform 0.1s ease-out,
+    filter 0.12s;
+}
+.stop-round:hover {
+  filter: brightness(1.08);
+}
+.stop-round:active {
+  transform: scale(0.92);
+}
+.stop-round:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* ================================================================== bande de titre (style barre d'outils unifiée)
+   La fenêtre s'attrape par toute la bande du haut : dans la barre latérale, seule l'icône
+   « nouvelle réunion » l'interrompt ; la recherche passe juste en dessous. */
+.sidebar .sidebar-top {
+  padding: 0 10px 0 16px;
+}
+html.mac .sidebar .sidebar-top {
+  padding-left: 84px; /* feux de fenêtre */
+}
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font: 600 13px var(--font-display);
+  letter-spacing: -0.01em;
+  color: var(--text-2);
+  pointer-events: none;
+}
+html.mac .brand {
+  display: none; /* sur Mac, les feux de fenêtre tiennent ce rôle */
+}
+.sidebar-search {
+  padding: 0 12px 10px;
+}
+/* statut de la réunion : une capsule, comme l'indicateur d'enregistrement de macOS */
+.live-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 30px;
+  padding: 0 4px 0 11px;
+  border-radius: 15px;
+  background: var(--fill);
+}
+.live-status .meters {
+  margin: 0 6px 0 4px;
+}
+.livebar {
+  gap: 6px;
+}
+.livebar-gap {
+  width: 8px;
+}
+
+/* ================================================================== À propos */
+.about-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 18px 0 6px;
+}
+.about-hero svg {
+  filter: drop-shadow(0 8px 18px rgba(40, 60, 170, 0.28));
+}
+.about-hero h2 {
+  margin: 14px 0 2px;
+  font: 700 26px/1.1 var(--font-display);
+  letter-spacing: -0.02em;
+}
+.about-version {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.about-tagline {
+  margin: 10px 0 0;
+  font-size: 13.5px;
+  color: var(--text-2);
+}
+.about-links {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 22px 0 8px;
+}
+.link-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 56px;
+  padding: 0 14px 0 16px;
+  border: none;
+  border-radius: 14px;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  transition:
+    transform 0.12s ease-out,
+    box-shadow 0.18s ease,
+    filter 0.12s;
+}
+.link-card span {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  line-height: 1.25;
+}
+.link-card b {
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.005em;
+}
+.link-card small {
+  font-size: 11.5px;
+  opacity: 0.72;
+}
+.link-card .go {
+  opacity: 0.55;
+}
+.link-card:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.06);
+}
+.link-card:active {
+  transform: scale(0.98);
+  transition-duration: 0.05s;
+}
+.link-card.github {
+  background: linear-gradient(180deg, #2b3137, #1f2328);
+  color: #fff;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 1px 2px rgba(0, 0, 0, 0.2),
+    0 6px 16px rgba(31, 35, 40, 0.22);
+}
+.link-card.kofi {
+  background: linear-gradient(180deg, #ff6f6c, #f2514e);
+  color: #fff;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 1px 2px rgba(0, 0, 0, 0.15),
+    0 6px 16px rgba(242, 81, 78, 0.28);
+}
+.about-by {
+  margin: 4px 0 18px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-3);
+}
+@media (prefers-reduced-motion: reduce) {
+  .link-card:hover {
+    transform: none;
+  }
+}
+
+/* l'utilisateur : son nom en pastille rouge, texte blanc */
+.vbadge.me {
+  background: var(--red);
+  color: #fff;
+}
+
+/* ================================================================== mode confidentiel */
+.privacy-hero {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 18px;
+  margin-bottom: 18px;
+  border-radius: 14px;
+  background: var(--fill);
+  color: var(--text-2);
+  transition: background 0.3s ease;
+}
+.privacy-hero > svg {
+  flex-shrink: 0;
+}
+.privacy-hero b {
+  display: block;
+  font-size: 15px;
+  color: var(--text);
+}
+.privacy-hero p {
+  margin: 3px 0 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.privacy-hero.on {
+  background: color-mix(in srgb, var(--green) 14%, transparent);
+  color: color-mix(in srgb, var(--green) 70%, var(--text));
+}
+.check-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+}
+.check {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: inline-grid;
+  place-items: center;
+  box-shadow: inset 0 0 0 1.5px var(--sep-strong);
+  flex-shrink: 0;
+}
+.check.ok {
+  background: var(--green);
+  box-shadow: none;
+  color: #fff;
+}
+.progress {
+  position: relative;
+  height: 26px;
+  border-radius: 13px;
+  background: var(--fill);
+  overflow: hidden;
+}
+.progress i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--accent);
+  border-radius: 13px;
+  transition: width 0.25s ease;
+}
+.progress span {
+  position: relative;
+  display: block;
+  text-align: center;
+  line-height: 26px;
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  mix-blend-mode: difference;
+  color: #fff;
+}
+.segmented.wide button {
+  flex: 1;
+}
+/* repère permanent : le mode confidentiel est actif */
+.privacy-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 650;
+  color: #fff;
+  background: var(--green);
+}
+.privacy-badge svg {
+  width: 12px;
+  height: 12px;
+}

@@ -16,6 +16,7 @@ import type {
 } from '../shared/types';
 import { cleanResult, buildPrompt, isEcho, overlapping } from './filters';
 import { Budget, SttError, transcribe } from './groq';
+import { transcribeLocal } from './localStt';
 import { Voices } from './voices';
 import { settings } from './settings';
 import { newId, store } from './store';
@@ -98,7 +99,8 @@ export class Recorder {
     this.hooks.state(this.state);
   }
 
-  private notice(kind: 'info' | 'warn' | 'error', text: string | null) {
+  /** Message d'état affiché dans l'app et la Dynamic Island (null : l'effacer). */
+  notice(kind: 'info' | 'warn' | 'error', text: string | null) {
     this.state = { ...this.state, notice: text ? { kind, text } : undefined };
     this.emitState();
   }
@@ -368,7 +370,7 @@ export class Recorder {
 
   private async onInterim(meetingId: string, s: EngineSegment) {
     const key = settings().secret('groq');
-    if (!key || this.interimBusy[s.ch] || this.authBlocked) return;
+    if (settings().get().privacyMode || !key || this.interimBusy[s.ch] || this.authBlocked) return;
     const dur = s.pcm.byteLength / 32000;
     // les aperçus passent après les vraies transcriptions et ne s'accumulent jamais
     if (this.queue.length > 1 || this.budget.delayFor(dur, 'interim') > 0) return;
@@ -475,12 +477,14 @@ export class Recorder {
       this.schedule(this.holdUntil - now);
       return this.emitState();
     }
-    while (this.inflight < 2 && this.queue.length) {
+    // en local, une phrase à la fois : le processeur n'en traite pas deux plus vite
+    const parallel = settings().get().privacyMode ? 1 : 2;
+    while (this.inflight < parallel && this.queue.length) {
       const idx = this.queue.findIndex((j) => !this.busy.has(j.meetingId + j.ch));
       if (idx < 0) break;
       const job = this.queue[idx];
       const dur = fileDuration(job.file);
-      const wait = this.budget.delayFor(dur, 'final');
+      const wait = settings().get().privacyMode ? 0 : this.budget.delayFor(dur, 'final');
       if (wait > 0) {
         if (wait > 6000) this.notice('warn', 'Limite gratuite Groq atteinte : les phrases arrivent avec un peu de retard, rien n’est perdu.');
         this.schedule(wait);
@@ -513,19 +517,21 @@ export class Recorder {
     this.busy.add(busyKey);
     this.inflightSegs.add(job.segId);
     try {
-      if (!key) throw new SttError('Clé Groq manquante', 'auth');
+      const cfg = settings().get();
+      if (!key && !cfg.privacyMode) throw new SttError('Clé Groq manquante', 'auth');
       if (!existsSync(job.file)) {
         this.finalize(job, '');
         return;
       }
-      this.budget.record(dur);
-      const cfg = settings().get();
-      const r = await transcribe(
-        key,
-        readFileSync(job.file),
-        { model: cfg.sttModel, language: cfg.language, prompt: buildPrompt(this.vocabFor(job.meetingId), this.recentText(job.meetingId, job.ch)) },
-        this.budget,
-      );
+      const prompt = buildPrompt(this.vocabFor(job.meetingId), this.recentText(job.meetingId, job.ch));
+      let r;
+      if (cfg.privacyMode) {
+        // mode confidentiel : l'audio ne quitte pas l'ordinateur
+        r = await transcribeLocal(readFileSync(job.file), { model: cfg.localModel, language: cfg.language, prompt });
+      } else {
+        this.budget.record(dur);
+        r = await transcribe(key!, readFileSync(job.file), { model: cfg.sttModel, language: cfg.language, prompt }, this.budget);
+      }
       this.failures = 0;
       if (this.state.notice && this.state.notice.kind !== 'error' && !this.state.notice.text.startsWith('Plus personne')) {
         this.notice('info', null);
@@ -586,7 +592,8 @@ export class Recorder {
     if (!store.has(meetingId)) return;
     const segs = store.segments(meetingId);
     const seg = segs.find((s) => s.id === job.segId);
-    const keepAudio = settings().get().keepAudioDays !== 0;
+    // mode confidentiel : l'audio n'est jamais conservé une fois transcrit
+    const keepAudio = settings().get().keepAudioDays !== 0 && !settings().get().privacyMode;
     if (seg && !seg.pending) return this.maybeFinished(meetingId); // déjà transcrit (doublon)
     if (!seg) {
       rmSync(job.file, { force: true });

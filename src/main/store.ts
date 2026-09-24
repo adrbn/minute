@@ -191,6 +191,15 @@ export class MeetingStore {
     this.update(id, { hasAudio: false });
   }
 
+  /** Suppression définitive, sans passer par la corbeille (durée de conservation du mode confidentiel). */
+  removePermanently(id: string) {
+    const e = this.index.get(id);
+    if (!e) return;
+    this.index.delete(id);
+    this.segCache.delete(id);
+    rmSync(e.dir, { recursive: true, force: true });
+  }
+
   async remove(id: string) {
     const e = this.index.get(id);
     if (!e) return;
