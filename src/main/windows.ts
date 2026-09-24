@@ -82,6 +82,15 @@ export function createMain(): BrowserWindow {
       spellcheck: true,
     },
   });
+  // Barre des tâches Windows : sans raccourci installé (lancement de développement via electron.exe),
+  // Windows affiche l'icône d'Electron ; on lui donne explicitement celle de Minute.
+  if (isWin) {
+    main.setAppDetails({
+      appId: 'fr.minute.app',
+      appIconPath: app.isPackaged ? process.execPath : join(app.getAppPath(), 'build', 'icon.ico'),
+      appIconIndex: 0,
+    });
+  }
   secureWeb(main);
   void main.loadURL(paths.page('index'));
   main.once('ready-to-show', () => main?.show());

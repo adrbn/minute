@@ -125,6 +125,19 @@ function ShortcutInput({ value, platform, onChange }: { value: string; platform:
 }
 
 /** Une ligne de réglage : libellé (+ explication) à gauche, contrôle à droite. */
+/** Thèmes de couleur : [clé, nom, accent, fond] (aperçu des pastilles, en clair). */
+const PALETTES: [string, string, string, string][] = [
+  ['system', 'Système', 'var(--os-accent, #0a84ff)', '#f5f5f7'],
+  ['ifi', 'Institut', '#3558a2', '#f3f5f9'],
+  ['ocean', 'Océan', '#0a8aa3', '#f0f6f8'],
+  ['foret', 'Forêt', '#2f8a55', '#f2f6f1'],
+  ['corail', 'Corail', '#dd5a36', '#faf4f1'],
+  ['lavande', 'Lavande', '#7a5cd6', '#f6f4fb'],
+  ['graphite', 'Graphite', '#56565e', '#f3f3f4'],
+  ['papier', 'Papier', '#94652b', '#f5efe4'],
+  ['minuit', 'Minuit', '#2f6fe0', '#eef2f8'],
+];
+
 function Row({ label, hint, children, col }: { label: ReactNode; hint?: ReactNode; children?: ReactNode; col?: boolean }) {
   return (
     <div className={`setting ${col ? 'col' : ''}`}>
@@ -246,6 +259,23 @@ function General({ settings, update }: P) {
               </button>
             ))}
           </div>
+        </Row>
+        <Row label="Thème" col>
+          <div className="swatches" role="radiogroup" aria-label="Thème de couleur">
+            {PALETTES.map(([key, name, accent, bg]) => (
+              <button
+                key={key}
+                role="radio"
+                aria-checked={(settings.palette || 'system') === key}
+                aria-label={name}
+                title={name}
+                className={`swatch ${(settings.palette || 'system') === key ? 'active' : ''}`}
+                style={{ ['--sw-accent' as string]: accent, ['--sw-bg' as string]: bg }}
+                onClick={() => void update({ palette: key })}
+              />
+            ))}
+          </div>
+          <div className="swatch-name">{PALETTES.find(([k]) => k === (settings.palette || 'system'))?.[1]}</div>
         </Row>
         <Row label="Copier avec l’horodatage" hint="Ajoute [mm:ss] devant chaque intervention copiée.">
           <Switch on={settings.copyWithTimestamps} onChange={(v) => void update({ copyWithTimestamps: v })} />

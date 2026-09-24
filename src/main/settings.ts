@@ -52,6 +52,7 @@ export function defaultSettings(): Settings {
     nameAlerts: true,
     learned: [],
     minimizeToCompact: true,
+    palette: 'system',
     voices: true,
   };
 }

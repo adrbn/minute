@@ -172,6 +172,8 @@ export interface Settings {
   copyWithTimestamps: boolean;
   autoStopMinutes: number;
   theme: 'system' | 'light' | 'dark';
+  /** thème de couleur (« system » : accent du système) */
+  palette: string;
   calendars: CalendarSource[];
   /** rappel « la réunion commence » depuis l'agenda */
   calendarReminders: boolean;

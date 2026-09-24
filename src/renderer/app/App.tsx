@@ -35,13 +35,16 @@ export function App() {
     const html = document.documentElement;
     html.classList.add(info.platform === 'darwin' ? 'mac' : info.platform === 'win32' ? 'win' : 'linux');
     html.classList.toggle('material', info.material);
-    html.style.setProperty('--accent', info.accent);
+    html.style.setProperty('--os-accent', info.accent);
   }, [info]);
   useEffect(() => {
     if (!settings) return;
-    if (settings.theme === 'system') delete document.documentElement.dataset.theme;
-    else document.documentElement.dataset.theme = settings.theme;
-  }, [settings?.theme]); // eslint-disable-line react-hooks/exhaustive-deps
+    const html = document.documentElement;
+    if (settings.theme === 'system') delete html.dataset.theme;
+    else html.dataset.theme = settings.theme;
+    if (!settings.palette || settings.palette === 'system') delete html.dataset.palette;
+    else html.dataset.palette = settings.palette;
+  }, [settings?.theme, settings?.palette]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Une réunion qui démarre (raccourci, menu) s'affiche d'elle-même.
   useEffect(() => {

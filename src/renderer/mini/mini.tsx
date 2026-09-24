@@ -20,7 +20,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { createRoot } from 'react-dom/client';
 import { clock, durationLabel, speakerName, toTurns, turnText, voiceBadge, voiceClass, voiceLabel, voicePending } from '../../shared/transcript';
 import type { AiEvent, CalendarState, CompactLayout, Levels } from '../../shared/types';
-import { minute, useElapsed, useInfo, useLevels, useLiveState, useMeeting } from '../app/api';
+import { minute, useElapsed, useInfo, useLevels, useLiveState, useMeeting, useSettings } from '../app/api';
 import { Markdown } from '../app/components/Markdown';
 import '../app/styles.css';
 import './compact.css';
@@ -200,6 +200,7 @@ function chooseShape(shape: 'pill' | 'panel') {
 // ------------------------------------------------------------------ fenêtre compacte
 function Compact() {
   const info = useInfo();
+  const [cfg] = useSettings();
   const live = useLiveState();
   const [lay, setLay] = useState<CompactLayout | null>(null);
   const layRef = useRef<CompactLayout | null>(null);
@@ -239,12 +240,19 @@ function Compact() {
     [],
   );
 
+  // thème de couleur choisi dans les réglages
+  useEffect(() => {
+    const html = document.documentElement;
+    if (!cfg?.palette || cfg.palette === 'system') delete html.dataset.palette;
+    else html.dataset.palette = cfg.palette;
+  }, [cfg?.palette]);
+
   // plateforme + accent
   useEffect(() => {
     if (!info) return;
     const html = document.documentElement;
     html.classList.add(info.platform === 'darwin' ? 'mac' : 'win');
-    html.style.setProperty('--accent', info.accent);
+    html.style.setProperty('--os-accent', info.accent);
   }, [info]);
 
   // disposition envoyée par le process principal (forme + ancrage) — avec accusé de réception
