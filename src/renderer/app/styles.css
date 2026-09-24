@@ -31,7 +31,7 @@
   --radius-lg: 14px;
   --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
   --font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI Variable Display', 'Segoe UI', system-ui, sans-serif;
-  --mono: 'SF Mono', ui-monospace, 'Cascadia Mono', 'Cascadia Code', Consolas, monospace;
+  --mono: var(--font); /* pas de police à chasse fixe : chiffres tabulaires de la police système */
   --titlebar: 52px;
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   color-scheme: light dark;
@@ -266,7 +266,8 @@ html.mac .sidebar .titlebar {
   stroke-width: 2;
 }
 kbd {
-  font: 11px var(--mono);
+  font: 11px var(--font);
+  font-variant-numeric: tabular-nums;
   padding: 1px 5px;
   border-radius: 5px;
   background: var(--fill);
@@ -657,7 +658,8 @@ select.field {
   color: var(--them);
 }
 .turn .ts {
-  font: 11px var(--mono);
+  font: 11px var(--font);
+  font-variant-numeric: tabular-nums;
   color: var(--text-3);
   border: none;
   background: none;
@@ -851,7 +853,7 @@ select.field {
   gap: 8px;
 }
 .timer {
-  font: 600 15px var(--mono);
+  font: 600 15px var(--font);
   font-variant-numeric: tabular-nums;
   display: flex;
   align-items: center;
@@ -1110,7 +1112,8 @@ select.field {
   stroke-width: 3;
 }
 .md .tref {
-  font: 11.5px var(--mono);
+  font: 11.5px var(--font);
+  font-variant-numeric: tabular-nums;
   color: var(--accent);
   border: none;
   background: var(--accent-soft);
@@ -1454,7 +1457,8 @@ select.field {
   color: var(--red);
 }
 .shortcut-input {
-  font: 12px var(--mono);
+  font: 12px var(--font);
+  font-variant-numeric: tabular-nums;
   min-width: 180px;
   text-align: center;
   cursor: pointer;
@@ -1608,79 +1612,3 @@ select.field {
   border-radius: 4px;
 }
 
-/* ------------------------------------------------------------------ mini-fenêtre */
-html.mini body {
-  background: transparent;
-}
-html.mini:not(.material) body {
-  background: var(--elev);
-}
-.mini-root {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  border-radius: 12px;
-  overflow: hidden;
-}
-html.mac.mini .mini-root {
-  border: 1px solid var(--sep);
-}
-.mini-bar {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 8px 8px 6px 12px;
-  -webkit-app-region: drag;
-}
-.mini-bar .timer {
-  font-size: 13px;
-}
-.mini-bar .title {
-  flex: 1;
-  min-width: 0;
-  font-size: 12px;
-  color: var(--text-2);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.mini-bar .icon-btn {
-  width: 26px;
-  height: 26px;
-}
-.mini-bar .icon-btn svg {
-  width: 14px;
-  height: 14px;
-}
-.mini-lines {
-  flex: 1;
-  overflow-y: auto;
-  padding: 2px 14px 12px;
-  font-size: 13.5px;
-  line-height: 1.5;
-  user-select: text;
-}
-.mini-lines p {
-  margin: 0 0 5px;
-}
-.mini-lines b {
-  font-weight: 650;
-  margin-right: 4px;
-}
-.mini-lines .me b {
-  color: var(--me);
-}
-.mini-lines .them b {
-  color: var(--them);
-}
-.mini-lines .ghost {
-  color: var(--text-3);
-}
-.mini-idle {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  color: var(--text-2);
-}

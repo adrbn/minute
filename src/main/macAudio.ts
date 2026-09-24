@@ -50,8 +50,8 @@ function toTarget(buf: Buffer, f: Format): Buffer {
 const same = (a: Format, b: Format) => a.rate === b.rate && a.channels === b.channels && a.bits === b.bits && a.float === b.float;
 
 export function createMacSystemAudio() {
-  let proc: ChildProcessWithoutNullStreams | null = null;
-  let stopping = false;
+  // un seul processus « courant » ; chaque lancement a ses propres variables
+  let current: { proc: ChildProcessWithoutNullStreams; stopping: boolean } | null = null;
 
   return {
     async start(onPcm: (pcm: Buffer) => void, onError: (msg: string) => void) {
@@ -60,11 +60,20 @@ export function createMacSystemAudio() {
         onError('Composant audio système absent de cette version (audiotee).');
         return;
       }
-      stopping = false;
+      if (current) {
+        current.stopping = true;
+        current.proc.kill('SIGTERM');
+      }
       let gotAudio = false;
       let fmt: Format = { ...TARGET };
       let carry = Buffer.alloc(0);
-      proc = spawn(bin, ['--sample-rate', '16000', '--chunk-duration', '0.1'], { stdio: 'pipe' });
+      const proc = spawn(bin, ['--sample-rate', '16000', '--chunk-duration', '0.1'], { stdio: 'pipe' });
+      const self = { proc, stopping: false };
+      current = self;
+      proc.on('error', (err) => {
+        if (current === self) current = null;
+        if (!self.stopping) onError(`Capture du son système impossible : ${err.message}`);
+      });
 
       proc.stdout.on('data', (chunk: Buffer) => {
         gotAudio = true;
@@ -106,8 +115,8 @@ export function createMacSystemAudio() {
       });
 
       proc.on('exit', (code) => {
-        proc = null;
-        if (stopping) return;
+        if (current === self) current = null;
+        if (self.stopping) return;
         const denied = /permission|denied|not authorized|tcc/i.test(stderr);
         onError(
           denied || !gotAudio
@@ -117,9 +126,10 @@ export function createMacSystemAudio() {
       });
     },
     stop() {
-      stopping = true;
-      proc?.kill('SIGTERM');
-      proc = null;
+      if (!current) return;
+      current.stopping = true;
+      current.proc.kill('SIGTERM');
+      current = null;
     },
   };
 }

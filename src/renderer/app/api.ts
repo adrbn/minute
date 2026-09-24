@@ -32,6 +32,21 @@ export function useLevels(active: boolean): Levels {
   return l;
 }
 
+/** Qui parle en ce moment ? Ne provoque un rendu que lorsque la réponse change. */
+export function useSpeaking(active: boolean): { me: boolean; them: boolean } {
+  const [s, setS] = useState({ me: false, them: false });
+  useEffect(() => {
+    if (!active) {
+      setS({ me: false, them: false });
+      return;
+    }
+    return minute.on('levels', (l) =>
+      setS((prev) => (prev.me === l.meSpeaking && prev.them === l.themSpeaking ? prev : { me: l.meSpeaking, them: l.themSpeaking })),
+    );
+  }, [active]);
+  return s;
+}
+
 export function useMeetings(): MeetingMeta[] {
   const [list, setList] = useState<MeetingMeta[]>([]);
   useEffect(() => {

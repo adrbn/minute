@@ -23,6 +23,14 @@ if (cmd === 'shot') {
   const fs = await import('node:fs');
   fs.writeFileSync(arg, Buffer.from(r.result.data, 'base64'));
   console.log('ok', arg);
+} else if (cmd === 'click') {
+  // vrai clic souris (événements pointer/mouse natifs) au centre de l'élément ciblé
+  const q = await send('Runtime.evaluate', { expression: `(() => { const r = document.querySelector(${JSON.stringify(arg)}).getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()`, returnByValue: true });
+  const [x, y] = q.result.result.value;
+  await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
+  await send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
+  await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
+  console.log('clicked', arg, Math.round(x), Math.round(y));
 } else if (cmd === 'eval') {
   const r = await send('Runtime.evaluate', { expression: arg, awaitPromise: true, returnByValue: true, userGesture: true });
   console.log(JSON.stringify(r.result?.result?.value ?? r.result, null, 1));

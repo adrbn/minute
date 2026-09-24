@@ -117,7 +117,7 @@ export function Sidebar({
             <span className={`dot ${live.status === 'paused' ? 'paused' : 'pulse'}`} />
             {live.status === 'paused' ? 'En pause' : live.status === 'stopping' ? 'Finalisation…' : 'En direct'}
             <span className="spacer" />
-            <span style={{ fontFamily: 'var(--mono)', fontWeight: 600 }}>{clock(elapsed)}</span>
+            <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{clock(elapsed)}</span>
           </span>
           <span className="title">{liveMeta?.title ?? 'Réunion en cours'}</span>
         </button>

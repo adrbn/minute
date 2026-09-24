@@ -171,7 +171,8 @@ export async function runAi(req: AiRequest, emit: Emit): Promise<string> {
         const patch: Partial<MeetingMeta> = {
           summary: { markdown: body, generatedAt: Date.now(), provider: PROVIDER_LABEL[provider], model },
         };
-        if (title && meta.titleIsAuto) {
+        // relu maintenant : l'utilisateur a pu renommer la réunion pendant la rédaction
+        if (title && store.meta(meta.id)?.titleIsAuto) {
           patch.title = title;
           patch.titleIsAuto = false;
         }

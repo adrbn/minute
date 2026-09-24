@@ -52,7 +52,6 @@ export function MeetingView({
 }) {
   const { data, interims } = useMeeting(id);
   const isLive = live?.meetingId === id;
-  const levels = useLevels(isLive);
   const elapsed = useElapsed(isLive ? live : null);
   const [panel, setPanel] = useState(true);
   const [tab, setTab] = useState<PanelTab>(isLive ? 'notes' : 'summary');
@@ -129,7 +128,7 @@ export function MeetingView({
       { separator: true },
       { label: 'Renommer les voix…', icon: <Users />, onClick: renameSpeakers },
       { label: 'Afficher dans le dossier', icon: <FolderOpen />, onClick: () => void minute.meetings.reveal(id) },
-      ...(meta.hasAudio && !isLive
+      ...(meta.hasAudio && !isLive && !segments.some((x) => x.pending)
         ? [{ label: 'Supprimer l’audio conservé', icon: <MicOff />, onClick: () => void minute.meetings.update(id, { hasAudio: false }).then(() => toast('L’audio sera supprimé', 'success')) }]
         : []),
       { separator: true },
@@ -201,22 +200,7 @@ export function MeetingView({
               <span className={`dot ${live.status === 'paused' ? 'paused' : 'pulse'}`} />
               {clock(elapsed)}
             </div>
-            <div className="meters" title="Niveaux audio">
-              <div className={`meter me ${ch?.me.ok === false ? 'err' : ''}`} title={ch?.me.error}>
-                <Mic size={11} />
-                <span className="bar">
-                  <i style={{ width: `${Math.round(levels.me * 100)}%` }} />
-                </span>
-              </div>
-              {ch?.them.enabled && (
-                <div className={`meter them ${ch?.them.ok === false ? 'err' : ''}`} title={ch?.them.error}>
-                  <MonitorSpeaker size={11} />
-                  <span className="bar">
-                    <i style={{ width: `${Math.round(levels.them * 100)}%` }} />
-                  </span>
-                </div>
-              )}
-            </div>
+            <Meters live={live} />
             <button
               className="icon-btn"
               title={`Marquer un moment (${shortcutLabel(settings.shortcuts.bookmark, info.platform)})`}
@@ -227,8 +211,12 @@ export function MeetingView({
             <button className="icon-btn" title="Copier" onClick={copyMenu}>
               <Copy />
             </button>
-            <button className="icon-btn" title="Mini-fenêtre flottante" onClick={() => void minute.windows.toggleMini()}>
-              <PictureInPicture2 />
+            <button
+              className="btn small"
+              title={`Mode compact : sous-titres flottants, la fenêtre s’efface (${shortcutLabel(settings.shortcuts.mini, info.platform)})`}
+              onClick={() => void minute.windows.enterCompact()}
+            >
+              <PictureInPicture2 /> Compact
             </button>
             {live.status === 'paused' ? (
               <button className="btn small" onClick={() => void minute.recorder.resume()}>
@@ -239,7 +227,11 @@ export function MeetingView({
                 <Pause />
               </button>
             )}
-            <button className="btn small stop-btn" onClick={() => void minute.recorder.stop()} disabled={live.status === 'stopping'}>
+            <button
+              className="btn small stop-btn"
+              onClick={() => void minute.recorder.stop()}
+              disabled={live.status === 'stopping' || live.status === 'starting'}
+            >
               <Square fill="currentColor" size={12} /> {live.status === 'stopping' ? 'Finalisation…' : 'Terminer'}
             </button>
           </div>
@@ -323,7 +315,6 @@ export function MeetingView({
             segments={segments}
             interims={interims}
             live={isLive}
-            levels={levels}
             find={find ?? ''}
             focus={focus}
           />
@@ -342,6 +333,30 @@ export function MeetingView({
         )}
       </div>
       {menu.node}
+    </div>
+  );
+}
+
+/** Vumètres Moi / Eux : seul ce petit composant se redessine 11 fois par seconde. */
+function Meters({ live }: { live: LiveState }) {
+  const levels = useLevels(true);
+  const ch = live.channels;
+  return (
+    <div className="meters" title="Niveaux audio">
+      <div className={`meter me ${ch.me.ok === false ? 'err' : ''}`} title={ch.me.error}>
+        <Mic size={11} />
+        <span className="bar">
+          <i style={{ width: `${Math.round(levels.me * 100)}%` }} />
+        </span>
+      </div>
+      {ch.them.enabled && (
+        <div className={`meter them ${ch.them.ok === false ? 'err' : ''}`} title={ch.them.error}>
+          <MonitorSpeaker size={11} />
+          <span className="bar">
+            <i style={{ width: `${Math.round(levels.them * 100)}%` }} />
+          </span>
+        </div>
+      )}
     </div>
   );
 }

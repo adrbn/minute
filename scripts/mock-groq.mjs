@@ -51,4 +51,4 @@ createServer(async (req, res) => {
   }
   res.writeHead(404);
   res.end();
-}).listen(8765, () => console.log('mock groq on :8765'));
+}).listen(Number(process.env.PORT) || 8765, () => console.log('mock groq on :' + (Number(process.env.PORT) || 8765)));

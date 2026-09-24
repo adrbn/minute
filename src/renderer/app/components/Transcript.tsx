@@ -1,8 +1,8 @@
 import { ArrowDown, Copy, Play, Square, Star, Trash2 } from 'lucide-react';
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { clock, normalize, speakerName, toTurns, turnText, type Turn } from '../../../shared/transcript';
-import type { Bookmark, Channel, Levels, MeetingMeta, Segment } from '../../../shared/types';
-import { minute, type Interims } from '../api';
+import type { Bookmark, Channel, MeetingMeta, Segment } from '../../../shared/types';
+import { minute, useSpeaking, type Interims } from '../api';
 import { useToast } from './ui';
 
 // Lecture audio : un seul lecteur pour toute l'app.
@@ -25,7 +25,6 @@ export function Transcript({
   segments,
   interims,
   live,
-  levels,
   find,
   focus,
 }: {
@@ -33,7 +32,6 @@ export function Transcript({
   segments: Segment[];
   interims: Interims;
   live: boolean;
-  levels: Levels;
   find: string;
   focus: { t: number; key: number } | null;
 }) {
@@ -43,6 +41,8 @@ export function Transcript({
   const [playing, setPlaying] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
   const toast = useToast();
+  const speaking = useSpeaking(live);
+  const handledFocus = useRef<number | null>(null);
   const turns = useMemo(() => toTurns(segments), [segments]);
   const q = normalize(find.trim());
 
@@ -62,8 +62,8 @@ export function Transcript({
   // Défilement « collant » : suit le direct tant que l'utilisateur est en bas.
   useLayoutEffect(() => {
     const el = scroller.current;
-    if (el && stick && !focus) el.scrollTop = el.scrollHeight;
-  }, [rows, interims, stick, levels.meSpeaking, levels.themSpeaking, focus]);
+    if (el && stick) el.scrollTop = el.scrollHeight;
+  }, [rows, interims, stick, speaking]);
 
   const onScroll = () => {
     const el = scroller.current;
@@ -73,7 +73,9 @@ export function Transcript({
 
   // Aller à un instant précis (recherche, horodatage d'un compte-rendu)
   useEffect(() => {
-    if (!focus) return;
+    // chaque demande de saut n'est traitée qu'une fois : ensuite, le direct reprend la main
+    if (!focus || handledFocus.current === focus.key || !turns.length) return;
+    handledFocus.current = focus.key;
     const target = [...turns].reverse().find((t) => t.t0 <= focus.t + 1500) ?? turns[0];
     if (!target) return;
     const el = document.querySelector(`[data-turn="${target.key}"]`) as HTMLElement | null;
@@ -103,15 +105,15 @@ export function Transcript({
   };
 
   const ghost = (ch: Channel) => {
-    const speaking = ch === 'me' ? levels.meSpeaking : levels.themSpeaking;
+    const isSpeaking = speaking[ch];
     const it = interims[ch];
-    if (!live || (!speaking && !it)) return null;
+    if (!live || (!isSpeaking && !it)) return null;
     return (
       <div className={`live-row ${ch}`} key={`ghost-${ch}`}>
         <span className="who">{speakerName(meta, ch)}</span>
         <span className="body">
           {it?.text}
-          {speaking && (
+          {isSpeaking && (
             <span className="wave" style={{ color: ch === 'me' ? 'var(--me)' : 'var(--them)' }}>
               <i />
               <i />
@@ -134,7 +136,7 @@ export function Transcript({
               <p>Aucune parole transcrite dans cette réunion.</p>
             </div>
           )}
-          {!rows.length && live && !levels.meSpeaking && !levels.themSpeaking && (
+          {!rows.length && live && !speaking.me && !speaking.them && (
             <div className="empty" style={{ height: 'auto', paddingTop: 80 }}>
               <h2>À l’écoute…</h2>
               <p>Le texte apparaît ici au fil de la conversation. Vous pouvez copier à tout moment.</p>

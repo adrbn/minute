@@ -119,7 +119,8 @@ export interface Settings {
   storageDir: string;
   shortcuts: Shortcuts;
   miniHiddenFromCapture: boolean;
-  miniOnStart: boolean;
+  /** passer en mode compact au démarrage d'une réunion */
+  compactOnStart: 'never' | 'background' | 'always';
   copyWithTimestamps: boolean;
   autoStopMinutes: number;
   theme: 'system' | 'light' | 'dark';
@@ -175,6 +176,16 @@ export interface AppInfo {
   shortcutErrors: string[];
 }
 
+export type CompactShape = 'pill' | 'panel';
+/** coin (ou bord) d'écran auquel la fenêtre compacte est aimantée : t/b + l/c/r */
+export type Anchor = 'tl' | 'tc' | 'tr' | 'bl' | 'bc' | 'br';
+export interface CompactLayout {
+  shape: CompactShape;
+  anchor: Anchor;
+  margin: number;
+  pill: { w: number; h: number };
+}
+
 export interface MinuteAPI {
   info(): Promise<AppInfo>;
   settings: {
@@ -214,7 +225,15 @@ export interface MinuteAPI {
     cancel(requestId: string): Promise<void>;
   };
   windows: {
-    toggleMini(): Promise<void>;
+    toggleCompact(): Promise<void>;
+    enterCompact(): Promise<void>;
+    exitCompact(opts?: { showMain?: boolean; meetingId?: string }): Promise<void>;
+    setCompactShape(shape: CompactShape): Promise<void>;
+    compactLayout(): Promise<CompactLayout>;
+    /** déplacement direct (coordonnées écran) — vitesse en px/s au relâchement */
+    compactDrag(phase: 'start' | 'move' | 'end', x: number, y: number, vx?: number, vy?: number): void;
+    compactResize(phase: 'start' | 'move' | 'end', dx: number, dy: number): void;
+    compactAck(): void;
     showMain(meetingId?: string): Promise<void>;
     openExternal(url: string): Promise<void>;
     openPrivacySettings(kind: 'microphone' | 'audio'): Promise<void>;
@@ -232,11 +251,15 @@ export interface MinuteAPI {
   on(event: 'navigate', cb: (target: { meetingId?: string; view?: string }) => void): () => void;
   on(event: 'toast', cb: (t: { text: string; kind?: 'info' | 'success' | 'warn' | 'error' }) => void): () => void;
   on(event: 'settings', cb: (s: Settings) => void): () => void;
+  on(event: 'compactLayout', cb: (l: CompactLayout) => void): () => void;
+  on(event: 'compact', cb: (active: boolean) => void): () => void;
 }
 
 /** Pont réservé à la fenêtre invisible qui capte l'audio. */
 export interface EngineStartOptions {
   startedAt: number;
+  /** pauses déjà écoulées (reprise après un crash du moteur) */
+  pausedMs: number;
   micDeviceId: string;
   captureSystem: boolean;
   /** 'display' = boucle système via Chromium (Windows) ; 'pcm' = PCM poussé par le main (macOS / AudioTee) */

@@ -33,7 +33,8 @@ export interface RecorderHooks {
   };
   /** Réunion terminée et entièrement transcrite. */
   finished(meetingId: string): void;
-  showMini(): void;
+  /** Réunion arrêtée (la transcription peut encore se finaliser). */
+  ended(meetingId: string): void;
   showMain(meetingId?: string): void;
 }
 
@@ -60,6 +61,7 @@ export class Recorder {
   private queue: Job[] = [];
   private inflight = 0;
   private busy = new Set<string>();
+  private inflightSegs = new Set<string>();
   private wakeTimer: NodeJS.Timeout | null = null;
   private holdUntil = 0;
   private authBlocked = false;
@@ -96,8 +98,24 @@ export class Recorder {
   }
 
   // ---------------------------------------------------------------- cycle de vie
-  async start(opts: { title?: string } = {}): Promise<{ ok: boolean; error?: string }> {
-    if (this.state.status !== 'idle') return { ok: false, error: 'Un enregistrement est déjà en cours.' };
+  private startPromise: Promise<{ ok: boolean; error?: string }> | null = null;
+
+  start(opts: { title?: string } = {}): Promise<{ ok: boolean; error?: string }> {
+    if (this.state.status !== 'idle' || this.startPromise) {
+      return Promise.resolve({ ok: false, error: 'Un enregistrement est déjà en cours.' });
+    }
+    this.startPromise = this.doStart(opts).finally(() => {
+      this.startPromise = null;
+    });
+    return this.startPromise;
+  }
+
+  private systemMode(): EngineStartOptions['systemMode'] {
+    if (!settings().get().captureSystem) return 'off';
+    return process.platform === 'darwin' ? 'pcm' : 'display';
+  }
+
+  private async doStart(opts: { title?: string }): Promise<{ ok: boolean; error?: string }> {
     const cfg = settings().get();
     if (!settings().secret('groq')) {
       return { ok: false, error: 'Ajoutez votre clé Groq dans les Réglages pour transcrire.' };
@@ -133,11 +151,7 @@ export class Recorder {
     this.lastSpeechAt = now;
     this.lastInterim = { me: null, them: null };
     this.lastFinalT0 = { me: -1, them: -1 };
-    const systemMode: EngineStartOptions['systemMode'] = !cfg.captureSystem
-      ? 'off'
-      : process.platform === 'darwin'
-        ? 'pcm'
-        : 'display';
+    const systemMode = this.systemMode();
     this.state = {
       ...idleState(),
       meetingId: meta.id,
@@ -148,27 +162,53 @@ export class Recorder {
     this.emitState();
     this.hooks.meetingsChanged();
     try {
-      await this.hooks.engineStart({
-        startedAt: now,
-        micDeviceId: cfg.micDeviceId,
-        captureSystem: systemMode !== 'off',
-        systemMode,
-        livePreview: cfg.livePreview,
-      });
-      if (systemMode === 'pcm' && this.hooks.systemAudio) {
-        await this.hooks.systemAudio.start(
-          (pcm) => this.hooks.engineSend('engine:sys-pcm', pcm),
-          (msg) => this.channelStatus('them', false, msg),
-        );
-      }
+      await this.captureStart(meta.id);
     } catch (e) {
       this.channelStatus('me', false, (e as Error).message);
     }
+    if (this.state.meetingId !== meta.id) return { ok: false, error: 'Enregistrement annulé.' };
     this.state = { ...this.state, status: 'recording' };
     this.emitState();
+    if (this.silenceTimer) clearInterval(this.silenceTimer);
     this.silenceTimer = setInterval(() => this.checkSilence(), 15_000);
-    if (cfg.miniOnStart) this.hooks.showMini();
     return { ok: true };
+  }
+
+  /** (Re)lance la capture audio de la réunion en cours — au démarrage ou après un crash du moteur. */
+  private async captureStart(meetingId: string) {
+    const cfg = settings().get();
+    const s = this.state;
+    const systemMode = this.systemMode();
+    await this.hooks.engineStart({
+      startedAt: s.startedAt,
+      pausedMs: s.pausedMs + (s.pausedAt ? Date.now() - s.pausedAt : 0),
+      micDeviceId: cfg.micDeviceId,
+      captureSystem: systemMode !== 'off',
+      systemMode,
+      livePreview: cfg.livePreview,
+    });
+    if (this.state.meetingId !== meetingId) return;
+    if (systemMode === 'pcm' && this.hooks.systemAudio) {
+      await this.hooks.systemAudio.start(
+        (pcm) => this.hooks.engineSend('engine:sys-pcm', pcm),
+        (msg) => this.channelStatus('them', false, msg),
+      );
+    }
+  }
+
+  /** Le moteur audio (fenêtre cachée) a planté : on le relance sans perdre la réunion. */
+  async onEngineCrash() {
+    const id = this.state.meetingId;
+    if (!id || this.state.status === 'stopping' || this.state.status === 'idle') return;
+    this.hooks.systemAudio?.stop();
+    this.channelStatus('me', false, 'Le moteur audio a redémarré…');
+    try {
+      await this.captureStart(id);
+      if (this.state.status === 'paused') this.hooks.engineSend('engine:pause');
+      this.notice('warn', 'Le moteur audio a redémarré : quelques secondes ont pu manquer.');
+    } catch (e) {
+      this.channelStatus('me', false, `Capture interrompue : ${(e as Error).message}`);
+    }
   }
 
   pause() {
@@ -192,6 +232,8 @@ export class Recorder {
   }
 
   async stop() {
+    // « Terminer » pendant le démarrage : on laisse le démarrage aboutir, puis on arrête proprement.
+    if (this.startPromise) await this.startPromise;
     const id = this.state.meetingId;
     if (!id || this.state.status === 'stopping' || this.state.status === 'idle') return;
     const duration = this.elapsed();
@@ -211,9 +253,9 @@ export class Recorder {
     store.update(id, { status: 'done', endedAt: Date.now(), durationMs: duration });
     store.refreshStats(id);
     this.state = idleState();
-    this.state.notice = undefined;
     this.emitState();
     this.hooks.meetingsChanged();
+    this.hooks.ended(id);
     this.finishedPending.add(id);
     this.maybeFinished(id);
   }
@@ -244,7 +286,10 @@ export class Recorder {
   levels(l: Levels) {
     if (l.meSpeaking || l.themSpeaking) {
       this.lastSpeechAt = Date.now();
-      this.autoStopWarned = false;
+      if (this.autoStopWarned) {
+        this.autoStopWarned = false;
+        if (this.state.notice?.text.startsWith('Plus personne')) this.notice('info', null);
+      }
     }
     this.hooks.levels(l);
   }
@@ -351,6 +396,12 @@ export class Recorder {
       }
     }
     if (this.queue.length) this.pump();
+    // réunions interrompues déjà complètes : compactage + compte-rendu automatique
+    for (const id of [...this.finishedPending]) this.maybeFinished(id);
+  }
+
+  get busyTranscribing(): boolean {
+    return this.queue.length + this.inflight > 0;
   }
 
   retryMeeting(meetingId: string): number {
@@ -359,7 +410,7 @@ export class Recorder {
     let n = 0;
     for (const s of store.segments(meetingId)) {
       if (!s.pending || !s.audio) continue;
-      if (this.queue.some((j) => j.segId === s.id)) continue;
+      if (this.queue.some((j) => j.segId === s.id) || this.inflightSegs.has(s.id)) continue;
       const file = store.audioFile(meetingId, s.audio);
       if (file && existsSync(file)) {
         this.queue.push({ meetingId, segId: s.id, ch: s.ch, file, tries: 0 });
@@ -415,6 +466,7 @@ export class Recorder {
     const busyKey = job.meetingId + job.ch;
     this.inflight++;
     this.busy.add(busyKey);
+    this.inflightSegs.add(job.segId);
     try {
       if (!key) throw new SttError('Clé Groq manquante', 'auth');
       if (!existsSync(job.file)) {
@@ -459,6 +511,7 @@ export class Recorder {
     } finally {
       this.inflight--;
       this.busy.delete(busyKey);
+      this.inflightSegs.delete(job.segId);
       this.pump();
     }
   }
@@ -478,9 +531,12 @@ export class Recorder {
 
   private finalize(job: Job, text: string) {
     const { meetingId } = job;
+    // réunion introuvable (dossier changé, supprimée) : on ne touche à rien sur le disque
+    if (!store.has(meetingId)) return;
     const segs = store.segments(meetingId);
     const seg = segs.find((s) => s.id === job.segId);
     const keepAudio = settings().get().keepAudioDays !== 0;
+    if (seg && !seg.pending) return this.maybeFinished(meetingId); // déjà transcrit (doublon)
     if (!seg) {
       rmSync(job.file, { force: true });
       return this.maybeFinished(meetingId);

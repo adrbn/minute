@@ -42,7 +42,7 @@ export function defaultSettings(): Settings {
           mini: 'Control+Alt+T',
         },
     miniHiddenFromCapture: true,
-    miniOnStart: false,
+    compactOnStart: 'background',
     copyWithTimestamps: false,
     autoStopMinutes: 4,
     theme: 'system',

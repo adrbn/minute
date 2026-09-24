@@ -104,9 +104,15 @@ let pipes: Partial<Record<Channel, Pipe>> = {};
 let paused = false;
 let stopped = true;
 let levelTimer: number | null = null;
+/** chaque démarrage / arrêt incrémente la génération : un démarrage dépassé s'annule de lui-même */
+let generation = 0;
+/** un modèle VAD par voix, créé une fois pour toute la vie de l'app */
+const vads: Partial<Record<Channel, SileroVad>> = {};
 
 async function makePipe(ch: Channel, livePreview: boolean): Promise<Pipe> {
-  const vad = await SileroVad.create(ort, await model());
+  let vad = vads[ch];
+  if (!vad) vad = vads[ch] = await SileroVad.create(ort, await model());
+  vad.reset();
   const seg = new Segmenter((s) => {
     bridge.segment({ ch, t0: s.t0, t1: s.t1, pcm: toInt16(s.pcm), interim: s.interim });
   }, livePreview);
@@ -125,82 +131,131 @@ async function attachStream(pipe: Pipe, stream: MediaStream) {
   pipe.node.connect(mute).connect(ctx.destination);
 }
 
-async function openMic(pipe: Pipe, deviceId: string) {
-  const constraints: MediaTrackConstraints = {
-    echoCancellation: true,
-    noiseSuppression: true,
-    autoGainControl: true,
-    channelCount: 1,
-  };
-  let stream: MediaStream;
+const MIC_CONSTRAINTS: MediaTrackConstraints = {
+  echoCancellation: true,
+  noiseSuppression: true,
+  autoGainControl: true,
+  channelCount: 1,
+};
+
+async function getMic(deviceId: string): Promise<MediaStream> {
   try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      audio: deviceId ? { ...constraints, deviceId: { exact: deviceId } } : constraints,
+    return await navigator.mediaDevices.getUserMedia({
+      audio: deviceId ? { ...MIC_CONSTRAINTS, deviceId: { exact: deviceId } } : MIC_CONSTRAINTS,
     });
   } catch (e) {
     if (!deviceId) throw e;
     // micro choisi introuvable : micro par défaut
-    stream = await navigator.mediaDevices.getUserMedia({ audio: constraints });
+    return navigator.mediaDevices.getUserMedia({ audio: MIC_CONSTRAINTS });
   }
+}
+
+async function attachMic(pipe: Pipe, stream: MediaStream) {
   await attachStream(pipe, stream);
   const track = stream.getAudioTracks()[0];
   bridge.status('me', true);
+  const gen = generation;
   track.onended = () => {
-    if (stopped) return;
+    if (stopped || gen !== generation) return;
     bridge.status('me', false, 'Micro déconnecté — reconnexion au micro par défaut…');
     pipe.close();
-    setTimeout(() => {
-      if (stopped) return;
-      openMic(pipe, '').catch((err) => bridge.status('me', false, `Micro indisponible : ${(err as Error).message}`));
+    setTimeout(async () => {
+      if (stopped || gen !== generation) return;
+      try {
+        const s = await getMic('');
+        if (stopped || gen !== generation) return s.getTracks().forEach((t) => t.stop());
+        await attachMic(pipe, s);
+      } catch (err) {
+        bridge.status('me', false, `Micro indisponible : ${(err as Error).message}`);
+      }
     }, 800);
   };
 }
 
-async function openSystemLoopback(pipe: Pipe) {
+/** Son de l'ordinateur (Windows) : demandé en PREMIER, tant que le « geste utilisateur » est valide. */
+async function getLoopback(): Promise<MediaStream> {
   const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
   stream.getVideoTracks().forEach((t) => t.stop());
   const audio = stream.getAudioTracks();
   if (!audio.length) throw new Error('Aucune piste audio système');
-  await attachStream(pipe, new MediaStream(audio));
-  bridge.status('them', true);
-  audio[0].onended = () => {
-    if (!stopped) bridge.status('them', false, 'Capture du son de l’ordinateur interrompue');
-  };
+  return new MediaStream(audio);
+}
+
+function micError(e: Error): string {
+  if (e.name === 'NotAllowedError') return 'Accès au micro refusé par le système.';
+  if (e.name === 'NotFoundError') return 'Aucun micro détecté.';
+  if (e.name === 'NotReadableError') return 'Le micro est bloqué par une autre application.';
+  return `Micro indisponible : ${e.message}`;
 }
 
 async function start(o: EngineStartOptions): Promise<{ me: boolean; them: boolean }> {
   if (!stopped) await stop(false);
+  const gen = ++generation;
+  const opened: MediaStream[] = [];
+  const cancelled = () => {
+    if (gen === generation) return false;
+    opened.forEach((s) => s.getTracks().forEach((t) => t.stop()));
+    return true;
+  };
+  const result = { me: false, them: false };
+
+  // 1. son de l'ordinateur d'abord (le geste utilisateur expire au bout de quelques secondes)
+  let loopback: MediaStream | null = null;
+  let loopbackError = '';
+  if (o.captureSystem && o.systemMode === 'display') {
+    try {
+      loopback = await getLoopback();
+      opened.push(loopback);
+    } catch (e) {
+      loopbackError = (e as Error).message;
+    }
+  }
+  if (cancelled()) return result;
+
+  // 2. micro
+  let mic: MediaStream | null = null;
+  try {
+    mic = await getMic(o.micDeviceId);
+    opened.push(mic);
+  } catch (e) {
+    bridge.status('me', false, micError(e as Error));
+  }
+  if (cancelled()) return result;
+
+  // 3. chaîne audio + détection de parole
   stopped = false;
   paused = false;
   clock.startedAt = o.startedAt;
-  clock.pausedMs = 0;
+  clock.pausedMs = o.pausedMs ?? 0;
   clock.pausedAt = 0;
   ctx = new AudioContext({ sampleRate: 16000, latencyHint: 'playback' });
   await ctx.audioWorklet.addModule('./worklets/pcm-tap.js');
   if (ctx.state === 'suspended') await ctx.resume();
+  if (cancelled()) return result;
 
-  const result = { me: false, them: false };
   pipes.me = await makePipe('me', o.livePreview);
-  try {
-    await openMic(pipes.me, o.micDeviceId);
+  if (mic) {
+    await attachMic(pipes.me, mic);
     result.me = true;
-  } catch (e) {
-    bridge.status('me', false, micError(e as Error));
   }
-
   if (o.captureSystem) {
     pipes.them = await makePipe('them', o.livePreview);
     if (o.systemMode === 'display') {
-      try {
-        await openSystemLoopback(pipes.them);
+      if (loopback) {
+        await attachStream(pipes.them, loopback);
+        bridge.status('them', true);
+        loopback.getAudioTracks()[0].onended = () => {
+          if (!stopped && gen === generation) bridge.status('them', false, 'Capture du son de l’ordinateur interrompue');
+        };
         result.them = true;
-      } catch (e) {
-        bridge.status('them', false, `Son de l’ordinateur indisponible : ${(e as Error).message}`);
+      } else {
+        bridge.status('them', false, `Son de l’ordinateur indisponible : ${loopbackError}`);
       }
     } else {
       result.them = true; // le PCM arrive du process principal (AudioTee)
     }
   }
+  if (cancelled()) return result;
 
   levelTimer = window.setInterval(() => {
     const me = pipes.me?.level ?? 0;
@@ -217,14 +272,8 @@ async function start(o: EngineStartOptions): Promise<{ me: boolean; them: boolea
   return result;
 }
 
-function micError(e: Error): string {
-  if (e.name === 'NotAllowedError') return 'Accès au micro refusé par le système.';
-  if (e.name === 'NotFoundError') return 'Aucun micro détecté.';
-  if (e.name === 'NotReadableError') return 'Le micro est bloqué par une autre application.';
-  return `Micro indisponible : ${e.message}`;
-}
-
 async function stop(notify = true) {
+  generation++;
   stopped = true;
   if (levelTimer) clearInterval(levelTimer);
   levelTimer = null;
@@ -257,10 +306,11 @@ bridge.onResume(() => {
 bridge.onStop(() => void stop(true));
 bridge.onSystemPcm((buf) => pipes.them?.pcm16(buf));
 
-// Préchauffe le modèle pour un démarrage instantané.
+// Préchauffe les modèles pour un démarrage instantané.
 void model().then(async (m) => {
   try {
-    await SileroVad.create(ort, m);
+    vads.me ??= await SileroVad.create(ort, m);
+    vads.them ??= await SileroVad.create(ort, m);
   } catch (e) {
     bridge.log(`préchauffage VAD : ${(e as Error).message}`);
   }

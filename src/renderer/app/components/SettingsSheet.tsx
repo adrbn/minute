@@ -353,18 +353,31 @@ export function SettingsSheet({
           </section>
 
           <section className="group">
-            <h3>Mini-fenêtre et raccourcis</h3>
+            <h3>Mode compact et raccourcis</h3>
             <div className="card">
               <div className="setting">
                 <div className="label">
-                  Invisible dans les partages d’écran
-                  <div className="d">La mini-fenêtre n’apparaît pas quand vous partagez votre écran en visio.</div>
+                  Passer en mode compact au démarrage
+                  <div className="d">La fenêtre s’efface au profit de sous-titres flottants, discrets pendant la visio.</div>
                 </div>
-                <Switch on={settings.miniHiddenFromCapture} onChange={(v) => void update({ miniHiddenFromCapture: v })} />
+                <div className="ctl">
+                  <select
+                    className="field"
+                    value={settings.compactOnStart}
+                    onChange={(e) => void update({ compactOnStart: e.target.value as Settings['compactOnStart'] })}
+                  >
+                    <option value="background">Si Minute est en arrière-plan</option>
+                    <option value="always">Toujours</option>
+                    <option value="never">Jamais</option>
+                  </select>
+                </div>
               </div>
               <div className="setting">
-                <div className="label">Ouvrir la mini-fenêtre au démarrage d’une réunion</div>
-                <Switch on={settings.miniOnStart} onChange={(v) => void update({ miniOnStart: v })} />
+                <div className="label">
+                  Invisible dans les partages d’écran
+                  <div className="d">Le mode compact n’apparaît pas quand vous partagez votre écran en visio.</div>
+                </div>
+                <Switch on={settings.miniHiddenFromCapture} onChange={(v) => void update({ miniHiddenFromCapture: v })} />
               </div>
               <div className="setting">
                 <div className="label">Copier avec l’horodatage</div>
@@ -375,7 +388,7 @@ export function SettingsSheet({
                   ['toggleRecord', 'Démarrer / arrêter'],
                   ['copy', 'Copier la transcription'],
                   ['bookmark', 'Marquer un moment'],
-                  ['mini', 'Afficher la mini-fenêtre'],
+                  ['mini', 'Mode compact'],
                 ] as [keyof Shortcuts, string][]
               ).map(([k, label]) => (
                 <div className="setting" key={k}>
@@ -408,7 +421,12 @@ export function SettingsSheet({
                     className="btn small"
                     onClick={async () => {
                       const dir = await minute.settings.chooseStorageDir();
-                      if (dir) await update({ storageDir: dir });
+                      if (!dir) return;
+                      try {
+                        await update({ storageDir: dir });
+                      } catch (e) {
+                        toast((e as Error).message.replace(/^Error invoking remote method [^:]+: (Error: )?/, ''), 'error');
+                      }
                     }}
                   >
                     <FolderOpen /> Changer…

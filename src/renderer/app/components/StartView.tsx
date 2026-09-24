@@ -127,7 +127,7 @@ export function StartView({
             <kbd>{shortcutLabel(sc.bookmark, p)}</kbd> marquer un moment
           </span>
           <span>
-            <kbd>{shortcutLabel(sc.mini, p)}</kbd> mini-fenêtre
+            <kbd>{shortcutLabel(sc.mini, p)}</kbd> mode compact
           </span>
         </div>
       </div>

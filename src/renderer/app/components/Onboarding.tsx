@@ -229,7 +229,7 @@ export function Onboarding({
                   [<Mic key="a" size={15} />, 'Démarrer / arrêter une réunion', sc.toggleRecord],
                   [<Copy key="b" size={15} />, 'Copier toute la transcription', sc.copy],
                   [<Star key="c" size={15} />, 'Marquer un moment important', sc.bookmark],
-                  [<PictureInPicture2 key="d" size={15} />, 'Mini-fenêtre flottante', sc.mini],
+                  [<PictureInPicture2 key="d" size={15} />, 'Mode compact (sous-titres flottants)', sc.mini],
                 ] as const
               ).map(([icon, label, accel]) => (
                 <div className="row" key={label}>

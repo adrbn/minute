@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, nativeImage, nativeTheme, screen, shell, Tray } from 'electron';
+import { app, BrowserWindow, Menu, nativeImage, nativeTheme, shell, Tray } from 'electron';
 import { join } from 'node:path';
 import { release } from 'node:os';
 import { settings } from './settings';
@@ -16,16 +16,22 @@ export const paths = {
 };
 
 let main: BrowserWindow | null = null;
-let mini: BrowserWindow | null = null;
 let engine: BrowserWindow | null = null;
 let engineReady: Promise<void> | null = null;
+let onEngineCrash: () => void = () => undefined;
+let extraWindows: () => BrowserWindow[] = () => [];
+let beforeShowMain: () => void = () => undefined;
+
+export const registerExtraWindows = (fn: () => BrowserWindow[]) => (extraWindows = fn);
+export const setBeforeShowMain = (fn: () => void) => (beforeShowMain = fn);
+export const setEngineCrashHandler = (fn: () => void) => (onEngineCrash = fn);
 let tray: Tray | null = null;
 export let quitting = false;
 export function setQuitting() {
   quitting = true;
 }
 
-function secureWeb(win: BrowserWindow) {
+export function secureWeb(win: BrowserWindow) {
   // Liens externes → navigateur ; jamais de navigation dans l'app.
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:/.test(url)) void shell.openExternal(url);
@@ -41,11 +47,8 @@ const overlaySymbols = () => (nativeTheme.shouldUseDarkColors ? '#f5f5f7' : '#1d
 export function getMain() {
   return main && !main.isDestroyed() ? main : null;
 }
-export function getMini() {
-  return mini && !mini.isDestroyed() ? mini : null;
-}
 export function allUiWindows(): BrowserWindow[] {
-  return [getMain(), getMini()].filter((w): w is BrowserWindow => !!w);
+  return [getMain(), ...extraWindows()].filter((w): w is BrowserWindow => !!w);
 }
 
 export function createMain(): BrowserWindow {
@@ -104,6 +107,7 @@ export function createMain(): BrowserWindow {
 }
 
 export function showMain() {
+  beforeShowMain();
   const w = createMain();
   if (w.isMinimized()) w.restore();
   w.show();
@@ -111,70 +115,8 @@ export function showMain() {
   return w;
 }
 
-export function createMini(): BrowserWindow {
-  if (getMini()) return mini!;
-  const pos = settings().appState<{ x: number; y: number; width: number; height: number }>('miniBounds');
-  const area = screen.getPrimaryDisplay().workArea;
-  const width = pos?.width ?? 400;
-  const height = pos?.height ?? 176;
-  mini = new BrowserWindow({
-    width,
-    height,
-    x: pos?.x ?? area.x + area.width - width - 24,
-    y: pos?.y ?? area.y + 24,
-    minWidth: 300,
-    minHeight: 120,
-    maxHeight: 560,
-    show: false,
-    frame: false,
-    transparent: isMac,
-    resizable: true,
-    maximizable: false,
-    minimizable: false,
-    fullscreenable: false,
-    skipTaskbar: true,
-    alwaysOnTop: true,
-    hasShadow: true,
-    title: 'Minute — direct',
-    vibrancy: isMac ? 'hud' : undefined,
-    visualEffectState: 'active',
-    backgroundMaterial: isWin11 ? 'acrylic' : undefined,
-    backgroundColor: isMac || isWin11 ? '#00000000' : nativeTheme.shouldUseDarkColors ? '#2c2c2e' : '#ffffff',
-    webPreferences: { preload: paths.preload(), contextIsolation: true, sandbox: true },
-  });
-  mini.setAlwaysOnTop(true, 'floating');
-  if (isMac) mini.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  mini.setContentProtection(settings().get().miniHiddenFromCapture);
-  secureWeb(mini);
-  void mini.loadURL(paths.page('mini'));
-  const save = () => mini && settings().appState('miniBounds', mini.getBounds());
-  mini.on('moved', save);
-  mini.on('resized', save);
-  mini.on('closed', () => {
-    mini = null;
-  });
-  return mini;
-}
-
-export function toggleMini(force?: boolean) {
-  const existing = getMini();
-  const visible = !!existing?.isVisible();
-  const want = force ?? !visible;
-  if (!want) {
-    existing?.hide();
-    return;
-  }
-  const w = createMini();
-  if (w.webContents.isLoading()) w.once('ready-to-show', () => w.showInactive());
-  else w.showInactive();
-}
-
-export function applyMiniPrivacy(hidden: boolean) {
-  getMini()?.setContentProtection(hidden);
-}
-
 /** Fenêtre invisible qui possède les flux audio (indépendante de l'interface). */
-export function ensureEngine(onCrash: () => void): Promise<void> {
+export function ensureEngine(): Promise<void> {
   if (engine && !engine.isDestroyed() && engineReady) return engineReady;
   engine = new BrowserWindow({
     show: false,
@@ -189,13 +131,20 @@ export function ensureEngine(onCrash: () => void): Promise<void> {
       autoplayPolicy: 'no-user-gesture-required',
     },
   });
-  engine.webContents.on('render-process-gone', () => {
-    engine = null;
-    engineReady = null;
-    onCrash();
+  const self = engine;
+  engineReady = new Promise<void>((resolve, reject) => {
+    self.webContents.once('did-finish-load', () => resolve());
+    self.webContents.once('did-fail-load', (_e, code, desc) => reject(new Error(`Moteur audio : ${desc} (${code})`)));
+    self.webContents.once('render-process-gone', () => reject(new Error('Le moteur audio s’est arrêté')));
   });
-  engineReady = new Promise<void>((resolve) => {
-    engine!.webContents.once('did-finish-load', () => resolve());
+  engineReady.catch(() => undefined);
+  self.webContents.on('render-process-gone', () => {
+    if (engine === self) {
+      engine = null;
+      engineReady = null;
+    }
+    if (!self.isDestroyed()) self.destroy();
+    onEngineCrash();
   });
   void engine.loadURL(paths.page('engine'));
   return engineReady;
@@ -219,6 +168,7 @@ export function engineWebContentsId(): number | null {
 // ------------------------------------------------------------------ zone de notification
 export interface TrayActions {
   recording: () => 'idle' | 'recording' | 'paused' | 'busy';
+  compact: () => boolean;
   toggleRecord: () => void;
   pauseResume: () => void;
   bookmark: () => void;
@@ -268,7 +218,7 @@ export function refreshTray() {
       { label: state === 'paused' ? 'Reprendre' : 'Pause', enabled: live, click: a.pauseResume },
       { label: 'Marquer un moment', accelerator: accel(sc.bookmark), registerAccelerator: false, enabled: live, click: a.bookmark },
       { label: 'Copier la transcription', accelerator: accel(sc.copy), registerAccelerator: false, click: a.copy },
-      { label: 'Mini-fenêtre', accelerator: accel(sc.mini), registerAccelerator: false, click: a.mini },
+      { label: 'Mode compact', type: 'checkbox', checked: a.compact(), accelerator: accel(sc.mini), registerAccelerator: false, click: a.mini },
       { type: 'separator' },
       { label: 'Ouvrir Minute', click: () => showMain() },
       { label: 'Quitter Minute', click: a.quit },

@@ -15,10 +15,21 @@ import {
   type IpcMainInvokeEvent,
 } from 'electron';
 import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { relative, resolve, isAbsolute } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { AiRequest, EngineSegment, Levels, LlmProvider, SecretName, Settings } from '../shared/types';
 import { cancelAi, runAi } from './ai';
+import {
+  applyCompactPrivacy,
+  enterCompact,
+  exitCompact,
+  initCompact,
+  isCompact,
+  layout as compactLayout,
+  onCompactChange,
+  setShape as setCompactShape,
+  toggleCompact,
+} from './compact';
 import { copyMeeting, exportMeeting } from './exporter';
 import { transcribe } from './groq';
 import { listModels } from './llm';
@@ -30,19 +41,19 @@ import { store } from './store';
 import { pcm16ToWav } from './wav';
 import {
   allUiWindows,
-  applyMiniPrivacy,
   createMain,
   createTray,
   engineSend,
   engineStart,
   engineWebContentsId,
+  getMain,
   ensureEngine,
   isWin11,
   paths,
   refreshTray,
+  setEngineCrashHandler,
   setQuitting,
   showMain,
-  toggleMini,
 } from './windows';
 
 const isMac = process.platform === 'darwin';
@@ -87,9 +98,7 @@ const recorder = new Recorder({
   meetingsChanged: () => broadcast('meetings'),
   toast,
   engineStart: async (o) => {
-    await ensureEngine(() => {
-      if (recorder.state.status !== 'idle') recorder.channelStatus('me', false, 'Le moteur audio s’est arrêté');
-    });
+    await ensureEngine();
     await engineStart(o);
   },
   engineSend,
@@ -102,7 +111,7 @@ const recorder = new Recorder({
       if (e.done) broadcast('meetings');
     });
   },
-  showMini: () => toggleMini(true),
+  ended: () => undefined,
   showMain: (id) => {
     showMain();
     if (id) broadcast('navigate', { meetingId: id });
@@ -114,13 +123,14 @@ const actions = {
   async toggleRecord() {
     const st = recorder.state.status;
     if (st === 'idle') {
+      const inBackground = !BrowserWindow.getFocusedWindow();
       const r = await recorder.start();
       if (!r.ok) {
         showMain();
         toast(r.error ?? 'Impossible de démarrer', 'error');
       } else {
-        notify('Enregistrement démarré', 'Minute transcrit la réunion en direct.');
         broadcast('navigate', { meetingId: recorder.state.meetingId ?? undefined });
+        if (!maybeCompactOnStart(inBackground)) notify('Enregistrement démarré', 'Minute transcrit la réunion en direct.');
       }
     } else if (st === 'recording' || st === 'paused') {
       await recorder.stop();
@@ -142,9 +152,19 @@ const actions = {
     notify('Transcription copiée', `${words.toLocaleString('fr-FR')} mots dans le presse-papiers.`);
   },
   mini() {
-    toggleMini();
+    toggleCompact();
   },
 };
+
+/** Mode compact au démarrage : « toujours », ou seulement quand Minute est en arrière-plan. */
+function maybeCompactOnStart(inBackground: boolean): boolean {
+  const pref = settings().get().compactOnStart;
+  if (pref === 'always' || (pref === 'background' && inBackground)) {
+    enterCompact();
+    return true;
+  }
+  return false;
+}
 
 // ------------------------------------------------------------------ raccourcis globaux
 let shortcutErrors: string[] = [];
@@ -184,13 +204,16 @@ function wireIpc() {
   handle('settings:get', () => settings().get());
   handle('settings:set', (_e, patch: Partial<Settings>) => {
     const before = settings().get();
+    if (patch.storageDir && patch.storageDir !== before.storageDir && (recorder.state.meetingId || recorder.busyTranscribing)) {
+      throw new Error('Impossible de changer de dossier pendant un enregistrement ou une transcription en cours.');
+    }
     const next = settings().set(patch);
     if (patch.storageDir && patch.storageDir !== before.storageDir) {
       store.load(next.storageDir);
       broadcast('meetings');
     }
     if (patch.shortcuts) registerShortcuts(next);
-    if (patch.miniHiddenFromCapture !== undefined) applyMiniPrivacy(next.miniHiddenFromCapture);
+    if (patch.miniHiddenFromCapture !== undefined) applyCompactPrivacy(next.miniHiddenFromCapture);
     if (patch.theme) nativeTheme.themeSource = next.theme;
     broadcast('settings', next);
     refreshTray();
@@ -272,8 +295,10 @@ function wireIpc() {
   handle('meetings:retry', (_e, id: string) => recorder.retryMeeting(id));
 
   handle('recorder:state', () => recorder.state);
-  handle('recorder:start', async (_e, opts) => {
+  handle('recorder:start', async (e, opts) => {
+    const fromCompact = e.sender !== getMain()?.webContents;
     const r = await recorder.start(opts);
+    if (r.ok && !fromCompact) maybeCompactOnStart(false);
     return r;
   });
   handle('recorder:stop', () => recorder.stop());
@@ -289,7 +314,14 @@ function wireIpc() {
   );
   handle('ai:cancel', (_e, id: string) => cancelAi(id));
 
-  handle('windows:toggleMini', () => toggleMini());
+  handle('compact:toggle', () => toggleCompact());
+  handle('compact:enter', () => enterCompact());
+  handle('compact:exit', (_e, opts?: { showMain?: boolean; meetingId?: string }) => {
+    exitCompact({ showMain: opts?.showMain });
+    if (opts?.meetingId) broadcast('navigate', { meetingId: opts.meetingId });
+  });
+  handle('compact:shape', (_e, shape: 'pill' | 'panel') => setCompactShape(shape));
+  handle('compact:layout', () => compactLayout());
   handle('windows:showMain', (_e, meetingId?: string) => {
     showMain();
     if (meetingId) broadcast('navigate', { meetingId });
@@ -370,7 +402,7 @@ function buildAppMenu() {
       {
         label: 'Présentation',
         submenu: [
-          { label: 'Mini-fenêtre', click: () => toggleMini() },
+          { label: 'Mode compact', click: () => toggleCompact() },
           { type: 'separator' },
           { role: 'resetZoom', label: 'Taille réelle' },
           { role: 'zoomIn', label: 'Agrandir' },
@@ -407,7 +439,8 @@ app.whenReady().then(() => {
   protocol.handle('app', (req) => {
     const { pathname } = new URL(req.url);
     const file = resolve(rendererRoot, `.${decodeURIComponent(pathname)}`);
-    if (!file.startsWith(rendererRoot) || !existsSync(file)) return new Response('introuvable', { status: 404 });
+    const rel = relative(rendererRoot, file);
+    if (!rel || rel.startsWith('..') || isAbsolute(rel) || !existsSync(file)) return new Response('introuvable', { status: 404 });
     return net.fetch(pathToFileURL(file).toString());
   });
 
@@ -444,6 +477,7 @@ app.whenReady().then(() => {
   registerShortcuts(cfg);
   settings().onChange(() => refreshTray());
   createTray({
+    compact: isCompact,
     recording: () => {
       const s = recorder.state.status;
       return s === 'recording' || s === 'paused' ? s : s === 'idle' ? 'idle' : 'busy';
@@ -456,7 +490,13 @@ app.whenReady().then(() => {
     quit: () => app.quit(),
   });
   createMain();
-  void ensureEngine(() => undefined);
+  initCompact();
+  onCompactChange((active) => {
+    broadcast('compact', active);
+    refreshTray();
+  });
+  setEngineCrashHandler(() => void recorder.onEngineCrash());
+  void ensureEngine().catch(() => undefined);
   recorder.recover();
 
   app.on('activate', () => showMain());

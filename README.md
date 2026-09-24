@@ -17,7 +17,7 @@ Windows 10/11 et macOS 14.2+ (Apple Silicon et Intel).
 | **« Vous avez décroché ? »** | Rattrapage des 2, 5 ou 10 dernières minutes en un clic, en signalant d'abord si on attend quelque chose de vous. |
 | **Demander à la réunion** | « Qu'a-t-on décidé pour le budget ? » : réponse avec renvoi aux moments précis. |
 | **Compte-rendu automatique** | À la fin : titre, en bref, décisions, actions (cases à cocher), points clés, questions ouvertes. Puis l'**e-mail de suivi** en un clic. |
-| **Mini-fenêtre flottante** | `Ctrl+Alt+T` / `⌃⌥⌘T` : les dernières phrases toujours visibles, **invisible lors d'un partage d'écran**. |
+| **Mode compact** | `Ctrl+Alt+T` / `⌃⌥⌘T` : la fenêtre s’efface au profit d’une **Dynamic Island** flottante (chrono, ondes Moi/Eux, ★, copier). Un clic la déplie en **panneau de sous-titres** façon Sous-titres en direct de macOS, avec le rattrapage intégré au fil. Se déplace comme l’image dans l’image : on la lance, elle file vers le coin le plus proche. Ne vole jamais le focus à la visio, **invisible lors d’un partage d’écran**. |
 | **Historique et recherche** | Toutes les réunions, recherche plein texte insensible aux accents, saut direct au passage. |
 | **Réécouter** | Clic sur l'horodatage d'un passage (audio conservé 30 jours par défaut). |
 | **Corriger** | Double-clic sur une phrase pour la corriger. Vocabulaire personnalisé (noms, sigles) pour que Whisper les écrive juste. |
@@ -89,7 +89,8 @@ src/
   renderer/
     engine/    fenêtre invisible : capture micro + son système, Silero VAD, découpage en phrases
     app/       interface principale (React)
-    mini/      mini-fenêtre flottante
+    mini/      mode compact (Dynamic Island + panneau de sous-titres)
+  main/compact.ts  fenêtre compacte : modes exclusifs, lancer façon PiP, morphing ancré
   shared/      types et mise en forme communs (ce qu'on voit = ce qu'on copie)
 ```
 
