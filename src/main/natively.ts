@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { MeetingMeta, NativelyInfo, Segment } from '../shared/types';
+import { t } from '../shared/i18n';
 import { isHallucination, stripHallucinations } from './filters';
 import { settings } from './settings';
 import { store } from './store';
@@ -78,28 +79,29 @@ function summaryToMarkdown(raw: string | null): { md: string; followUp?: string 
   const d = s.detailedSummary ?? {};
   const out: string[] = [];
   const brief = d.overview || (d.tldr ?? []).join(' ');
-  if (brief) out.push('## En bref', brief, '');
-  if (d.decisions?.length) out.push('## Décisions', ...d.decisions.map((x) => `- ${x.text}`), '');
+  // titres du compte-rendu importé : dans la langue de l'interface
+  if (brief) out.push(`## ${t('En bref')}`, brief, '');
+  if (d.decisions?.length) out.push(`## ${t('Décisions')}`, ...d.decisions.map((x) => `- ${x.text}`), '');
   const actions = d.actionItemsV3?.length ? d.actionItemsV3 : d.actionItemsStructured?.length ? d.actionItemsStructured : null;
   if (actions) {
-    out.push('## Actions', ...actions.map((a) => `- [ ] ${a.owner ? `**${a.owner}** — ` : ''}${a.text}${a.deadline ? ` (${a.deadline})` : ''}`), '');
+    out.push(`## ${t('Actions')}`, ...actions.map((a) => `- [ ] ${a.owner ? `**${a.owner}** — ` : ''}${a.text}${a.deadline ? ` (${a.deadline})` : ''}`), '');
   } else if (d.actionItems?.length) {
-    out.push('## Actions', ...d.actionItems.map((a) => `- [ ] ${a}`), '');
+    out.push(`## ${t('Actions')}`, ...d.actionItems.map((a) => `- [ ] ${a}`), '');
   }
   const sections = d.sectionsV3?.length
     ? d.sectionsV3.map((x) => ({ title: x.title, bullets: x.bullets.map((b) => b.text) }))
     : d.sections ?? [];
   if (sections.length || d.keyPoints?.length) {
-    out.push('## Points clés');
+    out.push(`## ${t('Points clés')}`);
     for (const sec of sections) out.push(`### ${sec.title}`, ...sec.bullets.map((b) => `- ${b}`));
     if (!sections.length) out.push(...(d.keyPoints ?? []).map((k) => `- ${k}`));
     out.push('');
   }
-  if (d.openQuestions?.length) out.push('## Questions ouvertes', ...d.openQuestions.map((q) => `- ${q.text}`), '');
+  if (d.openQuestions?.length) out.push(`## ${t('Questions ouvertes')}`, ...d.openQuestions.map((q) => `- ${q.text}`), '');
   let md = out.join('\n').trim();
   if (!md && s.legacySummary) md = s.legacySummary.trim();
   const f = d.followUpDraft;
-  const followUp = typeof f === 'string' ? f : f?.body ? `Objet : ${f.subject ?? ''}\n\n${f.body}` : undefined;
+  const followUp = typeof f === 'string' ? f : f?.body ? `${t('Objet : {subject}', { subject: f.subject ?? '' })}\n\n${f.body}` : undefined;
   return { md, followUp: followUp || undefined };
 }
 
@@ -144,7 +146,7 @@ export function importNatively(): { imported: number; skipped: number } {
       const duration = Number(m.duration_ms) || (segments.length ? segments[segments.length - 1].t1 : 0);
       const meta: MeetingMeta = {
         id: `nat${nid.replace(/[^a-zA-Z0-9]/g, '').slice(0, 32)}`,
-        title: String(m.title || 'Réunion importée'),
+        title: String(m.title || t('Réunion importée')),
         titleIsAuto: false,
         startedAt,
         endedAt: startedAt + duration,

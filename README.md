@@ -1,284 +1,227 @@
 <div align="center">
 
-<img src="build/icon.png" width="120" alt="Icône de Minute">
+<img src="build/icon.png" width="128" height="128" alt="Minute icon" />
 
 # Minute
 
-**Vos réunions, transcrites en direct — et rien ne vous échappe.**
+### Your meetings, transcribed live.
 
-Transcription en direct, reconnaissance de qui parle, compte-rendu en un clic,<br>
-une Dynamic Island qui vous suit dans Teams, Zoom ou Meet. Pour Windows et macOS.
+Minute writes down every word while people are still talking — and knows who said what.<br/>
+Copy any part, catch up on what you missed, ask the meeting a question, get the summary. Without leaving your call.
 
-[![Dernière version](https://img.shields.io/github/v/release/adrbn/minute?label=version&color=3558A2&style=flat-square)](https://github.com/adrbn/minute/releases/latest)
-[![Téléchargements](https://img.shields.io/github/downloads/adrbn/minute/total?label=t%C3%A9l%C3%A9chargements&color=3558A2&style=flat-square)](https://github.com/adrbn/minute/releases)
-[![Windows 10 et 11](https://img.shields.io/badge/Windows-10%20%C2%B7%2011-0078D6?logo=windows&logoColor=white&style=flat-square)](#installer)
-[![macOS 14.2 et plus](https://img.shields.io/badge/macOS-14.2%2B-111111?logo=apple&logoColor=white&style=flat-square)](#installer)
-[![Licence MIT](https://img.shields.io/badge/licence-MIT-2EA44F?style=flat-square)](LICENSE)
-[![Gratuit](https://img.shields.io/badge/prix-gratuit-2EA44F?style=flat-square)](#pourquoi-minute)
-[![Soutenir sur Ko-fi](https://img.shields.io/badge/Ko--fi-offrir%20un%20caf%C3%A9-FF5E5B?logo=ko-fi&logoColor=white&style=flat-square)](https://ko-fi.com/adrbn)
+<br/>
 
-<br>
-
-[![Télécharger pour Windows](https://img.shields.io/badge/T%C3%A9l%C3%A9charger-Windows-0078D6?logo=windows&logoColor=white&style=for-the-badge)](https://github.com/adrbn/minute/releases/latest/download/Minute-Setup-Windows.exe)
+<a href="https://github.com/adrbn/minute/releases/latest/download/Minute-Setup-Windows.exe"><img src="docs/images/download-windows.png" width="260" height="50" alt="Download for Windows" /></a>
 &nbsp;
-[![Télécharger pour Mac (Apple Silicon)](https://img.shields.io/badge/T%C3%A9l%C3%A9charger-Mac%20Apple%20Silicon-111111?logo=apple&logoColor=white&style=for-the-badge)](https://github.com/adrbn/minute/releases/latest/download/Minute-macOS-arm64.dmg)
-&nbsp;
-[![Télécharger pour Mac (Intel)](https://img.shields.io/badge/T%C3%A9l%C3%A9charger-Mac%20Intel-555555?logo=apple&logoColor=white&style=for-the-badge)](https://github.com/adrbn/minute/releases/latest/download/Minute-macOS-x64.dmg)
+<a href="https://github.com/adrbn/minute/releases/latest/download/Minute-macOS-arm64.dmg"><img src="docs/images/download-macos.png" width="247" height="50" alt="Download for macOS" /></a>
 
-<br><br>
+<sub>Windows 10 and 11 · macOS 14.2 or later (<a href="https://github.com/adrbn/minute/releases/latest/download/Minute-macOS-x64.dmg">Intel Mac</a>) · Free and open source · <a href="README.fr.md">Lire en français</a></sub>
 
-<img src="docs/images/hero.png" alt="Minute : une réunion transcrite, chaque voix reconnue, le compte-rendu à côté ; la Dynamic Island en direct devant" width="920">
+[![Latest release](https://img.shields.io/github/v/release/adrbn/minute?label=release&color=3558A2)](https://github.com/adrbn/minute/releases/latest)
+[![Windows and macOS](https://img.shields.io/badge/Windows%20%C2%B7%20macOS-3558A2)](#install)
+[![License: MIT](https://img.shields.io/badge/license-MIT-3558A2)](LICENSE)
+
+<br/>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/hero-dark.png">
+  <img src="docs/images/hero-light.png" width="900" alt="Minute: a meeting transcribed live, each voice in its own colour, the summary alongside, and the Dynamic Island floating in front" />
+</picture>
 
 </div>
 
----
+## The problem
 
-## Pourquoi Minute
+Most note-takers make you wait until the meeting is over to see a single line. Until then you can't copy
+what was just decided, you can't check a figure, and if your mind wandered for two minutes, it's gone.
 
-Les outils de prise de notes vous font attendre la fin de la réunion pour voir le texte. Minute l'écrit **pendant**
-que l'on parle : vous copiez une phrase, vous rattrapez ce que vous avez manqué, vous posez une question à la
-réunion — sans jamais quitter votre visio.
+Minute writes the transcript **during** the meeting, about a second after each sentence. It listens to your
+microphone and to your computer's audio separately — so it works with Teams, Zoom, Meet or anything else,
+without joining the call as a bot.
 
-- **Libre et gratuit.** Pas de compte, pas d'abonnement. La transcription passe par Groq, dont l'offre
-  gratuite suffit pour des heures de réunion par jour.
-- **Vos réunions restent chez vous.** Tout est rangé sur votre ordinateur, dans des dossiers lisibles.
-- **Pensé comme une app Apple.** Discret, rapide, soigné jusqu'aux animations.
+## What it does
 
-## Ce que Minute fait pour vous
+**Live transcript, with who's speaking.** Every voice is recognised by its timbre, on your computer, and gets
+its own colour. Click a voice to name it — or let **Guess who's speaking** work it out from the conversation
+("Priya, can you…" → it's Priya who answers).
 
-| | |
-|---|---|
-| **Transcription en direct** | Votre micro et le son de l'ordinateur (Teams, Zoom, Meet…) captés séparément. Le texte arrive environ une seconde après chaque phrase. |
-| **Qui parle** | Chaque voix est reconnue à son timbre, sur votre ordinateur : pastilles de couleur Ⓐ Ⓑ Ⓒ. Un clic pour la nommer ; **Deviner qui parle** propose les prénoms d'après la conversation. |
-| **Plusieurs langues** | Français, anglais, italien… dans la même réunion : chaque phrase reste dans sa langue. |
-| **Copier à tout moment** | Tout, les 5 ou 10 dernières minutes, depuis un moment marqué — en texte et mis en forme pour Outlook, Word ou Teams. |
-| **Rattrapage** | « Vous avez décroché ? » : les 2, 5 ou 10 dernières minutes en quelques puces, en commençant par ce qu'on attend de vous. |
-| **Demander à la réunion** | « Qu'a-t-on décidé pour le budget ? » — la réponse renvoie aux moments précis, même sur une réunion de deux heures. |
-| **Compte-rendu** | En bref, décisions, actions (cases à cocher), points clés, questions ouvertes. Puis l'e-mail de suivi en un clic. |
-| **Dynamic Island** | La fenêtre s'efface pendant la réunion : une pastille flottante montre la dernière phrase. Dépliée : sous-titres, notes et questions, sans rouvrir l'app. |
-| **Agenda** | Google Agenda ou lien iCal : la prochaine réunion est prête à transcrire, titre et participants compris. |
-| **Rangement** | Recherche dans toutes les réunions, archives, corbeille récupérable 30 jours, fusion et séparation de réunions. |
-| **Mode confidentiel** | Transcription 100 % locale, aucune connexion vers l'extérieur, pas d'audio conservé, suppression automatique (Windows). |
-| **Mises à jour automatiques** | Minute se met à jour tout seul, jamais pendant une réunion. |
+**Several languages in one meeting.** French, English, Italian… each sentence stays in the language it was spoken in.
+
+**The Dynamic Island.** During a meeting the window steps aside: a floating pill shows the last sentence. Open it for
+live captions, quick notes and questions — without bringing Minute back.
 
 <div align="center">
-<br>
-<img src="docs/images/island.png" alt="La Dynamic Island : en pastille avec la dernière phrase, et dépliée en sous-titres" width="420">
-&nbsp;&nbsp;
-<img src="docs/images/dark.png" alt="Minute en mode sombre, thème Minuit" width="440">
-<br><sub>La Dynamic Island, en pastille ou en sous-titres · le mode sombre (9 thèmes de couleur)</sub>
+<img src="docs/images/island.png" width="380" alt="The Dynamic Island: as a pill with the latest sentence, and open with live captions" />
 </div>
 
-## Installer
+**Catch up, ask, summarise.** "What did I miss?" gives you the last 2, 5 or 10 minutes in a few bullets, starting with
+anything that needs you. "What did we decide about the budget?" answers with links to the exact moments — even in a
+two-hour meeting. At the end: summary, decisions, action items, key points, open questions, and the follow-up email.
 
-**Windows 10 ou 11** — téléchargez [`Minute-Setup-Windows.exe`](https://github.com/adrbn/minute/releases/latest/download/Minute-Setup-Windows.exe)
-et lancez-le. L'installation se fait pour votre compte, sans droits administrateur.
+**Copy anything, any time.** The whole meeting, the last 5 or 10 minutes, or since a marked moment — as plain text
+or formatted for Outlook, Word or Teams.
 
-> Windows peut afficher « Windows a protégé votre ordinateur » (l'app n'est pas encore signée par un
-> certificat payant) : cliquez **Informations complémentaires**, puis **Exécuter quand même**.
+**Your calendar.** Google Calendar or any iCal link: the next meeting is ready to record, with its title and attendees.
+Minute can remind you 10 and 5 minutes before.
 
-**macOS 14.2 ou plus récent** — téléchargez le `.dmg` qui correspond à votre Mac
-([Apple Silicon](https://github.com/adrbn/minute/releases/latest/download/Minute-macOS-arm64.dmg), puces M1 à M4 ;
-[Intel](https://github.com/adrbn/minute/releases/latest/download/Minute-macOS-x64.dmg)), puis glissez Minute dans
-**Applications**.
+**Private mode.** For sensitive meetings (Windows): transcription runs 100 % on your computer, every outside
+connection is blocked, no audio is kept, and meetings are deleted after the retention period you choose.
 
-> Au premier lancement, faites un clic droit sur Minute › **Ouvrir**. Si macOS indique que l'app est
-> « endommagée », ouvrez le Terminal et tapez : `xattr -cr /Applications/Minute.app`.
-> Au premier enregistrement, autorisez le **Micro** et l'**Enregistrement audio du système**.
+<div align="center">
+<img src="docs/images/private-mode.png" width="600" alt="Settings › Privacy: private mode and what it guarantees" />
+</div>
 
-Toutes les versions : [page des versions](https://github.com/adrbn/minute/releases).
+**And the details.** Search across all your meetings · archive and a 30-day trash · merge or split meetings ·
+9 colour themes, light and dark · automatic updates (never during a meeting) · report a problem in one click ·
+English, French and Italian interface.
 
-## Démarrer en deux minutes
+## Install
 
-1. **Créez votre clé Groq** (gratuite, une minute — [guide ci-dessous](#groq--la-transcription-gratuit)) et collez-la
-   au premier lancement.
-2. Vérifiez que la barre de niveau de votre micro bouge.
-3. Cliquez sur le bouton rouge — ou `Ctrl+Alt+R` depuis n'importe quelle application. C'est tout.
+**Windows 10 or 11** — download [`Minute-Setup-Windows.exe`](https://github.com/adrbn/minute/releases/latest/download/Minute-Setup-Windows.exe)
+and run it. It installs for your account, no admin rights needed.
 
-Pendant la réunion, cliquez **Réduire** : Minute se range dans sa Dynamic Island et vous laisse votre visio.
+> Windows may say "Windows protected your PC" (the app isn't signed with a paid certificate yet):
+> click **More info**, then **Run anyway**.
 
-## Guides : clés et connexions
+**macOS 14.2 or later** — download the `.dmg` for your Mac
+([Apple Silicon](https://github.com/adrbn/minute/releases/latest/download/Minute-macOS-arm64.dmg) or
+[Intel](https://github.com/adrbn/minute/releases/latest/download/Minute-macOS-x64.dmg)) and drag Minute to **Applications**.
 
-Minute n'a pas de serveur : il utilise **vos** clés, gardées chiffrées par votre système (DPAPI sous Windows,
-Trousseau sous macOS). Une seule est nécessaire : Groq.
+> The first time, right-click Minute › **Open**. If macOS says the app is damaged, run
+> `xattr -cr /Applications/Minute.app` in Terminal. On your first recording, allow **Microphone** and
+> **System Audio Recording**.
 
-### Groq — la transcription (gratuit)
+## Get started
 
-1. Ouvrez **[console.groq.com](https://console.groq.com)** et connectez-vous (compte Google ou e-mail).
-2. Menu **API Keys › Create API Key**, donnez-lui un nom (« Minute »), validez.
-3. Copiez la clé (elle commence par `gsk_`) — elle ne sera plus affichée.
-4. Dans Minute : **Réglages › Transcription › Clé Groq**, collez, **Enregistrer**. Un ✓ confirme qu'elle marche.
+1. **Get a free Groq key** — one minute, see below — and paste it when Minute asks.
+2. Check that your microphone's level bar moves.
+3. Click the red button, or press <kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>R</kbd> from any app.
 
-L'offre gratuite autorise 20 requêtes par minute et environ deux heures d'audio par heure : Minute gère ce
-budget tout seul. Au pire, les phrases arrivent avec quelques secondes de retard, **sans rien perdre**.
-La même clé sert aussi aux comptes-rendus.
+During the meeting, click **Minimize**: Minute tucks itself into its Dynamic Island and leaves you your call.
 
-### Comptes-rendus avec une autre IA (facultatif)
+## Keys and connections
 
-Dans **Réglages › Intelligence**, choisissez le fournisseur et collez sa clé :
+Minute has no server and no account: it uses **your** keys, kept encrypted by your system (DPAPI on Windows,
+Keychain on macOS). Only one is required.
 
-| Fournisseur | Où créer la clé | À savoir |
+### Groq — transcription (free)
+
+1. Go to **[console.groq.com](https://console.groq.com)** and sign in.
+2. Open **API Keys › Create API Key**, name it "Minute", confirm.
+3. Copy the key (it starts with `gsk_`) — it won't be shown again.
+4. In Minute: **Settings › Transcription › Groq key**, paste, **Save**. A ✓ confirms it works.
+
+The free tier allows 20 requests per minute and about two hours of audio per hour; Minute manages that budget for
+you. At worst, sentences arrive a few seconds late — nothing is ever lost. The same key also writes the summaries.
+
+### Summaries with another AI (optional)
+
+Choose the provider in **Settings › Intelligence** and paste its key:
+
+| Provider | Where to get a key | Good to know |
 |---|---|---|
-| **Groq** | déjà fait | Gratuit, très rapide. Par défaut. |
-| **Claude** (Anthropic) | [console.anthropic.com › API Keys](https://console.anthropic.com/settings/keys) | La meilleure qualité rédactionnelle en français. Payant à l'usage (quelques centimes par compte-rendu). |
-| **Gemini** (Google) | [aistudio.google.com › Get API key](https://aistudio.google.com/apikey) | Offre gratuite généreuse, très long contexte. |
-| **OpenAI** | [platform.openai.com › API keys](https://platform.openai.com/api-keys) | Modèles GPT. Payant à l'usage. |
+| **Groq** | already done | Free and fast. The default. |
+| **Claude** (Anthropic) | [console.anthropic.com › API Keys](https://console.anthropic.com/settings/keys) | The best writing quality. Pay as you go (a few cents per summary). |
+| **Gemini** (Google) | [aistudio.google.com › Get API key](https://aistudio.google.com/apikey) | Generous free tier, very long context. |
+| **OpenAI** | [platform.openai.com › API keys](https://platform.openai.com/api-keys) | GPT models. Pay as you go. |
 
-### Google Agenda
+### Google Calendar
 
-**La façon la plus simple : un lien iCal** (lecture seule, aucun réglage chez Google).
-Dans Google Agenda : **Paramètres › [votre agenda] › Intégrer l'agenda › Adresse secrète au format iCal**, copiez,
-puis dans Minute : **Réglages › Agenda › Lien iCal**. Pour Outlook : **Paramètres › Calendrier › Calendriers
-partagés › Publier un calendrier**, et copiez le lien **ICS**.
+**The simplest way: an iCal link** (read-only, nothing to set up at Google). In Google Calendar:
+**Settings › [your calendar] › Integrate calendar › Secret address in iCal format**. Copy it, then in Minute:
+**Settings › Calendar › iCal link**. For Outlook: **Settings › Calendar › Shared calendars › Publish a calendar**,
+and copy the **ICS** link.
 
-**Avec « Se connecter avec Google »** (comptes d'organisation où le lien secret est désactivé) : l'administrateur
-crée une fois un identifiant OAuth pour toute l'organisation.
+**With "Sign in with Google"** (organisations where secret links are disabled): an administrator creates an
+OAuth client once for everyone.
 
-1. [console.cloud.google.com](https://console.cloud.google.com) › **Nouveau projet** (« Minute »).
-2. **API et services › Bibliothèque** › *Google Calendar API* › **Activer**.
-3. **API et services › Écran de consentement OAuth** : type **Interne** (Google Workspace) — ou **Externe** avec
-   vos adresses en *utilisateurs de test* pour un compte Gmail. Nom de l'app : Minute.
-   Ajoutez le champ d'application `…/auth/calendar.events.readonly`.
-4. **Identifiants › Créer des identifiants › ID client OAuth** › type **Application de bureau** › **Créer**.
-5. Copiez l'**ID client** et le **code secret**, puis dans Minute : **Réglages › Agenda › Avancé**, collez,
-   **Enregistrer**, et **Se connecter avec Google**.
+1. [console.cloud.google.com](https://console.cloud.google.com) › **New project** ("Minute").
+2. **APIs & Services › Library** › *Google Calendar API* › **Enable**.
+3. **APIs & Services › OAuth consent screen**: **Internal** (Google Workspace), or **External** with your addresses
+   as test users for a Gmail account. Add the scope `…/auth/calendar.events.readonly`.
+4. **Credentials › Create credentials › OAuth client ID** › **Desktop app** › **Create**.
+5. Copy the **client ID** and **client secret**; in Minute: **Settings › Calendar › Advanced**, paste, **Save**,
+   then **Sign in with Google**.
 
-Minute ne lit que vos événements (titre, horaires, participants, lien de visio), jamais le reste de votre compte.
+Minute only reads your events (title, times, attendees, call link) — nothing else in your account.
 
-### Mode confidentiel (sans clé)
+### Private mode (no key)
 
-Pour les réunions sensibles : **Réglages › Confidentialité**. Minute télécharge une fois le moteur de
-transcription open source [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (≈ 570 Mo, ou 200 Mo pour le modèle
-rapide) puis coupe toute connexion vers l'extérieur. Pour les comptes-rendus, installez
-[LM Studio](https://lmstudio.ai) ou [Ollama](https://ollama.com) : Minute les trouve tout seul.
+**Settings › Privacy.** Minute downloads the open-source [whisper.cpp](https://github.com/ggml-org/whisper.cpp)
+engine once (about 570 MB, or 200 MB for the fast model), then blocks every outside connection. For summaries,
+install [LM Studio](https://lmstudio.ai) or [Ollama](https://ollama.com): Minute finds them on its own.
 
-> La transcription locale demande un ordinateur récent : sur un processeur de bureau sans carte graphique
-> dédiée, choisissez le modèle **Rapide** pour suivre la parole en direct.
+> Local transcription needs a recent computer. On a desktop processor without a dedicated graphics card,
+> pick the **Fast** model to keep up with speech.
 
-<div align="center">
-<img src="docs/images/privacy.png" alt="Réglages › Confidentialité : le mode confidentiel et ce qu'il garantit" width="640">
-</div>
+## Keyboard shortcuts
 
-## Raccourcis
-
-| Action | Windows | macOS |
+| | Windows | macOS |
 |---|---|---|
-| Démarrer / terminer une réunion (deux appuis pour terminer) | `Ctrl+Alt+R` | `⌃⌥⌘R` |
-| Marquer un moment important | `Ctrl+Alt+M` | `⌃⌥⌘M` |
-| Copier la transcription | `Ctrl+Alt+C` | `⌃⌥⌘C` |
-| Dynamic Island | `Ctrl+Alt+T` | `⌃⌥⌘T` |
+| Start / end a meeting (press twice to end) | <kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>R</kbd> | <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>R</kbd> |
+| Mark a moment | <kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>M</kbd> | <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>M</kbd> |
+| Copy the transcript | <kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>C</kbd> | <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>C</kbd> |
+| Dynamic Island | <kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>T</kbd> | <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>T</kbd> |
 
-Tous modifiables dans **Réglages › Mode compact**.
+## Your data
 
-## Vos données
+- Meetings live **on your computer**, in `Documents/Minute`: one readable folder per meeting.
+- In standard mode, only the **audio of each sentence** goes to Groq to be transcribed, and only the **text** goes to
+  the AI you picked for summaries. Voice recognition runs on your computer.
+- No telemetry, no account, no Minute server.
+- For organisations: a [GDPR note for your data protection officer](docs/RGPD.md) (in French).
 
-- Les réunions sont rangées **sur votre ordinateur**, dans `Documents/Minute` : un dossier par réunion, lisible
-  sans Minute.
-- En mode standard, seul l'**audio des phrases** part chez Groq pour être transcrit, et seul le **texte** part chez
-  l'IA choisie pour les comptes-rendus. La reconnaissance des voix est calculée sur l'ordinateur.
-- Aucune télémétrie, aucun compte, aucun serveur Minute.
-- Pour les organisations : [note RGPD pour le délégué à la protection des données](docs/RGPD.md).
-
-## Questions fréquentes
+## FAQ
 
 <details>
-<summary><b>L'anglais de mon interlocuteur est traduit en français</b></summary>
+<summary><b>English is translated into French in my transcript</b></summary>
 
-Réglez **Réglages › Transcription › Langue des réunions** sur **Plusieurs langues** (le réglage par défaut) : chaque
-phrase reste dans sa langue. En « Français uniquement », Whisper écrit tout en français.
+Set **Settings › Transcription › Meeting language** to **Multiple languages (auto-detect)**, the default: each sentence stays in its
+own language.
 </details>
 
 <details>
-<summary><b>Je n'entends rien côté « participants »</b></summary>
+<summary><b>Nothing shows up for the other participants</b></summary>
 
-Vérifiez que **Son de l'ordinateur** est activé sur l'écran d'accueil. Sous macOS, autorisez
-**Enregistrement audio du système** dans *Réglages Système › Confidentialité et sécurité*.
+Make sure **Call audio** is on, on the home screen. On macOS, allow **System Audio Recording** in
+*System Settings › Privacy & Security*.
 </details>
 
 <details>
-<summary><b>La Dynamic Island apparaît-elle quand je partage mon écran ?</b></summary>
+<summary><b>Does the Dynamic Island show up when I share my screen?</b></summary>
 
-Non par défaut : elle est invisible dans les partages d'écran et les captures. Pour la montrer (ou la capturer),
-décochez **Réglages › Mode compact › Masquer des partages d'écran et captures**.
+Not by default: it's hidden from screen sharing and screenshots. To show it, turn off
+**Settings › Compact mode › Hide from screen sharing and screenshots**.
 </details>
 
 <details>
-<summary><b>J'ai supprimé une réunion par erreur</b></summary>
+<summary><b>I deleted a meeting by mistake</b></summary>
 
-Elle est dans la **corbeille** (icône en bas de la barre latérale) pendant 30 jours : clic droit › **Restaurer**.
+It's in the **Trash** (bottom of the sidebar) for 30 days: right-click › **Restore**.
 </details>
 
-<details>
-<summary><b>Je viens de Natively</b></summary>
+## Support and feedback
 
-**Réglages › Données › Importer depuis Natively** reprend vos transcriptions et comptes-rendus, sans modifier Natively.
-</details>
+Minute is free, open source and built in my spare time. If it saves you time,
+[**buy me a coffee on Ko-fi**](https://ko-fi.com/adrbn) ☕
 
-## Soutenir et contribuer
+- **Found a problem?** In Minute: **Settings › About › Report a problem** fills in a GitHub issue for you, with a
+  technical log (never any meeting content). Or [open an issue](https://github.com/adrbn/minute/issues/new/choose).
+- **An idea?** [Suggest it](https://github.com/adrbn/minute/issues/new?template=feature_request.yml).
 
-Minute est libre, gratuit et développé sur mon temps libre. S'il vous fait gagner du temps :
-
-<a href="https://ko-fi.com/adrbn"><img src="https://img.shields.io/badge/Offrir%20un%20caf%C3%A9-ko--fi.com%2Fadrbn-FF5E5B?logo=ko-fi&logoColor=white&style=for-the-badge" alt="Offrir un café sur Ko-fi"></a>
-
-- **Un problème ?** Dans Minute : **Réglages › À propos › Signaler un problème** — le ticket GitHub se remplit tout
-  seul avec le journal technique (jamais de contenu de réunion). Ou [ouvrez un ticket](https://github.com/adrbn/minute/issues/new/choose).
-- **Une idée ?** [Proposez-la](https://github.com/adrbn/minute/issues/new?template=feature_request.yml).
-- **Une étoile ⭐** sur GitHub aide d'autres personnes à découvrir Minute.
-
-<div align="center">
-<img src="docs/images/about.png" alt="Minute, À propos : liens GitHub et Ko-fi" width="560">
-</div>
-
----
-
-## Développement
+## Build from source
 
 ```bash
 npm install
-npm start           # compile et lance l'app
-npm test            # tests (filtres, voix, recherche, fusion, confidentialité…)
-npm run typecheck
-npm run dist:win    # installeur Windows → release/
+npm start          # build and run
+npm test           # unit tests
+npm run dist:win   # Windows installer → release/
 ```
 
-Un tag `v*` poussé sur GitHub construit Windows et macOS (GitHub Actions) et publie la version, avec les fichiers
-que lit la mise à jour automatique.
+Pushing a `v*` tag builds Windows and macOS on GitHub Actions and publishes the release, including the files the
+auto-updater reads. Electron · React · TypeScript · Silero VAD and CAM++ (ONNX, WebAssembly) · whisper.cpp.
+Third-party components: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-<details>
-<summary>Architecture</summary>
+## License
 
-```
-src/
-  main/            process principal (Node)
-    recorder.ts      file de transcription persistante, budget Groq, écho, reprise après crash
-    groq.ts          client Whisper (Groq) · localStt.ts : whisper.cpp local (mode confidentiel)
-    voices.ts        regroupement des empreintes de voix (qui parle)
-    ai.ts, llm.ts    comptes-rendus, rattrapage, questions (Groq, Claude, Gemini, OpenAI, IA locale)
-    retrieval.ts     passages utiles pour répondre sur une longue réunion
-    privacy.ts       verrou réseau du mode confidentiel
-    updater.ts       mises à jour automatiques · diag.ts : rapport de problème
-    store.ts         dossiers de réunion (meeting.json + transcript.jsonl en ajout seul)
-    compact.ts       Dynamic Island : fenêtre flottante, lancer façon image dans l'image, morphing
-  renderer/
-    engine/          fenêtre invisible : capture, Silero VAD, découpage, empreinte de voix (CAM++)
-    app/             interface principale (React)
-    mini/            Dynamic Island
-  shared/            types et mise en forme communs (ce qu'on voit = ce qu'on copie)
-```
-
-- **Son de l'ordinateur** : Windows via la boucle système de Chromium ; macOS via
-  [AudioTee](https://github.com/makeusabrew/audiotee) (Core Audio Taps), compilé en binaire universel par la CI.
-- **Découpage** : Silero VAD v5 (ONNX, WASM) sur des trames de 32 ms, phrases de 3 à 16 s.
-- **Qui parle** : fbank Kaldi en TypeScript + CAM++ (3D-Speaker) en WASM, regroupement en ligne puis affinage en fin
-  de réunion.
-- **Tester sans clé** : `npm run mock:groq`, puis `MINUTE_GROQ_BASE=http://127.0.0.1:8765/openai/v1`.
-  `MINUTE_PROFILE_DIR` et `MINUTE_STORAGE` isolent un profil de test.
-- **Mac signé et notarisé** : ajoutez les secrets `MAC_CERT_P12_BASE64`, `MAC_CERT_PASSWORD`, `APPLE_ID`,
-  `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` (compte Apple Developer requis).
-</details>
-
-Composants tiers et leurs licences : [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-
-## Licence
-
-[MIT](LICENSE) © 2026 Adrien Robino — libre d'utiliser, de modifier et de partager.
+[MIT](LICENSE) © 2026 Adrien Robino

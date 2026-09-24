@@ -14,6 +14,7 @@ import {
   turnText,
   wordCount,
 } from '../shared/transcript';
+import { t } from '../shared/i18n';
 import type { CopyOptions, MeetingMeta, Segment } from '../shared/types';
 import { store } from './store';
 
@@ -61,14 +62,14 @@ export async function copyMeeting(id: string, opts: CopyOptions, withTimestampsD
 
 export function meetingToMarkdown(meta: MeetingMeta, segments: Segment[]): string {
   const out: string[] = [`# ${meta.title}`, '', `*${dateLabel(meta.startedAt)} · ${durationLabel(meta.durationMs)}*`, ''];
-  if (meta.summary?.markdown) out.push('## Compte-rendu', '', meta.summary.markdown.replace(/^## /gm, '### '), '');
-  if (meta.notes.trim()) out.push('## Mes notes', '', meta.notes.trim(), '');
+  if (meta.summary?.markdown) out.push(`## ${t('Compte-rendu')}`, '', meta.summary.markdown.replace(/^## /gm, '### '), '');
+  if (meta.notes.trim()) out.push(`## ${t('Mes notes')}`, '', meta.notes.trim(), '');
   if (meta.bookmarks.length) {
-    out.push('## Moments marqués', '');
+    out.push(`## ${t('Moments marqués')}`, '');
     for (const b of meta.bookmarks) out.push(`- **${clock(b.t)}** — ${b.label}`);
     out.push('');
   }
-  out.push('## Transcription', '');
+  out.push(`## ${t('Transcription')}`, '');
   for (const turn of toTurns(segments.filter((s) => s.text.trim()))) {
     out.push(`**${voiceLabel(meta, turn.ch, turn.spk)}** · ${clock(turn.t0)}  `, turnText(turn), '');
   }
@@ -107,14 +108,14 @@ async function meetingToDocx(meta: MeetingMeta, segments: Segment[]): Promise<Bu
     }),
   ];
   if (meta.summary?.markdown) {
-    children.push(new Paragraph({ heading: HeadingLevel.HEADING_1, children: [new TextRun('Compte-rendu')] }));
+    children.push(new Paragraph({ heading: HeadingLevel.HEADING_1, children: [new TextRun(t('Compte-rendu'))] }));
     children.push(...mdToDocx(meta.summary.markdown));
   }
   if (meta.notes.trim()) {
-    children.push(new Paragraph({ heading: HeadingLevel.HEADING_1, children: [new TextRun('Mes notes')] }));
+    children.push(new Paragraph({ heading: HeadingLevel.HEADING_1, children: [new TextRun(t('Mes notes'))] }));
     children.push(...mdToDocx(meta.notes));
   }
-  children.push(new Paragraph({ heading: HeadingLevel.HEADING_1, children: [new TextRun('Transcription')] }));
+  children.push(new Paragraph({ heading: HeadingLevel.HEADING_1, children: [new TextRun(t('Transcription'))] }));
   for (const turn of toTurns(segments.filter((s) => s.text.trim()))) {
     children.push(
       new Paragraph({
@@ -137,7 +138,7 @@ async function meetingToDocx(meta: MeetingMeta, segments: Segment[]): Promise<Bu
 }
 
 function safeName(s: string) {
-  return s.replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim().slice(0, 80) || 'Réunion';
+  return s.replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim().slice(0, 80) || t('Réunion');
 }
 
 export async function exportMeeting(id: string, format: 'md' | 'txt' | 'docx', win: BrowserWindow | null): Promise<string | null> {

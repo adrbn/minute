@@ -24,6 +24,7 @@ import {
   LoaderCircle,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { t, locale } from '../../../shared/i18n';
 import { clock, dateLabel, durationLabel } from '../../../shared/transcript';
 import type { AppInfo, LiveState, Settings } from '../../../shared/types';
 import { minute, shortcutLabel, useElapsed, useLevels, useMeeting } from '../api';
@@ -107,58 +108,59 @@ export function MeetingView({
   const hits = find ? segments.filter((s) => s.text.toLowerCase().includes(find.toLowerCase())).length : 0;
 
   const saveTitle = () => {
-    const t = title.trim();
-    if (t && t !== meta.title) void minute.meetings.update(id, { title: t, titleIsAuto: false });
+    const clean = title.trim();
+    if (clean && clean !== meta.title) void minute.meetings.update(id, { title: clean, titleIsAuto: false });
     else setTitle(meta.title);
   };
 
   const copy = async (range: 'all' | 'last5' | 'last10' | 'sinceBookmark', timestamps?: boolean) => {
     const { words } = await minute.meetings.copy(id, { range, timestamps });
-    toast(`${words.toLocaleString('fr-FR')} mots copiés`, 'success');
+    const n = words.toLocaleString(locale());
+    toast(words === 1 ? t('{n} mot copié', { n }) : t('{n} mots copiés', { n }), 'success');
   };
 
   const copyMenu = (e: React.MouseEvent) =>
     menu.open(e, [
-      { label: 'Toute la transcription', icon: <Copy />, hint: shortcutLabel(settings.shortcuts.copy, info.platform), onClick: () => void copy('all') },
-      { label: 'Les 5 dernières minutes', onClick: () => void copy('last5') },
-      { label: 'Les 10 dernières minutes', onClick: () => void copy('last10') },
-      ...(meta.bookmarks.length ? [{ label: 'Depuis le dernier moment marqué', onClick: () => void copy('sinceBookmark') }] : []),
+      { label: t('Toute la transcription'), icon: <Copy />, hint: shortcutLabel(settings.shortcuts.copy, info.platform), onClick: () => void copy('all') },
+      { label: t('Les 5 dernières minutes'), onClick: () => void copy('last5') },
+      { label: t('Les 10 dernières minutes'), onClick: () => void copy('last10') },
+      ...(meta.bookmarks.length ? [{ label: t('Depuis le dernier moment marqué'), onClick: () => void copy('sinceBookmark') }] : []),
       { separator: true },
-      { label: 'Avec horodatage', onClick: () => void copy('all', true) },
-      ...(meta.summary ? [{ label: 'Le compte-rendu', icon: <FileText />, onClick: () => void minute.meetings.copy(id, { range: 'summary' }).then(() => toast('Compte-rendu copié', 'success')) }] : []),
-      ...(meta.notes.trim() ? [{ label: 'Mes notes', onClick: () => void minute.meetings.copy(id, { range: 'notes' }).then(() => toast('Notes copiées', 'success')) }] : []),
+      { label: t('Avec horodatage'), onClick: () => void copy('all', true) },
+      ...(meta.summary ? [{ label: t('Le compte-rendu'), icon: <FileText />, onClick: () => void minute.meetings.copy(id, { range: 'summary' }).then(() => toast(t('Compte-rendu copié'), 'success')) }] : []),
+      ...(meta.notes.trim() ? [{ label: t('Mes notes'), onClick: () => void minute.meetings.copy(id, { range: 'notes' }).then(() => toast(t('Notes copiées'), 'success')) }] : []),
     ]);
 
   const moreMenu = (e: React.MouseEvent) =>
     menu.open(e, [
-      { section: 'Exporter' },
-      { label: 'Document Word (.docx)', icon: <FileText />, onClick: () => void exportAs('docx') },
+      { section: t('Exporter') },
+      { label: t('Document Word (.docx)'), icon: <FileText />, onClick: () => void exportAs('docx') },
       { label: 'Markdown (.md)', icon: <Download />, onClick: () => void exportAs('md') },
-      { label: 'Texte brut (.txt)', icon: <Download />, onClick: () => void exportAs('txt') },
+      { label: t('Texte brut (.txt)'), icon: <Download />, onClick: () => void exportAs('txt') },
       { separator: true },
-      { label: 'Renommer les voix…', icon: <Users />, onClick: renameSpeakers },
-      { label: 'Afficher dans le dossier', icon: <FolderOpen />, onClick: () => void minute.meetings.reveal(id) },
+      { label: t('Renommer les voix…'), icon: <Users />, onClick: renameSpeakers },
+      { label: t('Afficher dans le dossier'), icon: <FolderOpen />, onClick: () => void minute.meetings.reveal(id) },
       ...(meta.hasAudio && !isLive && !segments.some((x) => x.pending)
-        ? [{ label: 'Supprimer l’audio conservé', icon: <MicOff />, onClick: () => void minute.meetings.update(id, { hasAudio: false }).then(() => toast('L’audio sera supprimé', 'success')) }]
+        ? [{ label: t('Supprimer l’audio conservé'), icon: <MicOff />, onClick: () => void minute.meetings.update(id, { hasAudio: false }).then(() => toast(t('L’audio sera supprimé'), 'success')) }]
         : []),
       { separator: true },
       meta.archived
-        ? { label: 'Désarchiver', icon: <ArchiveRestore />, onClick: () => void minute.meetings.update(id, { archived: false }) }
+        ? { label: t('Désarchiver'), icon: <ArchiveRestore />, onClick: () => void minute.meetings.update(id, { archived: false }) }
         : {
-            label: 'Archiver',
+            label: t('Archiver'),
             icon: <Archive />,
             onClick: async () => {
               await minute.meetings.update(id, { archived: true, pinned: false });
-              toast('Réunion archivée', 'success');
+              toast(t('Réunion archivée'), 'success');
             },
           },
       {
-        label: 'Placer dans la corbeille',
+        label: t('Placer dans la corbeille'),
         icon: <Trash2 />,
         danger: true,
         onClick: async () => {
           await minute.meetings.trash(id);
-          toast('Placée dans la corbeille — récupérable pendant 30 jours', 'success');
+          toast(t('Placée dans la corbeille — récupérable pendant 30 jours'), 'success');
           onDeleted();
         },
       },
@@ -166,14 +168,15 @@ export function MeetingView({
 
   const exportAs = async (f: 'md' | 'txt' | 'docx') => {
     const p = await minute.meetings.exportTo(id, f);
-    if (p) toast('Export enregistré', 'success');
+    if (p) toast(t('Export enregistré'), 'success');
   };
 
   const renameSpeakers = () => {
-    const me = prompt('Comment appeler votre voix ?', meta.speakers.me);
+    const me = prompt(t('Comment appeler votre voix ?'), meta.speakers.me);
     if (me === null) return;
-    const them = prompt('Et les autres participants ? (ex. « Marco », « Équipe Milan »)', meta.speakers.them);
+    const them = prompt(t('Et les autres participants ? (ex. « Marco », « Équipe Milan »)'), meta.speakers.them);
     if (them === null) return;
+    // 'Moi' / 'Participants' : valeurs par défaut enregistrées (repères reconnus ailleurs), pas du texte affiché
     void minute.meetings.update(id, { speakers: { me: me.trim() || 'Moi', them: them.trim() || 'Participants' } });
   };
 
@@ -201,19 +204,27 @@ export function MeetingView({
           />
           <div className="meeting-sub">
             {isLive ? (
-              <span>Commencée à {new Date(meta.startedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>
+              <span>
+                {t('Commencée à {time}', {
+                  time: new Date(meta.startedAt).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' }),
+                })}
+              </span>
             ) : (
               <>
                 <span>{dateLabel(meta.startedAt)}</span>
                 <span>·</span>
                 <span>{durationLabel(meta.durationMs)}</span>
                 <span>·</span>
-                <span>{meta.wordCount.toLocaleString('fr-FR')} mots</span>
+                <span>
+                  {meta.wordCount === 1
+                    ? t('{n} mot', { n: meta.wordCount.toLocaleString(locale()) })
+                    : t('{n} mots', { n: meta.wordCount.toLocaleString(locale()) })}
+                </span>
               </>
             )}
             {!!meta.attendees?.length && (
               <span className="attendees" title={meta.attendees.join(', ')}>
-                · avec {meta.attendees.slice(0, 3).join(', ')}
+                · {t('avec {names}', { names: meta.attendees.slice(0, 3).join(', ') })}
                 {meta.attendees.length > 3 ? ` +${meta.attendees.length - 3}` : ''}
               </span>
             )}
@@ -222,7 +233,7 @@ export function MeetingView({
 
         {isLive && live ? (
           <div className="livebar no-drag">
-            <div className="live-status" title={live.status === 'paused' ? 'En pause' : 'Enregistrement en cours'}>
+            <div className="live-status" title={live.status === 'paused' ? t('En pause') : t('Enregistrement en cours')}>
               <div className="timer">
                 <span className={`dot ${live.status === 'paused' ? 'paused' : 'pulse'}`} />
                 {clock(elapsed)}
@@ -231,38 +242,38 @@ export function MeetingView({
             </div>
             <button
               className="icon-btn"
-              title={`Marquer un moment (${shortcutLabel(settings.shortcuts.bookmark, info.platform)})`}
+              title={t('Marquer un moment ({shortcut})', { shortcut: shortcutLabel(settings.shortcuts.bookmark, info.platform) })}
               onClick={() => void minute.recorder.bookmark()}
             >
               <Star />
             </button>
-            <button className="icon-btn" title="Copier" onClick={copyMenu}>
+            <button className="icon-btn" title={t('Copier')} onClick={copyMenu}>
               <Copy />
             </button>
             {live.status === 'paused' ? (
               <button className="btn small" onClick={() => void minute.recorder.resume()}>
-                <Play /> Reprendre
+                <Play /> {t('Reprendre')}
               </button>
             ) : (
-              <button className="icon-btn" title="Pause" onClick={() => void minute.recorder.pause()} disabled={live.status !== 'recording'}>
+              <button className="icon-btn" title={t('Pause')} onClick={() => void minute.recorder.pause()} disabled={live.status !== 'recording'}>
                 <Pause />
               </button>
             )}
-            <button className={`icon-btn ${panel ? 'on' : ''}`} title="Panneau latéral" onClick={() => setPanel((p) => !p)}>
+            <button className={`icon-btn ${panel ? 'on' : ''}`} title={t('Panneau latéral')} onClick={() => setPanel((p) => !p)}>
               <PanelRight />
             </button>
             <span className="livebar-gap" />
             <button
               className="btn small primary reduce-btn"
-              title={`Réduire en Dynamic Island — la réunion continue (${shortcutLabel(settings.shortcuts.mini, info.platform)})`}
+              title={t('Réduire en Dynamic Island — la réunion continue ({shortcut})', { shortcut: shortcutLabel(settings.shortcuts.mini, info.platform) })}
               onClick={() => void minute.windows.enterCompact()}
             >
-              <IslandIcon /> <span className="lbl">Réduire</span>
+              <IslandIcon /> <span className="lbl">{t('Réduire')}</span>
             </button>
             <button
               className="stop-round"
-              title={live.status === 'stopping' ? 'Finalisation…' : 'Terminer la réunion'}
-              aria-label="Terminer la réunion"
+              title={live.status === 'stopping' ? t('Finalisation…') : t('Terminer la réunion')}
+              aria-label={t('Terminer la réunion')}
               onClick={() => void minute.recorder.stop()}
               disabled={live.status === 'stopping' || live.status === 'starting'}
             >
@@ -272,15 +283,15 @@ export function MeetingView({
         ) : (
           <div className="row no-drag">
             <button className="btn small" onClick={copyMenu}>
-              <Copy /> Copier <ChevronDown size={13} />
+              <Copy /> {t('Copier')} <ChevronDown size={13} />
             </button>
-            <button className="icon-btn" title="Plus" onClick={moreMenu}>
+            <button className="icon-btn" title={t('Plus')} onClick={moreMenu}>
               <Download />
             </button>
           </div>
         )}
         {!(isLive && live) && (
-          <button className={`icon-btn no-drag ${panel ? 'on' : ''}`} title="Panneau latéral" onClick={() => setPanel((p) => !p)}>
+          <button className={`icon-btn no-drag ${panel ? 'on' : ''}`} title={t('Panneau latéral')} onClick={() => setPanel((p) => !p)}>
             <PanelRight />
           </button>
         )}
@@ -292,12 +303,12 @@ export function MeetingView({
           <span className="grow">{notice.text}</span>
           {notice.kind === 'error' && (
             <button className="btn small" onClick={onOpenSettings}>
-              Réglages
+              {t('Réglages')}
             </button>
           )}
-          {notice.text.startsWith('Plus personne') && (
+          {isIdleNotice(notice.text) && (
             <button className="btn small danger" onClick={() => void minute.recorder.stop()}>
-              Terminer
+              {t('Terminer')}
             </button>
           )}
         </div>
@@ -310,7 +321,7 @@ export function MeetingView({
             className="btn small"
             onClick={() => void minute.windows.openPrivacySettings(ch?.me.ok === false ? 'microphone' : 'audio')}
           >
-            Autorisations
+            {t('Autorisations')}
           </button>
         </div>
       )}
@@ -318,10 +329,19 @@ export function MeetingView({
         <div className="notice warn">
           <AlertTriangle />
           <span className="grow">
-            {pendingCount} passage{pendingCount > 1 ? 's' : ''} en attente de transcription (réseau ou limite Groq).
+            {pendingCount > 1
+              ? t('{n} passages en attente de transcription (réseau ou limite Groq).', { n: pendingCount })
+              : t('{n} passage en attente de transcription (réseau ou limite Groq).', { n: pendingCount })}
           </span>
-          <button className="btn small" onClick={() => void minute.meetings.retryPending(id).then((n) => toast(n ? `${n} passage(s) relancé(s)` : 'Déjà en cours', 'info'))}>
-            <RotateCw /> Relancer
+          <button
+            className="btn small"
+            onClick={() =>
+              void minute.meetings
+                .retryPending(id)
+                .then((n) => toast(!n ? t('Déjà en cours') : n > 1 ? t('{n} passages relancés', { n }) : t('{n} passage relancé', { n }), 'info'))
+            }
+          >
+            <RotateCw /> {t('Relancer')}
           </button>
         </div>
       )}
@@ -331,14 +351,16 @@ export function MeetingView({
           {meta.deletedAt ? <Trash2 size={15} /> : <Archive size={15} />}
           <span>
             {meta.deletedAt
-              ? `Dans la corbeille : effacée définitivement le ${new Date(meta.deletedAt + 30 * 86_400_000).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}.`
-              : 'Réunion archivée : elle n’apparaît plus dans la liste, mais reste dans la recherche.'}
+              ? t('Dans la corbeille : effacée définitivement le {date}.', {
+                  date: new Date(meta.deletedAt + 30 * 86_400_000).toLocaleDateString(locale(), { day: 'numeric', month: 'long' }),
+                })
+              : t('Réunion archivée : elle n’apparaît plus dans la liste, mais reste dans la recherche.')}
           </span>
           <button
             className="btn small"
             onClick={() => void (meta.deletedAt ? minute.meetings.restore(id) : minute.meetings.update(id, { archived: false }))}
           >
-            {meta.deletedAt ? 'Restaurer' : 'Désarchiver'}
+            {meta.deletedAt ? t('Restaurer') : t('Désarchiver')}
           </button>
         </div>
       )}
@@ -351,12 +373,12 @@ export function MeetingView({
                 id="find-input"
                 className="field"
                 style={{ height: 26 }}
-                placeholder="Chercher dans la réunion"
+                placeholder={t('Chercher dans la réunion')}
                 value={find}
                 autoFocus
                 onChange={(e) => setFind(e.target.value)}
               />
-              <span>{find ? `${hits} passage${hits > 1 ? 's' : ''}` : ''}</span>
+              <span>{find ? (hits > 1 ? t('{n} passages', { n: hits }) : t('{n} passage', { n: hits })) : ''}</span>
               <button className="icon-btn" style={{ width: 24, height: 24 }} onClick={() => setFind(null)}>
                 <X size={14} />
               </button>
@@ -389,12 +411,23 @@ export function MeetingView({
   );
 }
 
+/**
+ * Avis « plus personne ne parle » envoyé par le processus principal : son texte est traduit là-bas
+ * avec la même clé, on le reconnaît donc d'après le modèle traduit (variables quelconques).
+ */
+function isIdleNotice(text: string): boolean {
+  if (text.startsWith('Plus personne')) return true;
+  const tpl = t('Plus personne ne parle depuis {mins} min — la réunion est peut-être terminée.');
+  const pattern = tpl.replace(/[.*+?^$()|[\]\\]/g, '\\$&').replace(/\{\w+\}/g, '.+?');
+  return new RegExp(`^${pattern}$`).test(text);
+}
+
 /** Vumètres (micro / son de l'ordinateur) : seul ce petit composant se redessine 11 fois par seconde. */
 function Meters({ live }: { live: LiveState }) {
   const levels = useLevels(true);
   const ch = live.channels;
   return (
-    <div className="meters" title="Niveaux audio">
+    <div className="meters" title={t('Niveaux audio')}>
       <div className={`meter me ${ch.me.ok === false ? 'err' : ''}`} title={ch.me.error}>
         <Mic size={11} />
         <span className="bar">

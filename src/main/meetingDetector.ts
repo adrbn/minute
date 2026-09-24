@@ -6,6 +6,7 @@ import { execFile } from 'node:child_process';
 
 const KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone';
 
+// `name` sert aussi d'identifiant : il reste en français ici, main.ts le traduit par t() pour l'afficher
 const APPS: { re: RegExp; name: string }[] = [
   { re: /msteams|ms-teams|teams\.exe|microsoftteams/i, name: 'Teams' },
   { re: /zoom/i, name: 'Zoom' },

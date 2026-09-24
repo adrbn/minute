@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from 'react';
 import { createRoot } from 'react-dom/client';
+import { locale, resolveLang, setLang, t } from '../../shared/i18n';
 import { clock, durationLabel, speakerName, toTurns, turnText, voiceBadge, voiceClass, voiceLabel, voicePending } from '../../shared/transcript';
 import type { AiEvent, CalendarState, CompactLayout, Levels } from '../../shared/types';
 import { minute, useElapsed, useInfo, useLevels, useLiveState, useMeeting, useSettings } from '../app/api';
@@ -441,8 +442,8 @@ function Compact() {
     <div className="cap-card no-drag" key="catchup">
       <div className="cap-card-head">
         <History />
-        <b>Les 5 dernières minutes</b>
-        <button className="hud-btn small" onClick={() => setCatchup(null)} title="Masquer" aria-label="Masquer le rattrapage">
+        <b>{t('Les 5 dernières minutes')}</b>
+        <button className="hud-btn small" onClick={() => setCatchup(null)} title={t('Masquer')} aria-label={t('Masquer le rattrapage')}>
           <X />
         </button>
       </div>
@@ -451,7 +452,7 @@ function Compact() {
       ) : catchup.text ? (
         <Markdown text={catchup.text} streaming={!catchup.done} />
       ) : (
-        <p className="muted">Je relis ce qui vient d’être dit…</p>
+        <p className="muted">{t('Je relis ce qui vient d’être dit…')}</p>
       )}
     </div>
   );
@@ -476,21 +477,21 @@ function Compact() {
     return last ? { ch: last.ch, text: last.text, spk: last.spk } : null;
   })();
   const ticker = problem ? (
-    <Ticker text={problemText || 'Problème de capture'} tone={problem} />
+    <Ticker text={problemText || t('Problème de capture')} tone={problem} />
   ) : stale ? (
-    <Ticker text="Pas de texte depuis 1 min — ouvrez les sous-titres pour vérifier" tone="warn" />
+    <Ticker text={t('Pas de texte depuis 1 min — ouvrez les sous-titres pour vérifier')} tone="warn" />
   ) : paused ? (
-    <Ticker text="En pause — rien n’est transcrit" tone="muted" />
+    <Ticker text={t('En pause — rien n’est transcrit')} tone="muted" />
   ) : latest ? (
     <Ticker ch={latest.ch} text={latest.text} voice={meta ? voiceClass(meta, latest.spk) : ''} />
   ) : (
-    <Ticker text="À l’écoute…" tone="muted" />
+    <Ticker text={t('À l’écoute…')} tone="muted" />
   );
   const next = cal?.events
     .filter((e) => e.end > now && e.start < now + 3 * 3600_000)
     .sort((x, y) => x.start - y.start)[0];
   const nextSoon = next && next.start - now < 10 * 60_000;
-  const hm = (t: number) => new Date(t).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+  const hm = (ts: number) => new Date(ts).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' });
 
   // ------------------------------------------------------------------ contenu « pilule »
   const pill = (
@@ -503,14 +504,14 @@ function Compact() {
           {ticker}
           <span className="reveal">
             {paused ? (
-              <button className="hud-btn" title="Reprendre" aria-label="Reprendre" onClick={() => void minute.recorder.resume()}>
+              <button className="hud-btn" title={t('Reprendre')} aria-label={t('Reprendre')} onClick={() => void minute.recorder.resume()}>
                 <Play />
               </button>
             ) : (
               <button
                 className={`hud-btn ${marked ? 'marked' : ''}`}
-                title="Marquer un moment"
-                aria-label="Marquer un moment"
+                title={t('Marquer un moment')}
+                aria-label={t('Marquer un moment')}
                 onClick={() => void bookmark()}
               >
                 <Star fill={marked ? 'currentColor' : 'none'} />
@@ -518,8 +519,8 @@ function Compact() {
             )}
             <button
               className={`hud-btn ${copied ? 'done' : ''}`}
-              title="Copier la transcription"
-              aria-label="Copier la transcription"
+              title={t('Copier la transcription')}
+              aria-label={t('Copier la transcription')}
               onClick={() => void copy()}
             >
               {copied ? <Check /> : <Copy />}
@@ -527,8 +528,8 @@ function Compact() {
           </span>
           <button
             className="hud-btn"
-            title="Afficher les sous-titres"
-            aria-label="Afficher les sous-titres"
+            title={t('Afficher les sous-titres')}
+            aria-label={t('Afficher les sous-titres')}
             onClick={() => chooseShape('panel')}
           >
             <Captions />
@@ -539,10 +540,10 @@ function Compact() {
           <span className="done-check">
             <Check />
           </span>
-          <span className="pill-label strong">Enregistrée · {durationLabel(meta.durationMs)}</span>
+          <span className="pill-label strong">{t('Enregistrée · {duration}', { duration: durationLabel(meta.durationMs) })}</span>
           <span className="grow" />
           <button className="hud-pill-btn" onClick={openMain}>
-            Voir
+            {t('Voir')}
           </button>
         </>
       ) : (
@@ -554,21 +555,21 @@ function Compact() {
           </span>
           <span className="pill-label strong">Minute</span>
           {next ? (
-            <Ticker text={`${next.start <= now ? 'En cours' : hm(next.start)} · ${next.title}`} tone="muted" />
+            <Ticker text={`${next.start <= now ? t('En cours') : hm(next.start)} · ${next.title}`} tone="muted" />
           ) : (
             <span className="grow" />
           )}
           <button
             className="hud-pill-btn rec-start"
-            title={nextSoon ? `Transcrire « ${next!.title} »` : 'Démarrer une transcription'}
+            title={nextSoon ? t('Transcrire « {title} »', { title: next!.title }) : t('Démarrer une transcription')}
             onClick={() => void minute.recorder.start(nextSoon ? { title: next!.title, eventId: next!.id } : undefined)}
           >
-            <span className="rec" /> Démarrer
+            <span className="rec" /> {t('Démarrer')}
           </button>
-          <button className="hud-btn" title="Réglages" aria-label="Réglages" onClick={() => void minute.windows.openSettings('compact')}>
+          <button className="hud-btn" title={t('Réglages')} aria-label={t('Réglages')} onClick={() => void minute.windows.openSettings('compact')}>
             <SettingsIcon />
           </button>
-          <button className="hud-btn" title="Ouvrir la fenêtre Minute" aria-label="Ouvrir la fenêtre Minute" onClick={openMain}>
+          <button className="hud-btn" title={t('Ouvrir la fenêtre Minute')} aria-label={t('Ouvrir la fenêtre Minute')} onClick={openMain}>
             <AppWindow />
           </button>
         </>
@@ -594,9 +595,9 @@ function Compact() {
           <span className="p-tabs no-drag" role="tablist" title={meta.title}>
             {(
               [
-                ['live', 'Direct', <Captions key="i" />],
-                ['notes', 'Notes', <NotebookPen key="i" />],
-                ['ask', 'Question', <MessageCircleQuestionMark key="i" />],
+                ['live', t('Direct'), <Captions key="i" />],
+                ['notes', t('Notes'), <NotebookPen key="i" />],
+                ['ask', t('Question'), <MessageCircleQuestionMark key="i" />],
               ] as const
             ).map(([k, label, icon]) => (
               <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)} title={label}>
@@ -613,16 +614,16 @@ function Compact() {
         <span className="reveal">
           <button
             className="hud-btn"
-            title="Réduire en Dynamic Island"
-            aria-label="Réduire en Dynamic Island"
+            title={t('Réduire en Dynamic Island')}
+            aria-label={t('Réduire en Dynamic Island')}
             onClick={() => chooseShape('pill')}
           >
             <IslandIcon />
           </button>
-          <button className="hud-btn" title="Réglages" aria-label="Réglages" onClick={() => void minute.windows.openSettings('compact')}>
+          <button className="hud-btn" title={t('Réglages')} aria-label={t('Réglages')} onClick={() => void minute.windows.openSettings('compact')}>
             <SettingsIcon />
           </button>
-          <button className="hud-btn" title="Ouvrir la fenêtre Minute" aria-label="Ouvrir la fenêtre Minute" onClick={openMain}>
+          <button className="hud-btn" title={t('Ouvrir la fenêtre Minute')} aria-label={t('Ouvrir la fenêtre Minute')} onClick={openMain}>
             <AppWindow />
           </button>
         </span>
@@ -634,7 +635,7 @@ function Compact() {
           <textarea
             className="p-notes"
             value={notes}
-            placeholder="Vos notes — elles guident le compte-rendu (ce qui compte pour vous, à qui envoyer quoi…)"
+            placeholder={t('Vos notes — elles guident le compte-rendu (ce qui compte pour vous, à qui envoyer quoi…)')}
             onChange={(e) => editNotes(e.target.value)}
             {...typing}
             onFocus={() => {
@@ -652,8 +653,8 @@ function Compact() {
           <div className="p-answers">
             {!asks.length && (
               <div className="p-suggest">
-                <p>Demandez n’importe quoi sur ce qui a été dit.</p>
-                {['Qu’attend-on de moi ?', 'Quelles décisions jusqu’ici ?', 'Qui doit faire quoi ?'].map((q) => (
+                <p>{t('Demandez n’importe quoi sur ce qui a été dit.')}</p>
+                {[t('Qu’attend-on de moi ?'), t('Quelles décisions jusqu’ici ?'), t('Qui doit faire quoi ?')].map((q) => (
                   <button key={q} className="hud-chip-inline" onClick={() => void ask(q)}>
                     {q}
                   </button>
@@ -669,7 +670,7 @@ function Compact() {
                   <Markdown text={a.text} streaming={!a.done} />
                 ) : (
                   <p className="muted">
-                    <LoaderCircle className="spin" /> {a.progress || 'Je relis la réunion…'}
+                    <LoaderCircle className="spin" /> {a.progress || t('Je relis la réunion…')}
                   </p>
                 )}
               </div>
@@ -684,11 +685,11 @@ function Compact() {
           >
             <input
               value={question}
-              placeholder="Demander à la réunion…"
+              placeholder={t('Demander à la réunion…')}
               onChange={(e) => setQuestion(e.target.value)}
               {...typing}
             />
-            <button className="hud-btn send" type="submit" disabled={!question.trim()} aria-label="Envoyer">
+            <button className="hud-btn send" type="submit" disabled={!question.trim()} aria-label={t('Envoyer')}>
               <ArrowUp />
             </button>
           </form>
@@ -698,16 +699,19 @@ function Compact() {
           <span className="done-check big">
             <Check />
           </span>
-          <b>Réunion enregistrée</b>
+          <b>{t('Réunion enregistrée')}</b>
           <span>
-            {durationLabel(meta.durationMs)} · {meta.wordCount.toLocaleString('fr-FR')} mots
+            {durationLabel(meta.durationMs)} ·{' '}
+            {meta.wordCount > 1
+              ? t('{n} mots', { n: meta.wordCount.toLocaleString(locale()) })
+              : t('{n} mot', { n: meta.wordCount.toLocaleString(locale()) })}
           </span>
           <div className="row">
             <button className="hud-pill-btn primary" onClick={openMain}>
-              Voir le compte-rendu
+              {t('Voir le compte-rendu')}
             </button>
             <button className="hud-pill-btn" onClick={() => void copy()}>
-              {copied ? 'Copié' : 'Copier'}
+              {copied ? t('Copié') : t('Copier')}
             </button>
           </div>
         </div>
@@ -728,30 +732,30 @@ function Compact() {
           }}
           onWheel={(e) => e.deltaY < 0 && setStick(false)}
         >
-          {!turns.length && !interims.me && !interims.them && <p className="cap-empty">À l’écoute…</p>}
+          {!turns.length && !interims.me && !interims.them && <p className="cap-empty">{t('À l’écoute…')}</p>}
           {catchup && !catchup.after && catchupCard}
-          {turns.map((t, i) => (
-            <div key={t.key} className="cap-row">
-              <p className={`cap ${t.ch} ${i < turns.length - 2 ? 'past' : ''}`}>
-                <span className={`who ${voiceClass(meta, t.spk)}`} title={voiceLabel(meta, t.ch, t.spk)}>
-                  {voicePending(meta, t.ch, t.spk) ? (
+          {turns.map((turn, i) => (
+            <div key={turn.key} className="cap-row">
+              <p className={`cap ${turn.ch} ${i < turns.length - 2 ? 'past' : ''}`}>
+                <span className={`who ${voiceClass(meta, turn.spk)}`} title={voiceLabel(meta, turn.ch, turn.spk)}>
+                  {voicePending(meta, turn.ch, turn.spk) ? (
                     <span className="vbadge pending" />
-                  ) : t.ch === 'me' && (!t.spk || meta.voices?.[t.spk]?.owner || !meta.voices?.[t.spk]) ? (
+                  ) : turn.ch === 'me' && (!turn.spk || meta.voices?.[turn.spk]?.owner || !meta.voices?.[turn.spk]) ? (
                     <span className="vbadge named me">{speakerName(meta, 'me')}</span>
-                  ) : voiceBadge(meta, t.spk) ? (
-                    <span className="vbadge">{voiceBadge(meta, t.spk)}</span>
-                  ) : t.spk && meta.voices?.[t.spk]?.name ? (
-                    <span className="vbadge named">{meta.voices[t.spk].name}</span>
+                  ) : voiceBadge(meta, turn.spk) ? (
+                    <span className="vbadge">{voiceBadge(meta, turn.spk)}</span>
+                  ) : turn.spk && meta.voices?.[turn.spk]?.name ? (
+                    <span className="vbadge named">{meta.voices[turn.spk].name}</span>
                   ) : (
-                    voiceLabel(meta, t.ch, t.spk)
+                    voiceLabel(meta, turn.ch, turn.spk)
                   )}
                 </span>
-                {turnText(t)}
+                {turnText(turn)}
               </p>
-              {catchup?.after === t.key && catchupCard}
+              {catchup?.after === turn.key && catchupCard}
             </div>
           ))}
-          {catchup?.after && !turns.some((t) => t.key === catchup.after) && catchupCard}
+          {catchup?.after && !turns.some((turn) => turn.key === catchup.after) && catchupCard}
           {(['them', 'me'] as const).map((ch) => {
             const it = interims[ch];
             const speaking = ch === 'me' ? levels.meSpeaking : levels.themSpeaking;
@@ -788,7 +792,7 @@ function Compact() {
             if (caps.current) caps.current.scrollTop = caps.current.scrollHeight;
           }}
         >
-          Direct ↓
+          {t('Direct ↓')}
         </button>
       )}
 
@@ -796,33 +800,33 @@ function Compact() {
         <footer className="p-foot">
           {/* en pause, « Marquer » n'a pas de sens : sa place revient à « Reprendre » */}
           {!paused && (
-            <button className={`hud-tool secondary ${marked ? 'ok' : ''}`} onClick={() => void bookmark()} title="Marquer un moment">
-              <Star /> <span>Marquer</span>
+            <button className={`hud-tool secondary ${marked ? 'ok' : ''}`} onClick={() => void bookmark()} title={t('Marquer un moment')}>
+              <Star /> <span>{t('Marquer')}</span>
             </button>
           )}
-          <button className={`hud-tool secondary ${copied ? 'ok' : ''}`} onClick={() => void copy()} title="Copier la transcription">
-            {copied ? <Check /> : <Copy />} <span>{copied ? 'Copié' : 'Copier'}</span>
+          <button className={`hud-tool secondary ${copied ? 'ok' : ''}`} onClick={() => void copy()} title={t('Copier la transcription')}>
+            {copied ? <Check /> : <Copy />} <span>{copied ? t('Copié') : t('Copier')}</span>
           </button>
           <button
             className="hud-tool secondary"
             onClick={() => void runCatchup()}
             disabled={!!catchup && !catchup.done}
-            title="Résumé des 5 dernières minutes"
+            title={t('Résumé des 5 dernières minutes')}
           >
-            {catchup && !catchup.done ? <LoaderCircle className="spin" /> : <History />} <span>Rattrapage</span>
+            {catchup && !catchup.done ? <LoaderCircle className="spin" /> : <History />} <span>{t('Rattrapage')}</span>
           </button>
           <span className="grow" />
           {paused ? (
             <button className="hud-tool resume" onClick={() => void minute.recorder.resume()}>
-              <Play /> <span>Reprendre</span>
+              <Play /> <span>{t('Reprendre')}</span>
             </button>
           ) : (
-            <button className="hud-tool" onClick={() => void minute.recorder.pause()} title="Pause">
+            <button className="hud-tool" onClick={() => void minute.recorder.pause()} title={t('Pause')}>
               <Pause />
             </button>
           )}
           <button className={`hud-tool stop ${confirmStop ? 'confirm' : ''}`} onClick={stop} disabled={status === 'stopping' || status === 'starting'}>
-            <Square fill="currentColor" /> <span>{confirmStop ? 'Confirmer' : 'Terminer'}</span>
+            <Square fill="currentColor" /> <span>{confirmStop ? t('Confirmer') : t('Terminer')}</span>
           </button>
         </footer>
       )}
@@ -885,4 +889,13 @@ function ResizeCorner({ corner }: { corner: 'tl' | 'tr' | 'bl' | 'br' }) {
   );
 }
 
-createRoot(document.getElementById('root')!).render(<Compact />);
+// langue de l'interface posée avant le premier rendu ; si elle change, la fenêtre se recharge
+void Promise.all([minute.settings.get(), minute.info()]).then(([s, info]) => {
+  const lang = resolveLang(s.uiLanguage, info.locale);
+  setLang(lang);
+  document.documentElement.lang = lang;
+  minute.on('settings', (next) => {
+    if (resolveLang(next.uiLanguage, info.locale) !== lang) location.reload();
+  });
+  createRoot(document.getElementById('root')!).render(<Compact />);
+});

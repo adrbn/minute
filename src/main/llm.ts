@@ -3,6 +3,7 @@
 //  - Claude : SDK officiel Anthropic.
 import Anthropic from '@anthropic-ai/sdk';
 import type { LlmProvider } from '../shared/types';
+import { t } from '../shared/i18n';
 import { settings } from './settings';
 
 export interface ChatRequest {
@@ -69,7 +70,7 @@ export function activeProvider(): { provider: LlmProvider; model: string } | nul
 
 export async function chat(provider: LlmProvider, model: string, req: ChatRequest): Promise<string> {
   const key = settings().secret(provider);
-  if (!key) throw new LlmError(`Aucune clé ${PROVIDER_LABEL[provider]} configurée`, 'auth');
+  if (!key) throw new LlmError(t('Aucune clé {provider} configurée', { provider: PROVIDER_LABEL[provider] }), 'auth');
   if (provider === 'anthropic') return chatClaude(key, model, req);
   return chatOpenAiCompatible(provider, key, model, req);
 }
@@ -141,7 +142,7 @@ async function chatOpenAiCompatible(
     });
   } catch (e) {
     if ((e as Error).name === 'AbortError') throw e;
-    throw new LlmError(`Réseau indisponible (${(e as Error).message})`, 'network');
+    throw new LlmError(t('Réseau indisponible ({error})', { error: (e as Error).message }), 'network');
   }
   if (provider === 'groq') {
     const tpm = Number(res.headers.get('x-ratelimit-limit-tokens'));
@@ -153,15 +154,15 @@ async function chatOpenAiCompatible(
     if (res.status === 400 && 'reasoning_effort' in body && /reasoning|include_reasoning|unsupported|unknown/i.test(text)) {
       return chatOpenAiCompatible(provider, key, model, req, true);
     }
-    if (res.status === 401 || res.status === 403) throw new LlmError(`Clé ${PROVIDER_LABEL[provider]} refusée`, 'auth');
+    if (res.status === 401 || res.status === 403) throw new LlmError(t('Clé {provider} refusée', { provider: PROVIDER_LABEL[provider] }), 'auth');
     if (res.status === 429) {
       const ra = Number(res.headers.get('retry-after'));
-      throw new LlmError('Limite atteinte', 'rate', Number.isFinite(ra) && ra > 0 ? ra * 1000 : 30_000);
+      throw new LlmError(t('Limite atteinte'), 'rate', Number.isFinite(ra) && ra > 0 ? ra * 1000 : 30_000);
     }
     if (res.status === 413 || /context|too (long|large)|maximum.*tokens|reduce the length/i.test(text)) {
-      throw new LlmError('Texte trop long pour ce modèle', 'context');
+      throw new LlmError(t('Texte trop long pour ce modèle'), 'context');
     }
-    throw new LlmError(`${PROVIDER_LABEL[provider]} : erreur ${res.status} ${text.slice(0, 240)}`, 'other');
+    throw new LlmError(t('{provider} : erreur {status} {details}', { provider: PROVIDER_LABEL[provider], status: res.status, details: text.slice(0, 240) }), 'other');
   }
   let full = '';
   const reader = res.body!.getReader();
@@ -180,7 +181,7 @@ async function chatOpenAiCompatible(
       if (data === '[DONE]') continue;
       try {
         const json = JSON.parse(data) as { choices?: { delta?: { content?: string } }[]; error?: { message?: string } };
-        if (json.error) throw new LlmError(json.error.message ?? 'Erreur du modèle', 'other');
+        if (json.error) throw new LlmError(json.error.message ?? t('Erreur du modèle'), 'other');
         const delta = json.choices?.[0]?.delta?.content;
         if (delta) {
           full += delta;
@@ -219,17 +220,17 @@ async function chatClaude(key: string, model: string, req: ChatRequest): Promise
       }
     }
     const final = await stream.finalMessage();
-    if (final.stop_reason === 'refusal') throw new LlmError('Claude a décliné cette demande.', 'other');
+    if (final.stop_reason === 'refusal') throw new LlmError(t('Claude a décliné cette demande.'), 'other');
     return full.trim();
   } catch (error) {
     if (error instanceof LlmError) throw error;
     if (error instanceof Anthropic.AuthenticationError || error instanceof Anthropic.PermissionDeniedError) {
-      throw new LlmError('Clé Claude refusée', 'auth');
+      throw new LlmError(t('Clé Claude refusée'), 'auth');
     }
-    if (error instanceof Anthropic.RateLimitError) throw new LlmError('Limite Claude atteinte', 'rate', 30_000);
-    if (error instanceof Anthropic.BadRequestError) throw new LlmError(`Claude : ${error.message}`, 'other');
-    if (error instanceof Anthropic.APIConnectionError) throw new LlmError('Réseau indisponible', 'network');
-    if (error instanceof Anthropic.APIError) throw new LlmError(`Claude : erreur ${error.status}`, 'other');
+    if (error instanceof Anthropic.RateLimitError) throw new LlmError(t('Limite Claude atteinte'), 'rate', 30_000);
+    if (error instanceof Anthropic.BadRequestError) throw new LlmError(t('Claude : {error}', { error: error.message }), 'other');
+    if (error instanceof Anthropic.APIConnectionError) throw new LlmError(t('Réseau indisponible'), 'network');
+    if (error instanceof Anthropic.APIError) throw new LlmError(t('Claude : erreur {status}', { status: String(error.status) }), 'other');
     throw error;
   }
 }
@@ -248,8 +249,8 @@ export async function listModels(provider: LlmProvider): Promise<string[]> {
     headers: { Authorization: `Bearer ${key}` },
     signal: AbortSignal.timeout(15_000),
   });
-  if (res.status === 401 || res.status === 403) throw new LlmError('Clé refusée', 'auth');
-  if (!res.ok) throw new LlmError(`Erreur ${res.status}`, 'other');
+  if (res.status === 401 || res.status === 403) throw new LlmError(t('Clé refusée'), 'auth');
+  if (!res.ok) throw new LlmError(t('Erreur {status}', { status: res.status }), 'other');
   const json = (await res.json()) as { data?: { id: string }[] };
   return (json.data ?? [])
     .map((m) => m.id.replace(/^models\//, ''))

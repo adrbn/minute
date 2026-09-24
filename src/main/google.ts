@@ -6,6 +6,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { CalendarEvent } from '../shared/types';
+import { getLang, t } from '../shared/i18n';
 
 const AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -20,7 +21,8 @@ export interface GoogleClient {
 
 const b64url = (b: Buffer) => b.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
-const PAGE = (title: string, body: string) => `<!doctype html><meta charset="utf-8"><title>Minute</title>
+// page affichée dans le navigateur : textes déjà traduits par l'appelant
+const PAGE = (title: string, body: string) => `<!doctype html><html lang="${getLang()}"><meta charset="utf-8"><title>Minute</title>
 <style>body{font:15px -apple-system,'Segoe UI',system-ui,sans-serif;display:grid;place-items:center;height:100vh;margin:0;background:#f5f5f7;color:#1d1d1f}
 main{text-align:center;max-width:420px}h1{font-size:22px;margin:0 0 8px}p{color:#6e6e73;margin:0}</style>
 <main><h1>${title}</h1><p>${body}</p></main>`;
@@ -39,7 +41,7 @@ export async function googleSignIn(client: GoogleClient): Promise<{ refreshToken
   const code = await new Promise<string>((resolve, reject) => {
     const timer = setTimeout(() => {
       server.close();
-      reject(new Error('Connexion abandonnée (délai dépassé).'));
+      reject(new Error(t('Connexion abandonnée (délai dépassé).')));
     }, 5 * 60_000);
     server.on('request', (req, res) => {
       const url = new URL(req.url ?? '/', redirect);
@@ -51,13 +53,13 @@ export async function googleSignIn(client: GoogleClient): Promise<{ refreshToken
       const got = url.searchParams.get('code');
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       if (err || !got || url.searchParams.get('state') !== state) {
-        res.end(PAGE('Connexion annulée', 'Vous pouvez fermer cet onglet et réessayer depuis Minute.'));
+        res.end(PAGE(t('Connexion annulée'), t('Vous pouvez fermer cet onglet et réessayer depuis Minute.')));
         clearTimeout(timer);
         server.close();
-        reject(new Error(err === 'access_denied' ? 'Autorisation refusée.' : 'Connexion Google interrompue.'));
+        reject(new Error(err === 'access_denied' ? t('Autorisation refusée.') : t('Connexion Google interrompue.')));
         return;
       }
-      res.end(PAGE('Minute est connecté à votre agenda', 'Vous pouvez fermer cet onglet et revenir à Minute.'));
+      res.end(PAGE(t('Minute est connecté à votre agenda'), t('Vous pouvez fermer cet onglet et revenir à Minute.')));
       clearTimeout(timer);
       server.close();
       resolve(got);
@@ -91,7 +93,7 @@ export async function googleSignIn(client: GoogleClient): Promise<{ refreshToken
     signal: AbortSignal.timeout(20_000),
   });
   const json = (await res.json()) as { refresh_token?: string; id_token?: string; error_description?: string; error?: string };
-  if (!res.ok || !json.refresh_token) throw new Error(json.error_description || json.error || 'Google n’a pas renvoyé d’autorisation durable.');
+  if (!res.ok || !json.refresh_token) throw new Error(json.error_description || json.error || t('Google n’a pas renvoyé d’autorisation durable.'));
   const email = emailFromIdToken(json.id_token) ?? 'Google';
   return { refreshToken: json.refresh_token, email };
 }
@@ -119,7 +121,7 @@ async function accessToken(client: GoogleClient, refreshToken: string): Promise<
   });
   const json = (await res.json()) as { access_token?: string; expires_in?: number; error?: string };
   if (!res.ok || !json.access_token) {
-    throw new Error(json.error === 'invalid_grant' ? 'Autorisation Google expirée : reconnectez votre compte.' : 'Google : jeton refusé.');
+    throw new Error(json.error === 'invalid_grant' ? t('Autorisation Google expirée : reconnectez votre compte.') : t('Google : jeton refusé.'));
   }
   tokenCache.set(refreshToken, { token: json.access_token, until: Date.now() + (json.expires_in ?? 3600) * 1000 });
   return json.access_token;
@@ -160,10 +162,10 @@ export async function fetchGoogleEvents(client: GoogleClient, refreshToken: stri
   const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(20_000) });
   if (res.status === 401) {
     tokenCache.delete(refreshToken);
-    throw new Error('Autorisation Google expirée : reconnectez votre compte.');
+    throw new Error(t('Autorisation Google expirée : reconnectez votre compte.'));
   }
-  if (res.status === 403) throw new Error('Google refuse l’accès à l’agenda (API Calendar non activée pour ce client ?).');
-  if (!res.ok) throw new Error(`Google Agenda : erreur ${res.status}`);
+  if (res.status === 403) throw new Error(t('Google refuse l’accès à l’agenda (API Calendar non activée pour ce client ?).'));
+  if (!res.ok) throw new Error(t('Google Agenda : erreur {status}', { status: res.status }));
   const json = (await res.json()) as { items?: GEvent[] };
   const out: CalendarEvent[] = [];
   for (const e of json.items ?? []) {
@@ -177,7 +179,7 @@ export async function fetchGoogleEvents(client: GoogleClient, refreshToken: stri
     const inText = /(https:\/\/(?:teams\.microsoft\.com|[\w.-]*zoom\.us|meet\.google\.com)\/[^\s"<>]+)/i.exec(`${e.location ?? ''} ${e.description ?? ''}`)?.[1];
     out.push({
       id: `g:${e.id}`,
-      title: e.summary?.trim() || 'Réunion',
+      title: e.summary?.trim() || t('Réunion'),
       start: Date.parse(e.start.dateTime),
       end: Date.parse(e.end.dateTime),
       attendees: [...people],

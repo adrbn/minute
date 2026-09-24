@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AppInfo, Channel, LiveEvent, Levels, LiveState, MeetingFull, MeetingMeta, MinuteAPI, Settings } from '../../shared/types';
 import { sortSegments } from '../../shared/transcript';
+import { locale, t } from '../../shared/i18n';
 
 declare global {
   interface Window {
@@ -175,9 +176,9 @@ export function firstNameRe(name: string): RegExp | null {
 export function relativeTime(ts: number): string {
   const diff = Date.now() - ts;
   const min = Math.round(diff / 60000);
-  if (min < 1) return 'à l’instant';
-  if (min < 60) return `il y a ${min} min`;
+  if (min < 1) return t('à l’instant');
+  if (min < 60) return t('il y a {n} min', { n: min });
   const h = Math.round(min / 60);
-  if (h < 24) return `il y a ${h} h`;
-  return new Date(ts).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+  if (h < 24) return t('il y a {n} h', { n: h });
+  return new Date(ts).toLocaleDateString(locale(), { day: 'numeric', month: 'short' });
 }

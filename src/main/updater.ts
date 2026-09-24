@@ -8,6 +8,7 @@ import { app } from 'electron';
 import { autoUpdater, type UpdateInfo } from 'electron-updater';
 import type { UpdateState } from '../shared/types';
 import { diagLog } from './diag';
+import { t } from '../shared/i18n';
 
 const RELEASES = 'https://github.com/adrbn/minute/releases/latest';
 const canInstall = process.platform === 'win32';
@@ -51,13 +52,13 @@ export function initUpdater(opts: { notify: (s: UpdateState) => void; enabled: (
         set({
           status: canInstall ? 'ready' : 'available',
           version: '9.9.9',
-          notes: '• Exemple de note de version\n• Affiché uniquement avec MINUTE_UPDATE_DEMO',
+          notes: t('• Exemple de note de version\n• Affiché uniquement avec MINUTE_UPDATE_DEMO'),
         }),
       4000,
     );
     return;
   }
-  if (!app.isPackaged) return set({ status: 'disabled', reason: 'Version de développement' });
+  if (!app.isPackaged) return set({ status: 'disabled', reason: t('Version de développement') });
 
   autoUpdater.logger = null;
   autoUpdater.autoDownload = canInstall;
@@ -71,7 +72,7 @@ export function initUpdater(opts: { notify: (s: UpdateState) => void; enabled: (
   autoUpdater.on('update-downloaded', (info) => set({ status: 'ready', version: info.version, notes: notesOf(info) || state.notes }));
   autoUpdater.on('error', (e) => {
     diagLog('mise à jour', e?.message?.split('\n')[0] ?? 'erreur');
-    set({ status: 'error', error: e?.message?.split('\n')[0] ?? 'Erreur inconnue', checkedAt: Date.now() });
+    set({ status: 'error', error: e?.message?.split('\n')[0] ?? t('Erreur inconnue'), checkedAt: Date.now() });
   });
 
   setTimeout(() => void checkForUpdates(false), 10_000);
@@ -83,7 +84,7 @@ export async function checkForUpdates(manual = true): Promise<UpdateState> {
   if (state.status === 'disabled' && !app.isPackaged) return state;
   const { auto, privacy } = enabled();
   if (privacy) {
-    set({ status: 'disabled', reason: 'Mode confidentiel : aucune connexion vers l’extérieur' });
+    set({ status: 'disabled', reason: t('Mode confidentiel : aucune connexion vers l’extérieur') });
     return state;
   }
   if (!auto && !manual) return state;

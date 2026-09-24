@@ -9,12 +9,14 @@ import { createServer } from 'node:net';
 import { cpus } from 'node:os';
 import { join } from 'node:path';
 import type { LocalStatus } from '../shared/types';
+import { t } from '../shared/i18n';
 import { SttError, type SttResult } from './groq';
 
 const WHISPER_VERSION = 'v1.9.2';
 const ENGINE_URL = `https://github.com/ggml-org/whisper.cpp/releases/download/${WHISPER_VERSION}/whisper-blas-bin-x64.zip`;
 
 export type LocalModel = 'turbo' | 'small';
+/** `label` reste en français ici : traduit par t() au moment de l'afficher. */
 export const LOCAL_MODELS: Record<LocalModel, { file: string; mb: number; label: string }> = {
   turbo: { file: 'ggml-large-v3-turbo-q5_0.bin', mb: 547, label: 'Précis — large v3 turbo' },
   small: { file: 'ggml-small-q5_1.bin', mb: 181, label: 'Rapide — small' },
@@ -65,7 +67,7 @@ export function localStatus(): LocalStatus {
 /** Téléchargement en flux vers un fichier .part, avec progression, puis renommage atomique. */
 async function fetchTo(url: string, dest: string, what: string, expectSha256?: string) {
   const res = await fetch(url, { redirect: 'follow' });
-  if (!res.ok || !res.body) throw new Error(`Téléchargement impossible (${res.status})`);
+  if (!res.ok || !res.body) throw new Error(t('Téléchargement impossible ({status})', { status: res.status }));
   // empreinte SHA-256 publiée par la source : vérifiée à l'arrivée
   const sha = expectSha256;
   const total = Number(res.headers.get('content-length')) || 0;
@@ -95,7 +97,7 @@ async function fetchTo(url: string, dest: string, what: string, expectSha256?: s
   }
   if (sha && /^[0-9a-f]{64}$/.test(sha) && hash.digest('hex') !== sha) {
     rmSync(part, { force: true });
-    throw new Error('Fichier corrompu (empreinte SHA-256 différente) — réessayez.');
+    throw new Error(t('Fichier corrompu (empreinte SHA-256 différente) — réessayez.'));
   }
   renameSync(part, dest);
 }
@@ -109,7 +111,7 @@ function unzip(zip: string, dir: string): Promise<void> {
       { windowsHide: true },
     );
     p.on('error', reject);
-    p.on('exit', (code) => (code === 0 ? resolve() : reject(new Error(`Décompression impossible (code ${code})`))));
+    p.on('exit', (code) => (code === 0 ? resolve() : reject(new Error(t('Décompression impossible (code {code})', { code: String(code) })))));
   });
 }
 
@@ -137,20 +139,20 @@ async function modelSha(file: string): Promise<string | undefined> {
 
 /** Installe le moteur (20 Mo) puis le modèle choisi — une seule fois. */
 export async function installLocal(model: LocalModel): Promise<void> {
-  if (process.platform !== 'win32') throw new Error('La transcription locale est proposée sous Windows.');
+  if (process.platform !== 'win32') throw new Error(t('La transcription locale est proposée sous Windows.'));
   lastError = undefined;
   mkdirSync(root(), { recursive: true });
   try {
     if (!serverExe()) {
       const zip = join(root(), `whisper-${WHISPER_VERSION}.zip`);
-      await fetchTo(ENGINE_URL, zip, 'Moteur whisper.cpp', await engineSha());
+      await fetchTo(ENGINE_URL, zip, t('Moteur whisper.cpp'), await engineSha());
       await unzip(zip, engineDir());
       rmSync(zip, { force: true });
-      if (!serverExe()) throw new Error('Moteur incomplet (whisper-server.exe introuvable).');
+      if (!serverExe()) throw new Error(t('Moteur incomplet (whisper-server.exe introuvable).'));
     }
     if (!existsSync(modelPath(model))) {
       const { file, label } = LOCAL_MODELS[model];
-      await fetchTo(modelUrl(file), modelPath(model), label, await modelSha(file));
+      await fetchTo(modelUrl(file), modelPath(model), t(label), await modelSha(file));
     }
   } catch (e) {
     lastError = (e as Error).message;
@@ -185,7 +187,7 @@ export function startLocal(model: LocalModel): Promise<void> {
   stopLocal();
   starting = (async () => {
     const exe = serverExe();
-    if (!exe || !existsSync(modelPath(model))) throw new Error('Moteur local non installé.');
+    if (!exe || !existsSync(modelPath(model))) throw new Error(t('Moteur local non installé.'));
     port = await freePort();
     const threads = Math.max(2, Math.min(8, cpus().length - 1));
     // un seul candidat, pas de nouvelle tentative à température plus haute : ~30 % plus rapide sur processeur
@@ -203,14 +205,14 @@ export function startLocal(model: LocalModel): Promise<void> {
     // le chargement du modèle prend quelques secondes
     const until = Date.now() + 60_000;
     for (;;) {
-      if (!proc) throw new Error('Le moteur local s’est arrêté au démarrage.');
+      if (!proc) throw new Error(t('Le moteur local s’est arrêté au démarrage.'));
       try {
         const r = await fetch(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(1500) });
         if (r.status < 500) break;
       } catch {
         /* pas encore prêt */
       }
-      if (Date.now() > until) throw new Error('Le moteur local ne répond pas.');
+      if (Date.now() > until) throw new Error(t('Le moteur local ne répond pas.'));
       await new Promise((r) => setTimeout(r, 400));
     }
     emit();
@@ -245,9 +247,9 @@ export async function transcribeLocal(wav: Buffer, opts: { model: LocalModel; la
   try {
     res = await fetch(`http://127.0.0.1:${port}/inference`, { method: 'POST', body: fd, signal: AbortSignal.timeout(120_000) });
   } catch (e) {
-    throw new SttError(`Moteur local indisponible (${(e as Error).message})`, 'server');
+    throw new SttError(t('Moteur local indisponible ({error})', { error: (e as Error).message }), 'server');
   }
-  if (!res.ok) throw new SttError(`Moteur local : erreur ${res.status}`, 'server');
+  if (!res.ok) throw new SttError(t('Moteur local : erreur {status}', { status: res.status }), 'server');
   const json = (await res.json()) as { text?: string };
   return { text: (json.text ?? '').trim(), noSpeech: 0, avgLogprob: 0, compression: 1 };
 }

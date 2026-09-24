@@ -4,6 +4,7 @@
 // - la transcription passe par le moteur local (localStt.ts), l'audio est effacé
 //   dès la transcription et les réunions expirées sont supprimées (main.ts).
 import { session } from 'electron';
+import { t } from '../shared/i18n';
 
 let enabled = false;
 export const privacyOn = () => enabled;
@@ -24,7 +25,7 @@ export function isLocalUrl(input: string | URL): boolean {
 
 export class BlockedError extends Error {
   constructor(host: string) {
-    super(`Mode confidentiel : connexion vers ${host} bloquée — rien ne sort de cet ordinateur.`);
+    super(t('Mode confidentiel : connexion vers {host} bloquée — rien ne sort de cet ordinateur.', { host }));
   }
 }
 
@@ -54,10 +55,15 @@ export function installNetworkGuard() {
 
 /** Message à coller dans la conversation de la visio (exact : il ne promet que ce que l'app garantit). */
 export function participantNotice(local: boolean, name: string): string {
+  // « Moi » : nom par défaut (valeur enregistrée dans les réglages), jamais traduit
   const named = !!name && name !== 'Moi';
-  const who = named ? `${name} utilise` : 'J’utilise';
-  const his = named ? 'son' : 'mon';
-  return local
-    ? `Pour information : ${who} Minute pour la prise de notes de cette réunion. La transcription est faite sur ${his} ordinateur : aucun son ni aucun texte n’est envoyé à un service extérieur, l’audio est effacé aussitôt transcrit, et les notes sont supprimées automatiquement après la durée de conservation. Dites-le si vous ne le souhaitez pas.`
-    : `Pour information : ${who} Minute pour la prise de notes de cette réunion : les échanges sont transcrits automatiquement par un service en ligne, et la transcription est conservée sur ${his} ordinateur. Dites-le si vous ne le souhaitez pas.`;
+  // une phrase entière par cas : l'accord (« son » / « mon ») change selon la langue
+  if (local) {
+    return named
+      ? t('Pour information : {name} utilise Minute pour la prise de notes de cette réunion. La transcription est faite sur son ordinateur : aucun son ni aucun texte n’est envoyé à un service extérieur, l’audio est effacé aussitôt transcrit, et les notes sont supprimées automatiquement après la durée de conservation. Dites-le si vous ne le souhaitez pas.', { name })
+      : t('Pour information : J’utilise Minute pour la prise de notes de cette réunion. La transcription est faite sur mon ordinateur : aucun son ni aucun texte n’est envoyé à un service extérieur, l’audio est effacé aussitôt transcrit, et les notes sont supprimées automatiquement après la durée de conservation. Dites-le si vous ne le souhaitez pas.');
+  }
+  return named
+    ? t('Pour information : {name} utilise Minute pour la prise de notes de cette réunion : les échanges sont transcrits automatiquement par un service en ligne, et la transcription est conservée sur son ordinateur. Dites-le si vous ne le souhaitez pas.', { name })
+    : t('Pour information : J’utilise Minute pour la prise de notes de cette réunion : les échanges sont transcrits automatiquement par un service en ligne, et la transcription est conservée sur mon ordinateur. Dites-le si vous ne le souhaitez pas.');
 }

@@ -1559,7 +1559,8 @@ select.field {
 }
 .start-title p {
   margin: 0;
-  font-size: 13px;
+  font-size: 13.5px;
+  color: var(--text-2);
   font-variant-numeric: tabular-nums;
 }
 .callout {
@@ -2161,55 +2162,126 @@ button.who.voice:hover {
   vertical-align: top;
 }
 
-/* « Deviner qui parle » : une ligne discrète en tête de transcription */
+/* « Deviner qui parle » : un bandeau en tête de transcription, aligné sur les répliques, qu'on peut masquer */
 .voice-namer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 -10px 18px;
+  padding: 10px 8px 10px 12px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--accent) 6%, var(--content));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 14%, transparent);
+  animation: rise 0.35s var(--ease);
+}
+.vn-icon {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+.vn-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.vn-title {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 12px;
-  margin: 0 0 14px 98px;
-  padding: 8px 12px;
-  border-radius: 12px;
-  background: var(--fill);
+  gap: 4px 8px;
   font-size: 13px;
-  color: var(--text-2);
+  font-weight: 600;
+  color: var(--text);
+  line-height: 20px;
 }
-.voice-namer .vn-lead {
+.vn-badges {
   display: inline-flex;
+  gap: 4px;
+}
+.vn-badges .who {
+  display: inline-flex;
+}
+.vn-sub {
+  font-size: 12px;
+  color: var(--text-3);
+  line-height: 1.4;
+}
+.vn-sub .err {
+  color: var(--red);
+}
+.vn-actions {
+  flex-shrink: 0;
+  display: flex;
   align-items: center;
   gap: 6px;
 }
-.voice-namer .vn-lead .who {
-  display: inline-flex;
+.btn.tinted {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-weight: 600;
 }
-.voice-namer .err {
-  color: var(--red);
+.btn.tinted:hover {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
 }
-.voice-namer .link-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
+.vn-close {
+  flex-shrink: 0;
+  align-self: flex-start;
+  color: var(--text-3);
+}
+.vn-guesses {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
 }
 .vn-guess {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   height: 28px;
-  padding: 0 10px 0 5px;
+  padding: 0 10px 0 4px;
   border: none;
   border-radius: 14px;
   background: var(--content);
   box-shadow: inset 0 0 0 1px var(--sep-strong);
   font: inherit;
+  font-size: 12.5px;
   color: var(--text);
   cursor: pointer;
+  transition: box-shadow 0.15s, transform 0.1s;
+}
+.vn-guess .vn-name {
+  font-weight: 600;
+}
+.vn-guess .vn-ok {
+  color: var(--text-3);
 }
 .vn-guess:hover {
-  box-shadow: inset 0 0 0 1px var(--accent);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
 }
-@media (max-width: 760px) {
+.vn-guess:hover .vn-ok {
+  color: var(--accent);
+}
+.vn-guess:active {
+  transform: scale(0.97);
+}
+@media (max-width: 720px) {
   .voice-namer {
-    margin-left: 0;
+    flex-wrap: wrap;
+  }
+  .vn-text {
+    flex-basis: calc(100% - 90px);
+  }
+  .vn-actions {
+    order: 3;
+    margin-left: 44px;
   }
 }
 
@@ -2976,4 +3048,120 @@ html.mac .brand {
 .lang-chips .chip.on {
   background: var(--accent);
   color: #fff;
+}
+
+/* ================================================================== accueil : ce que Minute écoute */
+.listen-card {
+  width: min(440px, 100%);
+  border-radius: 14px;
+  background: var(--elev);
+  box-shadow:
+    0 0 0 1px var(--sep),
+    var(--shadow-1);
+  overflow: hidden;
+}
+.listen-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  min-height: 54px;
+  cursor: default;
+}
+.listen-row + .listen-row {
+  border-top: 1px solid var(--sep);
+}
+.listen-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  color: #fff;
+}
+.listen-icon svg {
+  width: 16px;
+  height: 16px;
+}
+.listen-icon.me {
+  background: var(--red);
+}
+.listen-icon.them {
+  background: var(--accent);
+}
+.listen-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.listen-text b {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.listen-text > span,
+.listen-text select {
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.listen-text select {
+  appearance: none;
+  border: none;
+  background: transparent;
+  outline: none;
+  padding: 0;
+  max-width: 100%;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  font-family: inherit;
+}
+.listen-text select:hover {
+  color: var(--accent);
+}
+.listen-row .mini-level {
+  width: 46px;
+}
+.start-shortcut {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  color: var(--text-3);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.start-shortcut .keys {
+  display: inline-flex;
+  gap: 4px;
+}
+kbd {
+  display: inline-grid;
+  place-items: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 6px;
+  font: 600 11.5px var(--font);
+  color: var(--text-2);
+  background: var(--elev);
+  box-shadow:
+    0 0 0 1px var(--sep-strong),
+    0 1px 0 var(--sep-strong);
+}
+/* l'accueil est une colonne qui peut déborder (agenda) : ses éléments ne se tassent jamais
+   (sinon la carte « Votre micro » s'écrase et le bouton rouge devient ovale) */
+.start > .rec-button,
+.start > .start-title,
+.start > .listen-card,
+.start > .start-shortcut,
+.start > .callout {
+  flex-shrink: 0;
+}
+.rec-button {
+  aspect-ratio: 1;
+}
+/* centré tant que ça tient ; sinon on part du haut (le haut n'est jamais coupé) */
+.start {
+  justify-content: safe center;
 }

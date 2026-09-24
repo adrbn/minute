@@ -1,6 +1,8 @@
 // Client Groq Whisper + « budget » qui respecte les limites du compte
 // (offre gratuite : 20 requêtes/min, 7 200 s d'audio facturées par heure,
 // chaque requête comptant au minimum 10 s).
+import { t } from '../shared/i18n';
+
 export class SttError extends Error {
   constructor(
     message: string,
@@ -53,18 +55,18 @@ export async function transcribe(
       signal: AbortSignal.timeout(opts.timeoutMs ?? 45_000),
     });
   } catch (e) {
-    throw new SttError(`Réseau indisponible (${(e as Error).message})`, 'network');
+    throw new SttError(t('Réseau indisponible ({error})', { error: (e as Error).message }), 'network');
   }
   budget?.observeHeaders(res.headers);
-  if (res.status === 401 || res.status === 403) throw new SttError('Clé Groq refusée', 'auth');
+  if (res.status === 401 || res.status === 403) throw new SttError(t('Clé Groq refusée'), 'auth');
   if (res.status === 429) {
     const ra = Number(res.headers.get('retry-after'));
-    throw new SttError('Limite Groq atteinte', 'rate', Number.isFinite(ra) && ra > 0 ? ra * 1000 : 20_000);
+    throw new SttError(t('Limite Groq atteinte'), 'rate', Number.isFinite(ra) && ra > 0 ? ra * 1000 : 20_000);
   }
-  if (res.status >= 500) throw new SttError(`Groq indisponible (${res.status})`, 'server');
+  if (res.status >= 500) throw new SttError(t('Groq indisponible ({status})', { status: res.status }), 'server');
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    throw new SttError(`Groq a refusé l'audio (${res.status}) ${body.slice(0, 200)}`, 'bad');
+    throw new SttError(t('Groq a refusé l\'audio ({status}) {details}', { status: res.status, details: body.slice(0, 200) }), 'bad');
   }
   const json = (await res.json()) as { text?: string; segments?: VerboseSegment[]; language?: string };
   const segs = json.segments ?? [];
@@ -158,6 +160,6 @@ export class Budget {
 
   get usageLabel(): string {
     this.prune(Date.now());
-    return `${Math.round(this.audioUsed())} s / ${this.ash} s par heure`;
+    return t('{used} s / {max} s par heure', { used: Math.round(this.audioUsed()), max: this.ash });
   }
 }

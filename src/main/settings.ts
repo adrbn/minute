@@ -59,6 +59,7 @@ export function defaultSettings(): Settings {
     retentionDays: 30,
     autoUpdate: true,
     languages: ['fr', 'en', 'it'],
+    uiLanguage: 'auto',
     palette: 'system',
     voices: true,
   };

@@ -1,5 +1,6 @@
 import { Check } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { t } from '../../../shared/i18n';
 
 /** Rendu Markdown léger : titres, listes, cases à cocher, gras, horodatages cliquables. */
 export function Markdown({
@@ -33,7 +34,7 @@ export function Markdown({
         const done = li[2].toLowerCase() === 'x';
         list.push(
           <li key={i} className={`task ${done ? 'done' : ''}`}>
-            <button className={`check ${done ? 'on' : ''}`} onClick={() => onToggle?.(i)} aria-label="Cocher">
+            <button className={`check ${done ? 'on' : ''}`} onClick={() => onToggle?.(i)} aria-label={t('Cocher')}>
               {done && <Check />}
             </button>
             <span>{inline(li[3], onTime)}</span>

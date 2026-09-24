@@ -136,8 +136,7 @@
         "NSMicrophoneUsageDescription": "Minute transcrit ce que vous dites pendant vos réunions.",
         "NSAudioCaptureUsageDescription": "Minute transcrit la voix des autres participants (Teams, Meet, Zoom…).",
         "NSHumanReadableCopyright": "© 2026 Adrien Robino"
-      },
-      "artifactName": "Minute-${version}-macOS-${arch}.${ext}"
+      }
     },
     "dmg": {
       "title": "Minute",

@@ -227,6 +227,8 @@ export interface Settings {
   autoUpdate: boolean;
   /** « Plusieurs langues » : langues parlées dans les réunions ; une autre langue détectée = bruit mal compris */
   languages: string[];
+  /** langue de l'interface (« auto » : celle du système) */
+  uiLanguage: 'auto' | 'fr' | 'en' | 'it';
   /** distinguer les intervenants à leur voix (calcul local) */
   voices: boolean;
 }
@@ -276,6 +278,8 @@ export interface AppInfo {
   /** fond translucide natif (Mica / vibrancy) disponible */
   material: boolean;
   version: string;
+  /** langue du système (ex. « fr-FR »), pour la langue automatique de l'interface */
+  locale: string;
   accent: string;
   storageDir: string;
   shortcutErrors: string[];

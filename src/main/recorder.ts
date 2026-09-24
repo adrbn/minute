@@ -18,6 +18,7 @@ import { cleanResult, buildPrompt, isEcho, overlapping } from './filters';
 import { Budget, SttError, transcribe } from './groq';
 import { transcribeLocal } from './localStt';
 import { diagLog } from './diag';
+import { locale, t } from '../shared/i18n';
 import { Voices } from './voices';
 import { settings } from './settings';
 import { newId, store } from './store';
@@ -100,11 +101,19 @@ export class Recorder {
     this.hooks.state(this.state);
   }
 
-  /** Message d'état affiché dans l'app et la Dynamic Island (null : l'effacer). */
-  notice(kind: 'info' | 'warn' | 'error', text: string | null) {
+  private tagged: { tag: string; text: string } | null = null;
+
+  /** Message d'état affiché dans l'app et la Dynamic Island (null : l'effacer). `tag` permet de le reconnaître. */
+  notice(kind: 'info' | 'warn' | 'error', text: string | null, tag?: string) {
     if (text && text !== this.state.notice?.text) diagLog(`état ${kind}`, text);
+    this.tagged = text && tag ? { tag, text } : null;
     this.state = { ...this.state, notice: text ? { kind, text } : undefined };
     this.emitState();
+  }
+
+  /** Le message affiché est-il celui marqué `tag` ? (son texte est traduit : on ne le reconnaît pas à ses mots) */
+  noticeIs(tag: string): boolean {
+    return this.tagged?.tag === tag && this.state.notice?.text === this.tagged.text;
   }
 
   elapsed(): number {
@@ -119,7 +128,7 @@ export class Recorder {
 
   start(opts: { title?: string; event?: CalendarEvent | null } = {}): Promise<{ ok: boolean; error?: string }> {
     if (this.state.status !== 'idle' || this.startPromise) {
-      return Promise.resolve({ ok: false, error: 'Un enregistrement est déjà en cours.' });
+      return Promise.resolve({ ok: false, error: t('Un enregistrement est déjà en cours.') });
     }
     this.startPromise = this.doStart(opts).finally(() => {
       this.startPromise = null;
@@ -135,13 +144,13 @@ export class Recorder {
   private async doStart(opts: { title?: string; event?: CalendarEvent | null }): Promise<{ ok: boolean; error?: string }> {
     const cfg = settings().get();
     if (!settings().secret('groq')) {
-      return { ok: false, error: 'Ajoutez votre clé Groq dans les Réglages pour transcrire.' };
+      return { ok: false, error: t('Ajoutez votre clé Groq dans les Réglages pour transcrire.') };
     }
     if (process.platform === 'darwin') {
       const st = systemPreferences.getMediaAccessStatus('microphone');
       if (st !== 'granted') {
         const ok = await systemPreferences.askForMediaAccess('microphone');
-        if (!ok) return { ok: false, error: 'Minute n’a pas accès au micro (Réglages Système › Confidentialité › Micro).' };
+        if (!ok) return { ok: false, error: t('Minute n’a pas accès au micro (Réglages Système › Confidentialité › Micro).') };
       }
     }
     const now = Date.now();
@@ -156,6 +165,7 @@ export class Recorder {
       durationMs: 0,
       status: 'recording',
       source: 'minute',
+      // noms par défaut enregistrés tels quels (valeurs repères, traduites à l'affichage)
       speakers: { me: cfg.meName || 'Moi', them: cfg.themName || 'Participants' },
       ...(cfg.voices ? { voices: {} } : {}),
       notes: '',
@@ -187,7 +197,7 @@ export class Recorder {
     } catch (e) {
       this.channelStatus('me', false, (e as Error).message);
     }
-    if (this.state.meetingId !== meta.id) return { ok: false, error: 'Enregistrement annulé.' };
+    if (this.state.meetingId !== meta.id) return { ok: false, error: t('Enregistrement annulé.') };
     this.state = { ...this.state, status: 'recording' };
     this.emitState();
     if (this.silenceTimer) clearInterval(this.silenceTimer);
@@ -223,13 +233,13 @@ export class Recorder {
     const id = this.state.meetingId;
     if (!id || this.state.status === 'stopping' || this.state.status === 'idle') return;
     this.hooks.systemAudio?.stop();
-    this.channelStatus('me', false, 'Le moteur audio a redémarré…');
+    this.channelStatus('me', false, t('Le moteur audio a redémarré…'));
     try {
       await this.captureStart(id);
       if (this.state.status === 'paused') this.hooks.engineSend('engine:pause');
-      this.notice('warn', 'Le moteur audio a redémarré : quelques secondes ont pu manquer.');
+      this.notice('warn', t('Le moteur audio a redémarré : quelques secondes ont pu manquer.'));
     } catch (e) {
-      this.channelStatus('me', false, `Capture interrompue : ${(e as Error).message}`);
+      this.channelStatus('me', false, t('Capture interrompue : {error}', { error: (e as Error).message }));
     }
   }
 
@@ -297,10 +307,10 @@ export class Recorder {
     if (!id) return;
     const meta = store.meta(id);
     if (!meta) return;
-    const bm = { id: newId(), t: Math.max(0, this.elapsed() - 4000), label: label?.trim() || 'Moment important' };
+    const bm = { id: newId(), t: Math.max(0, this.elapsed() - 4000), label: label?.trim() || t('Moment important') };
     store.update(id, { bookmarks: [...meta.bookmarks, bm] });
     this.hooks.live({ type: 'bookmark', meetingId: id, bookmark: bm });
-    this.hooks.toast('★ Moment marqué', 'success');
+    this.hooks.toast(t('★ Moment marqué'), 'success');
   }
 
   channelStatus(ch: Channel, ok: boolean, error?: string) {
@@ -316,7 +326,7 @@ export class Recorder {
       this.lastSpeechAt = Date.now();
       if (this.autoStopWarned) {
         this.autoStopWarned = false;
-        if (this.state.notice?.text.startsWith('Plus personne')) this.notice('info', null);
+        if (this.noticeIs('silence')) this.notice('info', null);
       }
     }
     this.hooks.levels(l);
@@ -327,11 +337,11 @@ export class Recorder {
     if (!mins || this.state.status !== 'recording' || this.autoStopWarned) return;
     if (Date.now() - this.lastSpeechAt < mins * 60_000) return;
     this.autoStopWarned = true;
-    this.notice('info', `Plus personne ne parle depuis ${mins} min — la réunion est peut-être terminée.`);
+    this.notice('info', t('Plus personne ne parle depuis {mins} min — la réunion est peut-être terminée.', { mins }), 'silence');
     if (Notification.isSupported()) {
       const n = new Notification({
-        title: 'La réunion semble terminée',
-        body: `Aucune parole depuis ${mins} minutes. Cliquez pour arrêter ou continuer.`,
+        title: t('La réunion semble terminée'),
+        body: t('Aucune parole depuis {mins} minutes. Cliquez pour arrêter ou continuer.', { mins }),
         silent: true,
       });
       n.on('click', () => this.hooks.showMain(this.state.meetingId ?? undefined));
@@ -486,8 +496,8 @@ export class Recorder {
     // mode confidentiel : sur un processeur modeste, le moteur local peut prendre du retard sur la parole
     if (settings().get().privacyMode && this.state.meetingId) {
       const n = this.queue.length + this.inflight;
-      if (n >= 4) this.notice('warn', `Transcription locale plus lente que la parole sur cet ordinateur : ${n} phrases en attente — rien n’est perdu.`);
-      else if (n === 0 && this.state.notice?.text.startsWith('Transcription locale')) this.notice('info', null);
+      if (n >= 4) this.notice('warn', t('Transcription locale plus lente que la parole sur cet ordinateur : {n} phrases en attente — rien n’est perdu.', { n }), 'slowLocal');
+      else if (n === 0 && this.noticeIs('slowLocal')) this.notice('info', null);
     }
     while (this.inflight < parallel && this.queue.length) {
       const idx = this.queue.findIndex((j) => !this.busy.has(j.meetingId + j.ch));
@@ -496,7 +506,7 @@ export class Recorder {
       const dur = fileDuration(job.file);
       const wait = settings().get().privacyMode ? 0 : this.budget.delayFor(dur, 'final');
       if (wait > 0) {
-        if (wait > 6000) this.notice('warn', 'Limite gratuite Groq atteinte : les phrases arrivent avec un peu de retard, rien n’est perdu.');
+        if (wait > 6000) this.notice('warn', t('Limite gratuite Groq atteinte : les phrases arrivent avec un peu de retard, rien n’est perdu.'));
         this.schedule(wait);
         break;
       }
@@ -528,7 +538,7 @@ export class Recorder {
     this.inflightSegs.add(job.segId);
     try {
       const cfg = settings().get();
-      if (!key && !cfg.privacyMode) throw new SttError('Clé Groq manquante', 'auth');
+      if (!key && !cfg.privacyMode) throw new SttError(t('Clé Groq manquante'), 'auth');
       if (!existsSync(job.file)) {
         this.finalize(job, '');
         return;
@@ -552,7 +562,7 @@ export class Recorder {
         }
       }
       this.failures = 0;
-      if (this.state.notice && this.state.notice.kind !== 'error' && !this.state.notice.text.startsWith('Plus personne')) {
+      if (this.state.notice && this.state.notice.kind !== 'error' && !this.noticeIs('silence')) {
         this.notice('info', null);
       }
       this.finalize(job, applyCorrections(cleanResult(r), cfg.learned));
@@ -561,7 +571,7 @@ export class Recorder {
       this.queue.unshift(job);
       if (err.kind === 'auth') {
         this.authBlocked = true;
-        this.notice('error', 'Clé Groq manquante ou refusée — ouvrez les Réglages. Vos phrases sont gardées en attente.');
+        this.notice('error', t('Clé Groq manquante ou refusée — ouvrez les Réglages. Vos phrases sont gardées en attente.'));
       } else if (err.kind === 'rate') {
         this.budget.block(err.retryAfterMs);
       } else if (err.kind === 'bad') {
@@ -575,7 +585,7 @@ export class Recorder {
         this.failures++;
         this.holdUntil = Date.now() + Math.min(60_000, 1000 * 2 ** Math.min(job.tries, 6));
         if (this.failures >= 2) {
-          this.notice('warn', 'Connexion perdue : l’audio est gardé et sera transcrit dès le retour du réseau.');
+          this.notice('warn', t('Connexion perdue : l’audio est gardé et sera transcrit dès le retour du réseau.'));
         }
       }
     } finally {
@@ -659,7 +669,7 @@ export class Recorder {
   private onEcho() {
     this.echoCount++;
     if (this.echoCount === 3) {
-      this.hooks.toast('Écho détecté : sans casque, votre micro réentend les autres. Minute retire les doublons automatiquement.', 'info');
+      this.hooks.toast(t('Écho détecté : sans casque, votre micro réentend les autres. Minute retire les doublons automatiquement.'), 'info');
     }
   }
 
@@ -687,6 +697,9 @@ function fileDuration(file: string): number {
 function defaultTitle(ts: number): string {
   const d = new Date(ts);
   const h = d.getHours();
-  const moment = h < 12 ? 'du matin' : h < 18 ? 'de l’après-midi' : 'du soir';
-  return `Réunion ${moment} — ${d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}`;
+  const date = d.toLocaleDateString(locale(), { day: 'numeric', month: 'long' });
+  // une phrase entière par moment de la journée (l'ordre des mots change selon la langue)
+  if (h < 12) return t('Réunion du matin — {date}', { date });
+  if (h < 18) return t('Réunion de l’après-midi — {date}', { date });
+  return t('Réunion du soir — {date}', { date });
 }

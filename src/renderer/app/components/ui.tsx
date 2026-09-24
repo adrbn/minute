@@ -1,6 +1,7 @@
 import { AlertTriangle, CheckCircle2, Info, XCircle } from 'lucide-react';
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { UpdateState } from '../../../shared/types';
+import { t } from '../../../shared/i18n';
 import { minute } from '../api';
 
 /** Pastille « Dynamic Island » (mode compact). */
@@ -254,30 +255,30 @@ export function UpdatePrompt({ recording }: { recording: boolean }) {
   if (!ready && !manual) return null;
   return (
     <div className="scrim update-scrim" onMouseDown={(e) => e.target === e.currentTarget && setLater(st.version!)}>
-      <div className="sheet update-sheet" role="dialog" aria-label="Mise à jour disponible">
+      <div className="sheet update-sheet" role="dialog" aria-label={t('Mise à jour disponible')}>
         <AppGlyph size={56} />
-        <h2>Minute {st.version} est disponible</h2>
+        <h2>{t('Minute {v} est disponible', { v: st.version })}</h2>
         <p className="update-sub">
-          Vous avez la version {st.current}.{' '}
-          {ready ? 'Elle est téléchargée : il suffit de redémarrer.' : 'Téléchargez-la pour en profiter.'}
+          {t('Vous avez la version {v}.', { v: st.current })}{' '}
+          {ready ? t('Elle est téléchargée : il suffit de redémarrer.') : t('Téléchargez-la pour en profiter.')}
         </p>
         {st.notes && (
           <div className="update-notes">
-            <b>Nouveautés</b>
+            <b>{t('Nouveautés')}</b>
             <p>{st.notes}</p>
           </div>
         )}
         <div className="update-actions">
           <button className="btn" onClick={() => setLater(st.version!)}>
-            Plus tard
+            {t('Plus tard')}
           </button>
           {ready ? (
             <button className="btn primary" onClick={() => void minute.updates.install()}>
-              Redémarrer et mettre à jour
+              {t('Redémarrer et mettre à jour')}
             </button>
           ) : (
             <button className="btn primary" onClick={() => void minute.windows.openExternal(st.url)}>
-              Télécharger
+              {t('Télécharger')}
             </button>
           )}
         </div>

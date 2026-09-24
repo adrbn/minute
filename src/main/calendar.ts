@@ -4,6 +4,7 @@
 // participants et le lien de visio.
 import ICAL from 'ical.js';
 import type { CalendarEvent, CalendarSource } from '../shared/types';
+import { t } from '../shared/i18n';
 import { fetchGoogleEvents, type GoogleClient } from './google';
 
 const WINDOW_BEFORE = 12 * 3600_000;
@@ -80,7 +81,7 @@ export function parseIcs(text: string, source: string, now = Date.now()): Calend
     const e = end.toJSDate().getTime();
     out.push({
       id: `${ev.uid}@${s}`,
-      title: ev.summary?.trim() || 'Réunion',
+      title: ev.summary?.trim() || t('Réunion'),
       start: s,
       end: e > s ? e : s + 30 * 60_000,
       attendees: attendeeNames(ev),
@@ -140,7 +141,7 @@ export class CalendarService {
       try {
         if (src.kind === 'google') {
           const g = this.google(src);
-          if (!g) throw new Error('Compte Google à reconnecter.');
+          if (!g) throw new Error(t('Compte Google à reconnecter.'));
           all.push(...(await fetchGoogleEvents(g.client, g.refreshToken, src.name)));
         } else all.push(...(await fetchCalendar(src)));
       } catch (e) {
@@ -174,18 +175,18 @@ export class CalendarService {
 
 export async function fetchCalendar(src: CalendarSource): Promise<CalendarEvent[]> {
   const url = normalizeUrl(src.url);
-  if (!/^https:\/\//i.test(url)) throw new Error('L’adresse doit commencer par https:// ou webcal://');
+  if (!/^https:\/\//i.test(url)) throw new Error(t('L’adresse doit commencer par https:// ou webcal://'));
   let res: Response;
   try {
     res = await fetch(url, { signal: AbortSignal.timeout(20_000), headers: { Accept: 'text/calendar' } });
   } catch (e) {
-    throw new Error(`Agenda injoignable (${(e as Error).message})`);
+    throw new Error(t('Agenda injoignable ({error})', { error: (e as Error).message }));
   }
   if (res.status === 401 || res.status === 403 || res.status === 404) {
-    throw new Error('Adresse refusée : vérifiez qu’il s’agit bien de l’adresse iCal privée (secrète).');
+    throw new Error(t('Adresse refusée : vérifiez qu’il s’agit bien de l’adresse iCal privée (secrète).'));
   }
-  if (!res.ok) throw new Error(`Agenda : erreur ${res.status}`);
+  if (!res.ok) throw new Error(t('Agenda : erreur {status}', { status: res.status }));
   const text = await res.text();
-  if (!/BEGIN:VCALENDAR/i.test(text)) throw new Error('Ce lien ne renvoie pas un agenda iCal.');
-  return parseIcs(text, src.name || 'Agenda');
+  if (!/BEGIN:VCALENDAR/i.test(text)) throw new Error(t('Ce lien ne renvoie pas un agenda iCal.'));
+  return parseIcs(text, src.name || t('Agenda'));
 }

@@ -1,6 +1,7 @@
 import { app, BrowserWindow, Menu, nativeImage, nativeTheme, shell, Tray } from 'electron';
 import { join } from 'node:path';
 import { release } from 'node:os';
+import { t } from '../shared/i18n';
 import { settings } from './settings';
 
 const isMac = process.platform === 'darwin';
@@ -145,8 +146,8 @@ export function createMain(): BrowserWindow {
     if (isWin && !settings().appState('trayHintShown')) {
       settings().appState('trayHintShown', true);
       tray?.displayBalloon({
-        title: 'Minute reste à portée de main',
-        content: 'L’app continue dans la zone de notification. Clic droit sur l’icône pour quitter.',
+        title: t('Minute reste à portée de main'),
+        content: t('L’app continue dans la zone de notification. Clic droit sur l’icône pour quitter.'),
         iconType: 'info',
       });
     }
@@ -195,8 +196,8 @@ export function ensureEngine(): Promise<void> {
   const self = engine;
   engineReady = new Promise<void>((resolve, reject) => {
     self.webContents.once('did-finish-load', () => resolve());
-    self.webContents.once('did-fail-load', (_e, code, desc) => reject(new Error(`Moteur audio : ${desc} (${code})`)));
-    self.webContents.once('render-process-gone', () => reject(new Error('Le moteur audio s’est arrêté')));
+    self.webContents.once('did-fail-load', (_e, code, desc) => reject(new Error(t('Moteur audio : {error} ({code})', { error: desc, code }))));
+    self.webContents.once('render-process-gone', () => reject(new Error(t('Le moteur audio s’est arrêté'))));
   });
   engineReady.catch(() => undefined);
   self.webContents.on('render-process-gone', () => {
@@ -214,7 +215,7 @@ export function ensureEngine(): Promise<void> {
 /** Démarre la capture. Passe par executeJavaScript « avec geste utilisateur » :
  *  Chromium exige un geste pour getDisplayMedia (son de l'ordinateur). */
 export async function engineStart(o: unknown): Promise<{ me: boolean; them: boolean }> {
-  if (!engine || engine.isDestroyed()) throw new Error('Moteur audio indisponible');
+  if (!engine || engine.isDestroyed()) throw new Error(t('Moteur audio indisponible'));
   return engine.webContents.executeJavaScript(`window.__minuteStart(${JSON.stringify(o)})`, true);
 }
 
@@ -267,25 +268,26 @@ export function refreshTray() {
   const sc = settings().get().shortcuts;
   const accel = (s: string) => s.replace('Control+Alt+Command', 'Ctrl+Alt+Cmd');
   tray.setImage(trayImage(state === 'recording' || state === 'paused'));
-  tray.setToolTip(state === 'recording' ? 'Minute — enregistrement en cours' : state === 'paused' ? 'Minute — en pause' : 'Minute');
+  tray.setToolTip(state === 'recording' ? t('Minute — enregistrement en cours') : state === 'paused' ? t('Minute — en pause') : 'Minute');
   const live = state === 'recording' || state === 'paused';
+  // libellés calculés à chaque reconstruction : ils suivent la langue choisie
   tray.setContextMenu(
     Menu.buildFromTemplate([
       {
-        label: live ? 'Arrêter l’enregistrement' : 'Démarrer une réunion',
+        label: live ? t('Arrêter l’enregistrement') : t('Démarrer une réunion'),
         accelerator: accel(sc.toggleRecord),
         registerAccelerator: false,
         enabled: state !== 'busy',
         click: a.toggleRecord,
       },
-      { label: state === 'paused' ? 'Reprendre' : 'Pause', enabled: live, click: a.pauseResume },
-      { label: 'Marquer un moment', accelerator: accel(sc.bookmark), registerAccelerator: false, enabled: live, click: a.bookmark },
-      { label: 'Copier la transcription', accelerator: accel(sc.copy), registerAccelerator: false, click: a.copy },
-      { label: 'Mode compact', type: 'checkbox', checked: a.compact(), accelerator: accel(sc.mini), registerAccelerator: false, click: a.mini },
+      { label: state === 'paused' ? t('Reprendre') : t('Pause'), enabled: live, click: a.pauseResume },
+      { label: t('Marquer un moment'), accelerator: accel(sc.bookmark), registerAccelerator: false, enabled: live, click: a.bookmark },
+      { label: t('Copier la transcription'), accelerator: accel(sc.copy), registerAccelerator: false, click: a.copy },
+      { label: t('Mode compact'), type: 'checkbox', checked: a.compact(), accelerator: accel(sc.mini), registerAccelerator: false, click: a.mini },
       { type: 'separator' },
-      { label: 'Ouvrir Minute', click: () => showMain() },
-      { label: 'Signaler un problème…', click: a.report },
-      { label: 'Quitter Minute', click: a.quit },
+      { label: t('Ouvrir Minute'), click: () => showMain() },
+      { label: t('Signaler un problème…'), click: a.report },
+      { label: t('Quitter Minute'), click: a.quit },
     ]),
   );
 }

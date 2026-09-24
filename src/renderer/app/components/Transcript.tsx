@@ -1,5 +1,6 @@
-import { ArrowDown, Copy, LoaderCircle, Play, Scissors, Sparkles, Square, Star, Trash2, X } from 'lucide-react';
+import { ArrowDown, Check, Copy, LoaderCircle, Play, Scissors, Sparkles, Square, Star, Trash2, X } from 'lucide-react';
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { t } from '../../../shared/i18n';
 import {
   clock,
   normalize,
@@ -18,6 +19,25 @@ import type { Bookmark, Channel, MeetingMeta, Segment } from '../../../shared/ty
 import { minute, useSpeaking, type Interims } from '../api';
 import { useToast } from './ui';
 
+/** Voix que l'utilisateur a choisi de ne pas faire deviner, par réunion (le bandeau revient pour une voix nouvelle). */
+const NAMER_KEY = 'minute.namer.dismissed';
+function namerDismissed(meetingId: string): string[] {
+  try {
+    return (JSON.parse(localStorage.getItem(NAMER_KEY) ?? '{}') as Record<string, string[]>)[meetingId] ?? [];
+  } catch {
+    return [];
+  }
+}
+function dismissNamer(meetingId: string, keys: string[]) {
+  try {
+    const all = JSON.parse(localStorage.getItem(NAMER_KEY) ?? '{}') as Record<string, string[]>;
+    all[meetingId] = keys;
+    localStorage.setItem(NAMER_KEY, JSON.stringify(all));
+  } catch {
+    /* stockage indisponible : le bandeau est seulement masqué pour cette fois */
+  }
+}
+
 /**
  * « Qui est qui ? » : l'IA propose un prénom pour les voix non nommées, d'après la conversation
  * (on appelle Elsa, c'est B qui répond…). Rien n'est appliqué sans un clic.
@@ -25,6 +45,12 @@ import { useToast } from './ui';
 function VoiceNamer({ meta }: { meta: MeetingMeta }) {
   const [state, setState] = useState<{ id: string; done: boolean; text: string; error?: string } | null>(null);
   const [dismissed, setDismissed] = useState<string[]>([]);
+  const [hidden, setHidden] = useState<string[]>(() => namerDismissed(meta.id));
+  useEffect(() => {
+    setHidden(namerDismissed(meta.id));
+    setState(null);
+    setDismissed([]);
+  }, [meta.id]);
   useEffect(
     () =>
       minute.on('ai', (e) =>
@@ -35,6 +61,13 @@ function VoiceNamer({ meta }: { meta: MeetingMeta }) {
   const voices = meta.voices ?? {};
   const unnamed = Object.entries(voices).filter(([, v]) => !v.name && !v.owner);
   if (!unnamed.length && !state) return null;
+  if (!state && unnamed.every(([k]) => hidden.includes(k))) return null;
+  const close = () => {
+    const keys = [...new Set([...hidden, ...unnamed.map(([k]) => k)])];
+    dismissNamer(meta.id, keys);
+    setHidden(keys);
+    setState(null);
+  };
   const byLetter = new Map(unnamed.map(([k, v]) => [voiceLetter(v.n), k]));
   let guesses: { letter: string; key: string; name: string; why: string }[] = [];
   if (state?.done && !state.error) {
@@ -60,51 +93,78 @@ function VoiceNamer({ meta }: { meta: MeetingMeta }) {
     if (list.length >= guesses.length) setState(null);
   };
   const run = async () => setState({ id: await minute.ai.run({ kind: 'names', meetingId: meta.id }), done: false, text: '' });
+  const badges = unnamed.map(([k, v]) => (
+    <span key={k} className={`who ${voiceClass(meta, k)}`}>
+      <span className="vbadge">{voiceLetter(v.n)}</span>
+    </span>
+  ));
+
+  let icon = <Sparkles size={16} />;
+  let title: React.ReactNode;
+  let sub: React.ReactNode = null;
+  let actions: React.ReactNode = null;
+  if (!state) {
+    title = (
+      <>
+        {unnamed.length > 1 ? t('{n} voix sans nom', { n: unnamed.length }) : t('1 voix sans nom')}
+        <span className="vn-badges">{badges}</span>
+      </>
+    );
+    sub = t('Minute peut retrouver les prénoms d’après la conversation.');
+    actions = (
+      <button className="btn small tinted" onClick={() => void run()}>
+        {t('Deviner qui parle')}
+      </button>
+    );
+  } else if (!state.done) {
+    icon = <LoaderCircle size={16} className="spin" />;
+    title = t('Je cherche qui est qui…');
+    sub = t('Minute lit la conversation : qui on appelle par son prénom, qui répond.');
+  } else if (state.error) {
+    title = t('Impossible de deviner pour l’instant');
+    sub = <span className="err">{state.error}</span>;
+    actions = (
+      <button className="btn small tinted" onClick={() => void run()}>
+        {t('Réessayer')}
+      </button>
+    );
+  } else if (guesses.length) {
+    title = t('Qui parle, d’après la conversation');
+    sub = (
+      <span className="vn-guesses">
+        {guesses.map((g) => (
+          <button key={g.key} className={`vn-guess who ${voiceClass(meta, g.key)}`} onClick={() => apply([g])} title={g.why}>
+            <span className="vbadge">{g.letter}</span>
+            <span className="vn-name">{g.name}</span>
+            <Check size={13} className="vn-ok" />
+          </button>
+        ))}
+      </span>
+    );
+    if (guesses.length > 1)
+      actions = (
+        <button className="btn small tinted" onClick={() => apply(guesses)}>
+          {t('Tout appliquer')}
+        </button>
+      );
+  } else {
+    title = t('Rien de sûr dans la conversation');
+    sub = t('Cliquez sur une pastille pour nommer la voix.');
+  }
+
   return (
-    <div className="voice-namer">
-      {!state ? (
-        <>
-          <span className="vn-lead">
-            {unnamed.length} voix sans nom : {unnamed.map(([k, v]) => (
-              <span key={k} className={`who ${voiceClass(meta, k)}`}>
-                <span className="vbadge">{voiceLetter(v.n)}</span>
-              </span>
-            ))}
-          </span>
-          <button className="link-btn" onClick={() => void run()}>
-            <Sparkles size={14} /> Deviner qui parle
-          </button>
-        </>
-      ) : !state.done ? (
-        <span className="vn-lead">
-          <LoaderCircle size={14} className="spin" /> Je cherche qui est qui dans la conversation…
-        </span>
-      ) : state.error ? (
-        <span className="vn-lead err">{state.error}</span>
-      ) : guesses.length ? (
-        <>
-          {guesses.map((g) => (
-            <button key={g.key} className={`vn-guess who ${voiceClass(meta, g.key)}`} onClick={() => apply([g])} title={g.why}>
-              <span className="vbadge">{g.letter}</span> = <b>{g.name}</b> ?
-            </button>
-          ))}
-          {guesses.length > 1 && (
-            <button className="link-btn" onClick={() => apply(guesses)}>
-              Tout appliquer
-            </button>
-          )}
-          <button className="icon-btn small" onClick={() => setState(null)} aria-label="Fermer" title="Fermer">
-            <X size={14} />
-          </button>
-        </>
-      ) : (
-        <>
-          <span className="vn-lead">Rien de sûr dans la conversation — cliquez sur une pastille pour la nommer.</span>
-          <button className="icon-btn small" onClick={() => setState(null)} aria-label="Fermer" title="Fermer">
-            <X size={14} />
-          </button>
-        </>
-      )}
+    <div className="voice-namer" role="status">
+      <span className="vn-icon" aria-hidden>
+        {icon}
+      </span>
+      <div className="vn-text">
+        <div className="vn-title">{title}</div>
+        {sub && <div className="vn-sub">{sub}</div>}
+      </div>
+      {actions && <div className="vn-actions">{actions}</div>}
+      <button className="icon-btn small vn-close" onClick={close} aria-label={t('Masquer')} title={t('Masquer')}>
+        <X size={14} />
+      </button>
     </div>
   );
 }
@@ -116,7 +176,7 @@ function VoiceName({ meta, turn }: { meta: MeetingMeta; turn: Turn }) {
   const v = turn.spk ? meta.voices?.[turn.spk] : undefined;
   if (voicePending(meta, turn.ch, turn.spk))
     return (
-      <span className="who" title="Voix non reconnue (phrase trop courte)">
+      <span className="who" title={t('Voix non reconnue (phrase trop courte)')}>
         <span className="vbadge pending" />
       </span>
     );
@@ -152,7 +212,11 @@ function VoiceName({ meta, turn }: { meta: MeetingMeta; turn: Turn }) {
     <button
       className={`who voice ${voiceClass(meta, turn.spk)}`}
       onClick={() => setEditing(true)}
-      title={`${label} — reconnu à sa voix. Cliquer pour ${v.name ? 'renommer' : 'lui donner un nom'} (vaut pour toute la réunion)`}
+      title={
+        v.name
+          ? t('{label} — reconnu à sa voix. Cliquer pour renommer (vaut pour toute la réunion)', { label })
+          : t('{label} — reconnu à sa voix. Cliquer pour lui donner un nom (vaut pour toute la réunion)', { label })
+      }
       aria-label={label}
     >
       {v.owner ? label : <span className={`vbadge ${v.name ? 'named' : ''}`}>{voiceBadge(meta, turn.spk) ?? v.name}</span>}
@@ -258,7 +322,7 @@ export function Transcript({
 
   const copyTurn = async (turn: Turn) => {
     await navigator.clipboard.writeText(`${voiceLabel(meta, turn.ch, turn.spk)} : ${turnText(turn)}`);
-    toast('Passage copié', 'success');
+    toast(t('Passage copié'), 'success');
   };
 
   const play = (turn: Turn) => {
@@ -281,7 +345,7 @@ export function Transcript({
       <div className={`live-row ${ch}`} key={`ghost-${ch}`}>
         <span className="who">
           {voicePending(meta, ch) ? (
-            <span className="vbadge pending" title="Voix en cours de reconnaissance" />
+            <span className="vbadge pending" title={t('Voix en cours de reconnaissance')} />
           ) : ch === 'me' ? (
             <span className="vbadge named me">{speakerName(meta, ch)}</span>
           ) : (
@@ -312,13 +376,13 @@ export function Transcript({
           {!live && <VoiceNamer meta={meta} />}
           {!rows.length && !live && (
             <div className="empty">
-              <p>Aucune parole transcrite dans cette réunion.</p>
+              <p>{t('Aucune parole transcrite dans cette réunion.')}</p>
             </div>
           )}
           {!rows.length && live && !speaking.me && !speaking.them && (
             <div className="empty" style={{ height: 'auto', paddingTop: 80 }}>
-              <h2>À l’écoute…</h2>
-              <p>Le texte apparaît ici au fil de la conversation. Vous pouvez copier à tout moment.</p>
+              <h2>{t('À l’écoute…')}</h2>
+              <p>{t('Le texte apparaît ici au fil de la conversation. Vous pouvez copier à tout moment.')}</p>
             </div>
           )}
           {rows.map((r) =>
@@ -334,7 +398,7 @@ export function Transcript({
                     <button
                       className={`ts ${hasAudio && r.turn.segments.some((s) => s.audio) ? 'play' : ''}`}
                       onClick={() => play(r.turn)}
-                      title={hasAudio ? 'Réécouter' : undefined}
+                      title={hasAudio ? t('Réécouter') : undefined}
                     >
                       {clock(r.turn.t0)}
                     </button>
@@ -360,9 +424,9 @@ export function Transcript({
                             s.ch === 'them' && nameRe && nameRe.test(normalize(s.text)) ? 'mention' : ''
                           }`}
                           onDoubleClick={() => !s.pending && setEditing(s.id)}
-                          title={s.pending ? 'Transcription en cours…' : 'Double-clic pour corriger'}
+                          title={s.pending ? t('Transcription en cours…') : t('Double-clic pour corriger')}
                         >
-                          {s.text || (s.pending ? 'Transcription…' : '')}
+                          {s.text || (s.pending ? t('Transcription…') : '')}
                           {' '}
                         </span>
                       ),
@@ -370,21 +434,23 @@ export function Transcript({
                   </div>
                   <div className="actions">
                     {r.turn.segments.some((s) => s.audio) && (
-                      <button className="icon-btn" onClick={() => play(r.turn)} title="Réécouter">
+                      <button className="icon-btn" onClick={() => play(r.turn)} title={t('Réécouter')}>
                         {playing === r.turn.key ? <Square /> : <Play />}
                       </button>
                     )}
-                    <button className="icon-btn" onClick={() => void copyTurn(r.turn)} title="Copier ce passage">
+                    <button className="icon-btn" onClick={() => void copyTurn(r.turn)} title={t('Copier ce passage')}>
                       <Copy />
                     </button>
                     {!live && r.turn.key !== firstTurnKey && (
                       <button
                         className="icon-btn"
-                        title="Séparer ici : ce passage et la suite deviennent une nouvelle réunion"
+                        title={t('Séparer ici : ce passage et la suite deviennent une nouvelle réunion')}
                         onClick={async () => {
                           try {
-                            await minute.meetings.split(meta.id, r.turn.segments[0].id);
-                            toast(`Réunion séparée : la suite est dans « ${meta.title} (suite) »`, 'success');
+                            const newId = await minute.meetings.split(meta.id, r.turn.segments[0].id);
+                            // titre réel de la suite (le suffixe « (suite) » est ajouté, et traduit, côté processus principal)
+                            const title = (await minute.meetings.get(newId).catch(() => null))?.meta.title ?? `${meta.title} (suite)`;
+                            toast(t('Réunion séparée : la suite est dans « {title} »', { title }), 'success');
                           } catch (err) {
                             toast((err as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''), 'error');
                           }
@@ -395,7 +461,7 @@ export function Transcript({
                     )}
                     <button
                       className="icon-btn"
-                      title="Supprimer ce passage"
+                      title={t('Supprimer ce passage')}
                       onClick={async () => {
                         for (const s of r.turn.segments) await minute.meetings.deleteSegment(meta.id, s.id);
                       }}
@@ -420,7 +486,7 @@ export function Transcript({
             if (el) el.scrollTop = el.scrollHeight;
           }}
         >
-          <ArrowDown /> Revenir au direct
+          <ArrowDown /> {t('Revenir au direct')}
         </button>
       )}
     </div>

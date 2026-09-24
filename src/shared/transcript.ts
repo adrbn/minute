@@ -1,9 +1,13 @@
 // Mise en forme de la transcription — partagé main / interface pour que
 // « ce qu'on voit » et « ce qu'on copie » soient toujours identiques.
+import { locale, t } from './i18n';
 import type { Channel, MeetingMeta, Segment } from './types';
 
-/** Étiquette du son de l'ordinateur tant que les voix ne sont pas distinguées. */
+/** Étiquette du son de l'ordinateur tant que les voix ne sont pas distinguées
+ *  (reste en français : c'est aussi la valeur enregistrée ; traduite à l'affichage). */
 export const THEM_DEFAULT = 'Participants';
+/** Étiquette par défaut du micro (valeur enregistrée, traduite à l'affichage). */
+const ME_DEFAULT = 'Moi';
 
 export interface Turn {
   key: string;
@@ -47,18 +51,22 @@ export function clock(ms: number): string {
 
 export function durationLabel(ms: number): string {
   const min = Math.round(ms / 60000);
-  if (min < 1) return '< 1 min';
-  if (min < 60) return `${min} min`;
+  if (min < 1) return t('< 1 min');
+  if (min < 60) return t('{min} min', { min });
   const h = Math.floor(min / 60);
   const r = min % 60;
-  return r ? `${h} h ${String(r).padStart(2, '0')}` : `${h} h`;
+  return r ? t('{h} h {m}', { h, m: String(r).padStart(2, '0') }) : t('{h} h', { h });
 }
 
 export function speakerName(meta: Pick<MeetingMeta, 'speakers'>, ch: Channel): string {
-  if (ch === 'me') return meta.speakers.me || 'Moi';
+  // les étiquettes par défaut (enregistrées en français) suivent la langue de l'interface
+  if (ch === 'me') {
+    const me = meta.speakers.me;
+    return me && me !== ME_DEFAULT ? me : t(ME_DEFAULT);
+  }
   // « Eux » : ancienne étiquette par défaut (réunions d'avant la v0.3), remplacée partout
   const them = meta.speakers.them;
-  return them && them !== 'Eux' ? them : THEM_DEFAULT;
+  return them && them !== 'Eux' && them !== THEM_DEFAULT ? them : t(THEM_DEFAULT);
 }
 
 /** Lettre d'une voix reconnue : A, B, C… puis 27, 28… */
@@ -70,7 +78,7 @@ export function voiceLabel(meta: Pick<MeetingMeta, 'speakers' | 'voices'>, ch: C
   if (!v) return speakerName(meta, ch);
   if (v.name) return v.name;
   if (v.owner) return speakerName(meta, ch);
-  return `Participant ${voiceLetter(v.n)}`;
+  return t('Participant {letter}', { letter: voiceLetter(v.n) });
 }
 
 /**
@@ -107,7 +115,7 @@ export function wordCount(segments: Segment[]): number {
 }
 
 export function dateLabel(ts: number): string {
-  return new Date(ts).toLocaleString('fr-FR', {
+  return new Date(ts).toLocaleString(locale(), {
     weekday: 'long',
     day: 'numeric',
     month: 'long',
@@ -130,7 +138,7 @@ export function transcriptToText(
   for (const turn of toTurns(segments.filter((s) => s.text.trim()))) {
     const who = voiceLabel(meta, turn.ch, turn.spk);
     const ts = opts.timestamps ? `[${clock(turn.t0)}] ` : '';
-    lines.push(`${ts}${who} : ${turnText(turn)}`);
+    lines.push(ts + t('{who} : {text}', { who, text: turnText(turn) }));
   }
   return lines.join('\n');
 }

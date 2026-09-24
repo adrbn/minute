@@ -10,6 +10,7 @@ import { StartView } from './components/StartView';
 import { UpdatePrompt, useWidth } from './components/ui';
 import { BugReport } from './components/BugReport';
 import { PanelLeft } from 'lucide-react';
+import { t } from '../../shared/i18n';
 
 export function App() {
   const info = useInfo();
@@ -129,8 +130,8 @@ export function App() {
       <button
         className="icon-btn sidebar-toggle no-drag"
         onClick={() => setSidebar((v) => !v)}
-        title={sidebar ? 'Masquer la barre latérale' : 'Afficher la barre latérale'}
-        aria-label="Barre latérale"
+        title={sidebar ? t('Masquer la barre latérale') : t('Afficher la barre latérale')}
+        aria-label={t('Barre latérale')}
       >
         <PanelLeft />
       </button>

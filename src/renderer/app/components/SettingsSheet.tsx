@@ -23,6 +23,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import type { AppInfo, CalendarState, LlmProvider, LocalStatus, NativelyInfo, SecretName, Settings, Shortcuts, UpdateState } from '../../../shared/types';
 import { minute, relativeTime, shortcutLabel } from '../api';
 import { AppGlyph, Switch, useAudioInputs, useToast } from './ui';
+import { t } from '../../../shared/i18n';
 
 const PROVIDERS: { id: LlmProvider; label: string; hint: string; url: string }[] = [
   { id: 'groq', label: 'Groq', hint: 'La même clé que la transcription. Gratuit et rapide.', url: 'https://console.groq.com/keys' },
@@ -75,26 +76,26 @@ export function KeyField({ name, onSaved }: { name: SecretName; onSaved?: (ok: b
         <input
           className="field"
           type="password"
-          placeholder={has ? 'Clé enregistrée — collez-en une autre pour la remplacer' : 'Collez votre clé'}
+          placeholder={has ? t('Clé enregistrée — collez-en une autre pour la remplacer') : t('Collez votre clé')}
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && void save()}
         />
         {value.trim() ? (
           <button className="btn primary" onClick={() => void save()} disabled={state.busy}>
-            Enregistrer
+            {t('Enregistrer')}
           </button>
         ) : (
           has && (
             <button className="btn" onClick={() => void test()} disabled={state.busy}>
-              Tester
+              {t('Tester')}
             </button>
           )
         )}
       </div>
       {state.busy && (
         <span className="test-msg faint">
-          <Loader2 size={12} className="spin" style={{ verticalAlign: -2 }} /> Vérification…
+          <Loader2 size={12} className="spin" style={{ verticalAlign: -2 }} /> {t('Vérification…')}
         </span>
       )}
       {!state.busy && state.msg && <span className={`test-msg ${state.ok ? 'ok' : 'ko'}`}>{state.msg}</span>}
@@ -125,7 +126,7 @@ function ShortcutInput({ value, platform, onChange }: { value: string; platform:
         setRec(false);
       }}
     >
-      {rec ? 'Tapez la combinaison…' : shortcutLabel(value, platform) || 'Aucun'}
+      {rec ? t('Tapez la combinaison…') : shortcutLabel(value, platform) || t('Aucun')}
     </button>
   );
 }
@@ -171,7 +172,7 @@ const LOCAL_MODELS = [
   { id: 'turbo' as const, name: 'Précis', detail: 'large v3 turbo · 547 Mo' },
   { id: 'small' as const, name: 'Rapide', detail: 'small · 181 Mo, pour un ordinateur modeste' },
 ];
-const mo = (b: number) => `${Math.round(b / 1048576)} Mo`;
+const mo = (b: number) => t('{n} Mo', { n: Math.round(b / 1048576) });
 
 function Privacy({ settings, update }: { settings: Settings; update: (p: Partial<Settings>) => Promise<void>; info: AppInfo }) {
   const toast = useToast();
@@ -193,7 +194,7 @@ function Privacy({ settings, update }: { settings: Settings; update: (p: Partial
     setBusy(true);
     try {
       setSt(await minute.local.install(model));
-      toast('Moteur local installé', 'success');
+      toast(t('Moteur local installé'), 'success');
     } catch (e) {
       err(e);
     } finally {
@@ -203,7 +204,7 @@ function Privacy({ settings, update }: { settings: Settings; update: (p: Partial
   const toggle = async (v: boolean) => {
     try {
       await update({ privacyMode: v });
-      toast(v ? 'Mode confidentiel activé : rien ne sort de cet ordinateur' : 'Mode confidentiel désactivé', v ? 'success' : 'info');
+      toast(v ? t('Mode confidentiel activé : rien ne sort de cet ordinateur') : t('Mode confidentiel désactivé'), v ? 'success' : 'info');
     } catch (e) {
       err(e);
     }
@@ -215,52 +216,58 @@ function Privacy({ settings, update }: { settings: Settings; update: (p: Partial
   };
   if (!st.supported)
     return (
-      <Group title="Mode confidentiel">
-        <Row label="Proposé sous Windows" hint="La transcription locale et le verrou réseau sont disponibles dans la version Windows de Minute." />
+      <Group title={t('Mode confidentiel')}>
+        <Row label={t('Proposé sous Windows')} hint={t('La transcription locale et le verrou réseau sont disponibles dans la version Windows de Minute.')} />
       </Group>
     );
   const checks: [boolean, string, string][] = [
-    [on, 'Transcription sur cet ordinateur', on ? `whisper.cpp, modèle ${LOCAL_MODELS.find((m) => m.id === model)?.name.toLowerCase()} — l’audio ne quitte pas la machine` : 'Aujourd’hui : Groq (l’audio des phrases part chez Groq)'],
-    [on, 'Connexions vers l’extérieur bloquées', on ? 'Aucune requête ne quitte l’ordinateur (vérifié à chaque envoi)' : 'Aujourd’hui : transcription, IA et agenda passent par Internet'],
-    [on || settings.keepAudioDays === 0, 'Aucun enregistrement audio conservé', 'L’audio de chaque phrase est effacé dès qu’elle est transcrite'],
-    [on && settings.retentionDays > 0, 'Suppression automatique', on && settings.retentionDays ? `Réunions effacées définitivement après ${settings.retentionDays} jours (sauf épinglées)` : 'Aucune durée de conservation'],
+    [
+      on,
+      t('Transcription sur cet ordinateur'),
+      on
+        ? t('whisper.cpp, modèle {model} — l’audio ne quitte pas la machine', { model: t(LOCAL_MODELS.find((m) => m.id === model)?.name ?? '').toLowerCase() })
+        : t('Aujourd’hui : Groq (l’audio des phrases part chez Groq)'),
+    ],
+    [on, t('Connexions vers l’extérieur bloquées'), on ? t('Aucune requête ne quitte l’ordinateur (vérifié à chaque envoi)') : t('Aujourd’hui : transcription, IA et agenda passent par Internet')],
+    [on || settings.keepAudioDays === 0, t('Aucun enregistrement audio conservé'), t('L’audio de chaque phrase est effacé dès qu’elle est transcrite')],
+    [
+      on && settings.retentionDays > 0,
+      t('Suppression automatique'),
+      on && settings.retentionDays ? t('Réunions effacées définitivement après {n} jours (sauf épinglées)', { n: settings.retentionDays }) : t('Aucune durée de conservation'),
+    ],
   ];
   return (
     <>
       <div className={`privacy-hero ${on ? 'on' : ''}`}>
         <ShieldCheck size={30} />
         <div>
-          <b>Mode confidentiel</b>
-          <p>
-            Pour les réunions sensibles (RH, diplomatie, données personnelles) : tout reste sur cet ordinateur, conformément au
-            principe de minimisation du RGPD.
-          </p>
+          <b>{t('Mode confidentiel')}</b>
+          <p>{t('Pour les réunions sensibles (RH, diplomatie, données personnelles) : tout reste sur cet ordinateur, conformément au principe de minimisation du RGPD.')}</p>
         </div>
         <Switch on={on} onChange={(v) => void toggle(v)} disabled={!ready && !on} />
       </div>
 
       {!ready && (
-        <Group title="1 · Installer la transcription locale" foot="Une seule fois, avant d’activer le mode : ensuite, plus aucune connexion n’est nécessaire.">
-          <Row label="Modèle" col>
+        <Group title={t('1 · Installer la transcription locale')} foot={t('Une seule fois, avant d’activer le mode : ensuite, plus aucune connexion n’est nécessaire.')}>
+          <Row label={t('Modèle')} col>
             <div className="segmented wide">
               {LOCAL_MODELS.map((m) => (
                 <button key={m.id} className={model === m.id ? 'active' : ''} onClick={() => void update({ localModel: m.id })} disabled={busy}>
-                  {m.name} {st.models[m.id] && '✓'}
+                  {t(m.name)} {st.models[m.id] && '✓'}
                 </button>
               ))}
             </div>
             <div className="d" style={{ marginTop: 6 }}>
-              {LOCAL_MODELS.find((m) => m.id === model)?.detail}
+              {t(LOCAL_MODELS.find((m) => m.id === model)?.detail ?? '')}
             </div>
           </Row>
-          <Row label={st.download ? `Téléchargement : ${st.download.what}` : 'Moteur whisper.cpp + modèle'} col>
+          <Row label={st.download ? t('Téléchargement : {what}', { what: st.download.what }) : t('Moteur whisper.cpp + modèle')} col>
             {st.download ? (
               <div className="progress">
                 <div className="progress-line">
-                  <span>{st.download.total ? `${Math.round((100 * st.download.received) / st.download.total)} %` : 'Téléchargement…'}</span>
+                  <span>{st.download.total ? t('{n} %', { n: Math.round((100 * st.download.received) / st.download.total) }) : t('Téléchargement…')}</span>
                   <span className="faint">
-                    {mo(st.download.received)}
-                    {st.download.total ? ` sur ${mo(st.download.total)}` : ''}
+                    {st.download.total ? t('{received} sur {total}', { received: mo(st.download.received), total: mo(st.download.total) }) : mo(st.download.received)}
                   </span>
                 </div>
                 <div className="progress-bar">
@@ -269,7 +276,7 @@ function Privacy({ settings, update }: { settings: Settings; update: (p: Partial
               </div>
             ) : (
               <button className="btn primary" onClick={() => void install()} disabled={busy}>
-                {busy ? <Loader2 size={14} className="spin" /> : null} Télécharger ({model === 'turbo' ? '≈ 567 Mo' : '≈ 201 Mo'})
+                {busy ? <Loader2 size={14} className="spin" /> : null} {t('Télécharger (≈ {n} Mo)', { n: model === 'turbo' ? 567 : 201 })}
               </button>
             )}
             {st.error && <span className="test-msg ko">{st.error}</span>}
@@ -277,7 +284,7 @@ function Privacy({ settings, update }: { settings: Settings; update: (p: Partial
         </Group>
       )}
 
-      <Group title={on ? 'Ce qui est garanti' : 'Ce que le mode change'}>
+      <Group title={on ? t('Ce qui est garanti') : t('Ce que le mode change')}>
         {checks.map(([ok, label, hint]) => (
           <Row
             key={label}
@@ -294,30 +301,30 @@ function Privacy({ settings, update }: { settings: Settings; update: (p: Partial
           label={
             <span className="check-row">
               <span className={`check ${on && llm ? 'ok' : ''}`}>{on && llm ? <Check size={12} strokeWidth={3} /> : null}</span>
-              Comptes-rendus par une IA locale
+              {t('Comptes-rendus par une IA locale')}
             </span>
           }
           hint={
             llm
-              ? `Détectée sur cet ordinateur : ${llm.model}`
-              : 'Aucune IA locale détectée (Ollama ou LM Studio) : en mode confidentiel, pas de compte-rendu automatique — la transcription fonctionne.'
+              ? t('Détectée sur cet ordinateur : {model}', { model: llm.model })
+              : t('Aucune IA locale détectée (Ollama ou LM Studio) : en mode confidentiel, pas de compte-rendu automatique — la transcription fonctionne.')
           }
         />
       </Group>
 
-      <Group title="Réglages">
-        <Row label="Conserver les réunions" hint="En mode confidentiel, suppression définitive au-delà (les réunions épinglées sont gardées).">
+      <Group title={t('Réglages')}>
+        <Row label={t('Conserver les réunions')} hint={t('En mode confidentiel, suppression définitive au-delà (les réunions épinglées sont gardées).')}>
           <select className="field" value={settings.retentionDays} onChange={(e) => void update({ retentionDays: Number(e.target.value) })}>
-            <option value={7}>7 jours</option>
-            <option value={30}>30 jours</option>
-            <option value={90}>90 jours</option>
-            <option value={365}>1 an</option>
-            <option value={0}>Sans limite</option>
+            <option value={7}>{t('{n} jours', { n: 7 })}</option>
+            <option value={30}>{t('{n} jours', { n: 30 })}</option>
+            <option value={90}>{t('{n} jours', { n: 90 })}</option>
+            <option value={365}>{t('1 an')}</option>
+            <option value={0}>{t('Sans limite')}</option>
           </select>
         </Row>
-        <Row label="Informer les participants" hint="Un message prêt à coller dans la conversation de la visio : transparence, et chacun peut s’y opposer.">
+        <Row label={t('Informer les participants')} hint={t('Un message prêt à coller dans la conversation de la visio : transparence, et chacun peut s’y opposer.')}>
           <button className="btn" onClick={() => void notice()}>
-            {copied ? <Check size={14} /> : <Copy size={14} />} {copied ? 'Copié' : 'Copier le message'}
+            {copied ? <Check size={14} /> : <Copy size={14} />} {copied ? t('Copié') : t('Copier le message')}
           </button>
         </Row>
       </Group>
@@ -364,33 +371,34 @@ function UpdatesGroup({ settings, update }: { settings: Settings; update: (p: Pa
     return minute.on('update', setSt);
   }, []);
   if (!st) return null;
-  const when = st.checkedAt ? ` (vérifié ${relativeTime(st.checkedAt)})` : '';
   const line =
     st.status === 'checking'
-      ? 'Recherche d’une nouvelle version…'
+      ? t('Recherche d’une nouvelle version…')
       : st.status === 'downloading'
-        ? `Téléchargement de la version ${st.version}… ${st.percent ?? 0} %`
+        ? t('Téléchargement de la version {v}… {p} %', { v: st.version ?? '', p: st.percent ?? 0 })
         : st.status === 'ready'
-          ? `Version ${st.version} prête : redémarrez pour l’installer.`
+          ? t('Version {v} prête : redémarrez pour l’installer.', { v: st.version ?? '' })
           : st.status === 'available'
-            ? `Version ${st.version} disponible.`
+            ? t('Version {v} disponible.', { v: st.version ?? '' })
             : st.status === 'none'
-              ? `Minute est à jour${when}.`
+              ? st.checkedAt
+                ? t('Minute est à jour (vérifié {when}).', { when: relativeTime(st.checkedAt) })
+                : t('Minute est à jour.')
               : st.status === 'error'
-                ? `Vérification impossible : ${st.error}`
+                ? t('Vérification impossible : {error}', { error: st.error ?? '' })
                 : st.status === 'disabled'
-                  ? (st.reason ?? 'Mises à jour indisponibles')
-                  : 'Pas encore vérifié.';
+                  ? (st.reason ?? t('Mises à jour indisponibles'))
+                  : t('Pas encore vérifié.');
   return (
-    <Group title="Mises à jour">
-      <Row label={`Version ${st.current}`} hint={line}>
+    <Group title={t('Mises à jour')}>
+      <Row label={t('Version {v}', { v: st.current })} hint={line}>
         {st.status === 'ready' ? (
           <button className="btn primary" onClick={() => void minute.updates.install()}>
-            Redémarrer
+            {t('Redémarrer')}
           </button>
         ) : st.status === 'available' && !st.canInstall ? (
           <button className="btn primary" onClick={() => void minute.windows.openExternal(st.url)}>
-            Télécharger
+            {t('Télécharger')}
           </button>
         ) : (
           <button
@@ -402,11 +410,14 @@ function UpdatesGroup({ settings, update }: { settings: Settings; update: (p: Pa
               setBusy(false);
             }}
           >
-            {busy || st.status === 'checking' ? <Loader2 size={14} className="spin" /> : null} Rechercher
+            {busy || st.status === 'checking' ? <Loader2 size={14} className="spin" /> : null} {t('Vérifier maintenant')}
           </button>
         )}
       </Row>
-      <Row label="Mettre à jour automatiquement" hint={st.canInstall ? 'Téléchargée en arrière-plan, installée quand vous le décidez (jamais pendant une réunion).' : 'Vous êtes prévenu quand une nouvelle version sort.'}>
+      <Row
+        label={t('Mettre à jour automatiquement')}
+        hint={st.canInstall ? t('Téléchargée en arrière-plan, installée quand vous le décidez (jamais pendant une réunion).') : t('Vous êtes prévenu quand une nouvelle version sort.')}
+      >
         <Switch on={settings.autoUpdate} onChange={(v) => void update({ autoUpdate: v })} />
       </Row>
     </Group>
@@ -421,9 +432,9 @@ function About({ info, settings, update }: { info: AppInfo; settings: Settings; 
         <AppGlyph size={72} />
         <h2>Minute</h2>
         <p className="about-version">
-          Version {info.version} · {system}
+          {t('Version {v}', { v: info.version })} · {system}
         </p>
-        <p className="about-tagline">Vos réunions, transcrites en direct — et rien ne vous échappe.</p>
+        <p className="about-tagline">{t('Vos réunions, transcrites en direct — et rien ne vous échappe.')}</p>
       </div>
       <div className="about-links">
         <button className="link-card github" onClick={() => void minute.windows.openExternal('https://github.com/adrbn')}>
@@ -437,22 +448,22 @@ function About({ info, settings, update }: { info: AppInfo; settings: Settings; 
         <button className="link-card kofi" onClick={() => void minute.windows.openExternal('https://ko-fi.com/adrbn')}>
           <CupMark />
           <span>
-            <b>Offrir un café</b>
+            <b>{t('Offrir un café')}</b>
             <small>ko-fi.com/adrbn</small>
           </span>
           <ExternalLink size={14} className="go" />
         </button>
       </div>
-      <p className="about-by">Conçu et développé par adrbn · logiciel libre et gratuit (licence MIT).</p>
+      <p className="about-by">{t('Conçu et développé par adrbn · logiciel libre et gratuit (licence MIT).')}</p>
       <UpdatesGroup settings={settings} update={update} />
-      <Group title="Aide">
-        <Row label="Signaler un problème" hint="Un ticket GitHub pré-rempli, avec le journal technique (sans contenu de réunion).">
+      <Group title={t('Aide')}>
+        <Row label={t('Signaler un problème')} hint={t('Un ticket GitHub pré-rempli, avec le journal technique (sans contenu de réunion).')}>
           <button className="btn" onClick={() => window.dispatchEvent(new Event('minute:report'))}>
-            Signaler…
+            {t('Signaler…')}
           </button>
         </Row>
       </Group>
-      <Group title="Composants open source" foot="Merci à leurs auteurs. Détails et licences complètes : THIRD_PARTY_NOTICES.md.">
+      <Group title={t('Composants open source')} foot={t('Merci à leurs auteurs. Détails et licences complètes : THIRD_PARTY_NOTICES.md.')}>
         {OPEN_SOURCE.map(([name, lic]) => (
           <Row key={name} label={name}>
             <span className="faint">{lic}</span>
@@ -492,13 +503,13 @@ export function SettingsSheet({
   const props = { settings, update, info };
   return (
     <div className="scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="sheet settings" role="dialog" aria-label="Réglages">
+      <div className="sheet settings" role="dialog" aria-label={t('Réglages')}>
         <nav className="settings-nav">
-          <div className="settings-nav-title">Réglages</div>
+          <div className="settings-nav-title">{t('Réglages')}</div>
           {SECTIONS.map((s) => (
             <button key={s.id} className={section === s.id ? 'active' : ''} onClick={() => setSection(s.id)}>
               {s.icon}
-              {s.label}
+              {t(s.label)}
             </button>
           ))}
           <div className="grow" />
@@ -506,8 +517,8 @@ export function SettingsSheet({
         </nav>
         <div className="settings-pane">
           <div className="sheet-head">
-            <h2>{SECTIONS.find((s) => s.id === section)?.label}</h2>
-            <button className="icon-btn" onClick={onClose} aria-label="Fermer">
+            <h2>{t(SECTIONS.find((s) => s.id === section)?.label ?? '')}</h2>
+            <button className="icon-btn" onClick={onClose} aria-label={t('Fermer')}>
               <X />
             </button>
           </div>
@@ -535,22 +546,32 @@ function General({ settings, update }: P) {
   return (
     <>
       <Group>
-        <Row label="Votre prénom" hint="Affiché pour votre voix, et utilisé pour vous prévenir quand on s’adresse à vous.">
-          <input className="field" defaultValue={settings.meName === 'Moi' ? '' : settings.meName} placeholder="Moi" onBlur={(e) => void update({ meName: e.target.value.trim() || 'Moi' })} />
+        <Row label={t('Votre prénom')} hint={t('Affiché pour votre voix, et utilisé pour vous prévenir quand on s’adresse à vous.')}>
+          <input className="field" defaultValue={settings.meName === 'Moi' ? '' : settings.meName} placeholder={t('Moi')} onBlur={(e) => void update({ meName: e.target.value.trim() || 'Moi' })} />
         </Row>
-        <Row label="Les autres participants" hint="Nom par défaut de la voix de l’ordinateur.">
+        <Row label={t('Les autres participants')} hint={t('Nom par défaut de la voix de l’ordinateur.')}>
+          {/* Nom par défaut enregistré en français ('Participants') : affiché traduit en indication, champ vide. */}
           <input
             className="field"
-            defaultValue={settings.themName === 'Eux' ? 'Participants' : settings.themName}
+            defaultValue={settings.themName === 'Eux' || settings.themName === 'Participants' ? '' : settings.themName}
+            placeholder={t('Participants')}
             onBlur={(e) => void update({ themName: e.target.value.trim() || 'Participants' })}
           />
         </Row>
-        <Row label="Me prévenir quand on dit mon prénom" hint="Notification « On parle de vous » si Minute n’est pas au premier plan.">
+        <Row label={t('Me prévenir quand on dit mon prénom')} hint={t('Notification « On parle de vous » si Minute n’est pas au premier plan.')}>
           <Switch on={settings.nameAlerts} onChange={(v) => void update({ nameAlerts: v })} />
         </Row>
       </Group>
       <Group>
-        <Row label="Apparence">
+        <Row label={t('Langue de l’interface')} hint={t('La fenêtre se recharge dans la nouvelle langue.')}>
+          <select className="field" value={settings.uiLanguage ?? 'auto'} onChange={(e) => void update({ uiLanguage: e.target.value as Settings['uiLanguage'] })}>
+            <option value="auto">{t('Automatique')}</option>
+            <option value="fr">Français</option>
+            <option value="en">English</option>
+            <option value="it">Italiano</option>
+          </select>
+        </Row>
+        <Row label={t('Apparence')}>
           <div className="segmented">
             {(
               [
@@ -560,29 +581,29 @@ function General({ settings, update }: P) {
               ] as const
             ).map(([v, l]) => (
               <button key={v} className={settings.theme === v ? 'active' : ''} onClick={() => void update({ theme: v })}>
-                {l}
+                {t(l)}
               </button>
             ))}
           </div>
         </Row>
-        <Row label="Thème" col>
-          <div className="swatches" role="radiogroup" aria-label="Thème de couleur">
+        <Row label={t('Thème')} col>
+          <div className="swatches" role="radiogroup" aria-label={t('Thème de couleur')}>
             {PALETTES.map(([key, name, accent, bg]) => (
               <button
                 key={key}
                 role="radio"
                 aria-checked={(settings.palette || 'system') === key}
-                aria-label={name}
-                title={name}
+                aria-label={t(name)}
+                title={t(name)}
                 className={`swatch ${(settings.palette || 'system') === key ? 'active' : ''}`}
                 style={{ ['--sw-accent' as string]: accent, ['--sw-bg' as string]: bg }}
                 onClick={() => void update({ palette: key })}
               />
             ))}
           </div>
-          <div className="swatch-name">{PALETTES.find(([k]) => k === (settings.palette || 'system'))?.[1]}</div>
+          <div className="swatch-name">{t(PALETTES.find(([k]) => k === (settings.palette || 'system'))?.[1] ?? '')}</div>
         </Row>
-        <Row label="Copier avec l’horodatage" hint="Ajoute [mm:ss] devant chaque intervention copiée.">
+        <Row label={t('Copier avec l’horodatage')} hint={t('Ajoute [mm:ss] devant chaque intervention copiée.')}>
           <Switch on={settings.copyWithTimestamps} onChange={(v) => void update({ copyWithTimestamps: v })} />
         </Row>
       </Group>
@@ -600,28 +621,35 @@ function Transcription({ settings, update }: P) {
   }, [settings.vocabulary]);
   const addTerms = (terms: string[]) => {
     const list = vocab.split(/[\n,;]+/).map((v) => v.trim()).filter(Boolean);
-    for (const t of terms) if (!list.some((v) => v.toLowerCase() === t.toLowerCase())) list.push(t);
+    for (const term of terms) if (!list.some((v) => v.toLowerCase() === term.toLowerCase())) list.push(term);
     void update({ vocabulary: list.join(', ') });
   };
   return (
     <>
-      <Group foot={<>Whisper large-v3 turbo, via Groq : rapide, excellent en français, gratuit jusqu’à environ 2 h d’audio par heure. {link('https://console.groq.com/keys', 'Obtenir une clé')}</>}>
-        <Row label="Clé Groq" col>
+      <Group
+        foot={
+          <>
+            {t('Whisper large-v3 turbo, via Groq : rapide, excellent en français, gratuit jusqu’à environ 2 h d’audio par heure.')}{' '}
+            {link('https://console.groq.com/keys', t('Obtenir une clé'))}
+          </>
+        }
+      >
+        <Row label={t('Clé {provider}', { provider: 'Groq' })} col>
           <KeyField name="groq" />
         </Row>
       </Group>
       <Group>
         <Row
-          label="Langue des réunions"
+          label={t('Langue des réunions')}
           hint={
             settings.language === 'auto'
-              ? 'Chaque phrase est écrite dans la langue où elle est dite (français, italien, anglais…).'
-              : 'Une phrase dite dans une autre langue est traduite dans celle-ci. Réunions multilingues : choisissez « Plusieurs langues ».'
+              ? t('Chaque phrase est écrite dans la langue où elle est dite (français, italien, anglais…).')
+              : t('Une phrase dite dans une autre langue est traduite dans celle-ci. Réunions multilingues : choisissez « Plusieurs langues ».')
           }
         >
           <select className="field" value={settings.language} onChange={(e) => void update({ language: e.target.value })}>
-            <option value="auto">Plusieurs langues (détection)</option>
-            <option value="fr">Français uniquement</option>
+            <option value="auto">{t('Plusieurs langues (détection)')}</option>
+            <option value="fr">{t('Français uniquement')}</option>
             <option value="it">Italiano</option>
             <option value="en">English</option>
             <option value="es">Español</option>
@@ -630,8 +658,8 @@ function Transcription({ settings, update }: P) {
         </Row>
         {settings.language === 'auto' && (
           <Row
-            label="Langues parlées dans vos réunions"
-            hint="Une autre langue détectée est traitée comme un bruit mal compris (Whisper « entend » parfois du coréen dans un souffle). La première est la langue principale."
+            label={t('Langues parlées dans vos réunions')}
+            hint={t('Une autre langue détectée est traitée comme un bruit mal compris (Whisper « entend » parfois du coréen dans un souffle). La première est la langue principale.')}
             col
           >
             <div className="lang-chips">
@@ -660,60 +688,60 @@ function Transcription({ settings, update }: P) {
                     }}
                   >
                     {name}
-                    {on && list[0] === code ? ' · principale' : ''}
+                    {on && list[0] === code ? ` · ${t('principale')}` : ''}
                   </button>
                 );
               })}
             </div>
           </Row>
         )}
-        <Row label="Modèle" hint="Turbo suffit presque toujours ; Large v3 est un peu plus précis, un peu plus lent.">
+        <Row label={t('Modèle')} hint={t('Turbo suffit presque toujours ; Large v3 est un peu plus précis, un peu plus lent.')}>
           <select className="field" value={settings.sttModel} onChange={(e) => void update({ sttModel: e.target.value })}>
             <option value="whisper-large-v3-turbo">Large v3 turbo</option>
             <option value="whisper-large-v3">Large v3</option>
           </select>
         </Row>
-        <Row label="Texte pendant que l’on parle" hint="Affiche un aperçu avant la fin de la phrase (un peu plus de quota Groq).">
+        <Row label={t('Texte pendant que l’on parle')} hint={t('Affiche un aperçu avant la fin de la phrase (un peu plus de quota Groq).')}>
           <Switch on={settings.livePreview} onChange={(v) => void update({ livePreview: v })} />
         </Row>
         <Row
           label={
             <>
-              Distinguer les intervenants <span className="badge-beta">bêta</span>
+              {t('Distinguer les intervenants')} <span className="badge-beta">{t('bêta')}</span>
             </>
           }
-          hint="Reconnaît chaque voix : « Participant A, B, C… », chacun sa couleur, à renommer d’un clic. Calcul fait sur cet ordinateur, rien n’est envoyé."
+          hint={t('Reconnaît chaque voix : « Participant A, B, C… », chacun sa couleur, à renommer d’un clic. Calcul fait sur cet ordinateur, rien n’est envoyé.')}
         >
           <Switch on={settings.voices} onChange={(v) => void update({ voices: v })} />
         </Row>
       </Group>
-      <Group title="Vocabulaire" foot="Les participants de l’agenda s’ajoutent d’eux-mêmes à chaque réunion.">
-        <Row label="Noms propres, sigles, jargon" hint="Minute les écrira correctement. Séparés par des virgules." col>
+      <Group title={t('Vocabulaire')} foot={t('Les participants de l’agenda s’ajoutent d’eux-mêmes à chaque réunion.')}>
+        <Row label={t('Noms propres, sigles, jargon')} hint={t('Minute les écrira correctement. Séparés par des virgules.')} col>
           <textarea className="field" rows={3} value={vocab} onChange={(e) => setVocab(e.target.value)} onBlur={() => void update({ vocabulary: vocab })} />
         </Row>
         {!!sugg?.length && (
           <Row
-            label="Suggestions"
-            hint="Noms et sigles qui reviennent dans vos réunions."
+            label={t('Suggestions')}
+            hint={t('Noms et sigles qui reviennent dans vos réunions.')}
             col
           >
             <div className="chips">
               {sugg.map((s) => (
-                <button key={s.term} className="chip" onClick={() => addTerms([s.term])} title={`${s.count} fois, dans ${s.meetings} réunions`}>
+                <button key={s.term} className="chip" onClick={() => addTerms([s.term])} title={t('{count} fois, dans {meetings} réunions', { count: s.count, meetings: s.meetings })}>
                   <Plus /> {s.term}
                 </button>
               ))}
               {sugg.length > 1 && (
                 <button className="chip strong" onClick={() => addTerms(sugg.map((s) => s.term))}>
-                  Tout ajouter
+                  {t('Tout ajouter')}
                 </button>
               )}
             </div>
           </Row>
         )}
         <Row
-          label="Corrections apprises"
-          hint={settings.learned.length ? 'Réappliquées automatiquement aux nouvelles transcriptions.' : 'Corrigez une phrase d’un double-clic : Minute retiendra la correction.'}
+          label={t('Corrections apprises')}
+          hint={settings.learned.length ? t('Réappliquées automatiquement aux nouvelles transcriptions.') : t('Corrigez une phrase d’un double-clic : Minute retiendra la correction.')}
           col={!!settings.learned.length}
         >
           {!!settings.learned.length && (
@@ -728,8 +756,8 @@ function Transcription({ settings, update }: P) {
                     <span className="to">{l.to}</span>
                     <button
                       className="icon-btn small"
-                      aria-label="Oublier"
-                      title="Oublier cette correction"
+                      aria-label={t('Oublier')}
+                      title={t('Oublier cette correction')}
                       onClick={() => void update({ learned: settings.learned.filter((x) => x.from !== l.from) })}
                     >
                       <X />
@@ -749,34 +777,34 @@ function Audio({ settings, update }: P) {
   const devices = useAudioInputs();
   return (
     <Group>
-      <Row label="Micro">
+      <Row label={t('Micro')}>
         <select className="field" value={settings.micDeviceId} onChange={(e) => void update({ micDeviceId: e.target.value })}>
-          <option value="">Micro par défaut du système</option>
+          <option value="">{t('Micro par défaut du système')}</option>
           {devices.map((d) => (
             <option key={d.deviceId} value={d.deviceId}>
-              {d.label || 'Micro'}
+              {d.label || t('Micro')}
             </option>
           ))}
         </select>
       </Row>
-      <Row label="Son de l’ordinateur" hint="La voix des autres en visio (Teams, Meet, Zoom…).">
+      <Row label={t('Son de l’ordinateur')} hint={t('La voix des autres en visio (Teams, Meet, Zoom…).')}>
         <Switch on={settings.captureSystem} onChange={(v) => void update({ captureSystem: v })} />
       </Row>
-      <Row label="Garder l’audio" hint="Pour réécouter une phrase en cliquant sur son heure.">
+      <Row label={t('Garder l’audio')} hint={t('Pour réécouter une phrase en cliquant sur son heure.')}>
         <select className="field" value={settings.keepAudioDays} onChange={(e) => void update({ keepAudioDays: Number(e.target.value) })}>
-          <option value={0}>Jamais</option>
-          <option value={7}>7 jours</option>
-          <option value={30}>30 jours</option>
-          <option value={90}>90 jours</option>
-          <option value={-1}>Toujours</option>
+          <option value={0}>{t('Jamais')}</option>
+          <option value={7}>{t('{n} jours', { n: 7 })}</option>
+          <option value={30}>{t('{n} jours', { n: 30 })}</option>
+          <option value={90}>{t('{n} jours', { n: 90 })}</option>
+          <option value={-1}>{t('Toujours')}</option>
         </select>
       </Row>
-      <Row label="Proposer d’arrêter après un silence" hint="Pour ne jamais laisser tourner un enregistrement oublié.">
+      <Row label={t('Proposer d’arrêter après un silence')} hint={t('Pour ne jamais laisser tourner un enregistrement oublié.')}>
         <select className="field" value={settings.autoStopMinutes} onChange={(e) => void update({ autoStopMinutes: Number(e.target.value) })}>
-          <option value={0}>Jamais</option>
-          <option value={2}>2 min</option>
-          <option value={4}>4 min</option>
-          <option value={8}>8 min</option>
+          <option value={0}>{t('Jamais')}</option>
+          <option value={2}>{t('{n} min', { n: 2 })}</option>
+          <option value={4}>{t('{n} min', { n: 4 })}</option>
+          <option value={8}>{t('{n} min', { n: 8 })}</option>
         </select>
       </Row>
     </Group>
@@ -824,7 +852,7 @@ function Calendars({ settings, update, info }: P) {
     setAdding({ ...adding, busy: true, msg: undefined });
     const r = await minute.calendar.test(adding.url.trim());
     if (!r.ok) return setAdding({ ...adding, busy: false, ok: false, msg: r.message });
-    await update({ calendars: [...settings.calendars, { kind: 'ics', name: adding.name.trim() || 'Agenda', url: adding.url.trim() }] });
+    await update({ calendars: [...settings.calendars, { kind: 'ics', name: adding.name.trim() || t('Agenda'), url: adding.url.trim() }] });
     toast(r.message, 'success');
     setAdding(null);
   };
@@ -833,7 +861,7 @@ function Calendars({ settings, update, info }: P) {
     const c = await minute.calendar.googleClient();
     setClient(c);
     setCsecret('');
-    toast(c.configured ? 'Identifiants Google enregistrés' : 'Identifiants retirés', 'success');
+    toast(c.configured ? t('Identifiants Google enregistrés') : t('Identifiants retirés'), 'success');
   };
 
   return (
@@ -847,29 +875,29 @@ function Calendars({ settings, update, info }: P) {
                 {c.kind === 'google' ? <GoogleMark /> : <CalendarDays size={16} />} {c.name}
               </span>
             }
-            hint={state?.errors[c.url] ? <span className="ko">{state.errors[c.url]}</span> : state?.lastSync ? `À jour ${relativeTime(state.lastSync)}` : 'Synchronisation…'}
+            hint={state?.errors[c.url] ? <span className="ko">{state.errors[c.url]}</span> : state?.lastSync ? t('À jour {when}', { when: relativeTime(state.lastSync) }) : t('Synchronisation…')}
           >
             <button className="btn small ghost" onClick={() => void minute.calendar.disconnect(c.url)}>
-              {c.kind === 'google' ? 'Déconnecter' : 'Retirer'}
+              {c.kind === 'google' ? t('Déconnecter') : t('Retirer')}
             </button>
           </Row>
         ))}
         <Row
-          label={settings.calendars.some((c) => c.kind === 'google') ? 'Ajouter un autre compte Google' : 'Google Agenda'}
+          label={settings.calendars.some((c) => c.kind === 'google') ? t('Ajouter un autre compte Google') : t('Google Agenda')}
           hint={
             client && !client.configured
-              ? 'Il manque les identifiants OAuth de votre organisation (Avancé, plus bas).'
-              : 'Votre navigateur s’ouvre sur la page de connexion Google ; l’accès est en lecture seule.'
+              ? t('Il manque les identifiants OAuth de votre organisation (Avancé, plus bas).')
+              : t('Votre navigateur s’ouvre sur la page de connexion Google ; l’accès est en lecture seule.')
           }
         >
           <button className="btn google-btn" onClick={() => void connectGoogle()} disabled={connecting || !client?.configured}>
-            {connecting ? <Loader2 className="spin" /> : <GoogleMark />} {connecting ? 'En attente du navigateur…' : 'Se connecter avec Google'}
+            {connecting ? <Loader2 className="spin" /> : <GoogleMark />} {connecting ? t('En attente du navigateur…') : t('Se connecter avec Google')}
           </button>
         </Row>
         {adding ? (
-          <Row label="Lien iCal privé" col>
+          <Row label={t('Lien iCal privé')} col>
             <div className="stack-6">
-              <input className="field" placeholder="Nom (ex. Outlook)" value={adding.name} onChange={(e) => setAdding({ ...adding, name: e.target.value })} />
+              <input className="field" placeholder={t('Nom (ex. Outlook)')} value={adding.name} onChange={(e) => setAdding({ ...adding, name: e.target.value })} />
               <div className="row">
                 <input
                   className="field"
@@ -880,59 +908,59 @@ function Calendars({ settings, update, info }: P) {
                   onKeyDown={(e) => e.key === 'Enter' && void addIcs()}
                 />
                 <button className="btn primary" onClick={() => void addIcs()} disabled={adding.busy || !adding.url.trim()}>
-                  {adding.busy ? <Loader2 className="spin" /> : 'Ajouter'}
+                  {adding.busy ? <Loader2 className="spin" /> : t('Ajouter')}
                 </button>
                 <button className="btn ghost" onClick={() => setAdding(null)}>
-                  Annuler
+                  {t('Annuler')}
                 </button>
               </div>
               {adding.msg && <span className={`test-msg ${adding.ok ? 'ok' : 'ko'}`}>{adding.msg}</span>}
             </div>
           </Row>
         ) : (
-          <Row label="Autre agenda (Outlook, iCloud…)" hint="Par son lien iCal privé.">
+          <Row label={t('Autre agenda (Outlook, iCloud…)')} hint={t('Par son lien iCal privé.')}>
             <button className="btn" onClick={() => setAdding({ name: '', url: '' })}>
-              <Plus /> Lien iCal
+              <Plus /> {t('Lien iCal')}
             </button>
           </Row>
         )}
         {!!settings.calendars.length && (
-          <Row label="Actualiser maintenant">
-            <button className="icon-btn" aria-label="Actualiser" onClick={() => void minute.calendar.refresh().then(setState)}>
+          <Row label={t('Actualiser maintenant')}>
+            <button className="icon-btn" aria-label={t('Actualiser')} onClick={() => void minute.calendar.refresh().then(setState)}>
               <RefreshCw />
             </button>
           </Row>
         )}
       </Group>
       <Group>
-        <Row label="Rappel au début d’une réunion" hint="Une notification pour lancer la transcription, avec le titre et les participants.">
+        <Row label={t('Rappel au début d’une réunion')} hint={t('Une notification pour lancer la transcription, avec le titre et les participants.')}>
           <Switch on={settings.calendarReminders} onChange={(v) => void update({ calendarReminders: v })} />
         </Row>
         {info.platform === 'win32' && (
-          <Row label="Détecter les visios" hint="Quand Teams, Zoom ou Meet utilise le micro, Minute propose de transcrire — et d’arrêter à la fin.">
+          <Row label={t('Détecter les visios')} hint={t('Quand Teams, Zoom ou Meet utilise le micro, Minute propose de transcrire — et d’arrêter à la fin.')}>
             <Switch on={settings.meetingDetection} onChange={(v) => void update({ meetingDetection: v })} />
           </Row>
         )}
       </Group>
       <button className="disclosure" onClick={() => setAdvanced((v) => !v)} aria-expanded={advanced}>
-        {advanced ? '▾' : '▸'} Avancé — identifiants OAuth Google
+        {advanced ? '▾' : '▸'} {t('Avancé — identifiants OAuth Google')}
       </button>
       {advanced && (
         <Group
           foot={
             client?.builtIn
-              ? 'Cette version de Minute contient déjà les identifiants de votre organisation. Vous pouvez les remplacer.'
-              : 'Créés une fois pour toute l’organisation dans Google Cloud (application de bureau, audience « Interne »).'
+              ? t('Cette version de Minute contient déjà les identifiants de votre organisation. Vous pouvez les remplacer.')
+              : t('Créés une fois pour toute l’organisation dans Google Cloud (application de bureau, audience « Interne »).')
           }
         >
-          <Row label="ID client" col>
-            <input className="field" value={cid} placeholder={client?.builtIn ? 'Identifiants intégrés' : '…apps.googleusercontent.com'} onChange={(e) => setCid(e.target.value)} />
+          <Row label={t('ID client')} col>
+            <input className="field" value={cid} placeholder={client?.builtIn ? t('Identifiants intégrés') : '…apps.googleusercontent.com'} onChange={(e) => setCid(e.target.value)} />
           </Row>
-          <Row label="Code secret du client" col>
+          <Row label={t('Code secret du client')} col>
             <div className="row">
               <input className="field" type="password" value={csecret} placeholder="GOCSPX-…" onChange={(e) => setCsecret(e.target.value)} />
               <button className="btn" onClick={() => void saveClient()}>
-                Enregistrer
+                {t('Enregistrer')}
               </button>
             </div>
           </Row>
@@ -953,8 +981,8 @@ function Intelligence({ settings, update }: P) {
   }, [settings.llmProvider]);
   return (
     <>
-      <Group foot={provider.hint}>
-        <Row label="Rédaction des comptes-rendus">
+      <Group foot={t(provider.hint)}>
+        <Row label={t('Rédaction des comptes-rendus')}>
           <div className="segmented">
             {PROVIDERS.map((p) => (
               <button key={p.id} className={settings.llmProvider === p.id ? 'active' : ''} onClick={() => void update({ llmProvider: p.id })}>
@@ -964,11 +992,11 @@ function Intelligence({ settings, update }: P) {
           </div>
         </Row>
         {settings.llmProvider !== 'groq' && (
-          <Row label={<>Clé {provider.label}</>} hint={link(provider.url, 'Obtenir une clé')} col>
+          <Row label={t('Clé {provider}', { provider: provider.label })} hint={link(provider.url, t('Obtenir une clé'))} col>
             <KeyField name={settings.llmProvider} onSaved={() => void minute.secrets.listModels(settings.llmProvider).then(setModels)} />
           </Row>
         )}
-        <Row label="Modèle">
+        <Row label={t('Modèle')}>
           {models.length ? (
             <select
               className="field"
@@ -993,7 +1021,7 @@ function Intelligence({ settings, update }: P) {
         </Row>
       </Group>
       <Group>
-        <Row label="Compte-rendu automatique" hint="Rédigé dès la fin de la réunion : titre, décisions, actions, questions ouvertes.">
+        <Row label={t('Compte-rendu automatique')} hint={t('Rédigé dès la fin de la réunion : titre, décisions, actions, questions ouvertes.')}>
           <Switch on={settings.autoSummary} onChange={(v) => void update({ autoSummary: v })} />
         </Row>
       </Group>
@@ -1010,15 +1038,15 @@ function Compact({ settings, update, info }: P) {
   };
   return (
     <>
-      <Group foot="Le mode compact remplace la fenêtre pendant la visio : une Dynamic Island discrète, qui se déplie en sous-titres.">
-        <Row label="Passer en mode compact au démarrage">
+      <Group foot={t('Le mode compact remplace la fenêtre pendant la visio : une Dynamic Island discrète, qui se déplie en sous-titres.')}>
+        <Row label={t('Passer en mode compact au démarrage')}>
           <select className="field" value={settings.compactOnStart} onChange={(e) => void update({ compactOnStart: e.target.value as Settings['compactOnStart'] })}>
-            <option value="background">Si Minute est en arrière-plan</option>
-            <option value="always">Toujours</option>
-            <option value="never">Jamais</option>
+            <option value="background">{t('Si Minute est en arrière-plan')}</option>
+            <option value="always">{t('Toujours')}</option>
+            <option value="never">{t('Jamais')}</option>
           </select>
         </Row>
-        <Row label="Pendant une réunion, l’île s’ouvre avec">
+        <Row label={t('Pendant une réunion, l’île s’ouvre avec')}>
           <div className="segmented">
             {(
               [
@@ -1027,29 +1055,29 @@ function Compact({ settings, update, info }: P) {
               ] as const
             ).map(([v, l]) => (
               <button key={v} className={(settings.compactShape ?? 'pill') === v ? 'active' : ''} onClick={() => void update({ compactShape: v })}>
-                {l}
+                {t(l)}
               </button>
             ))}
           </div>
         </Row>
         <Row
-          label="Quand Minute passe au second plan"
-          hint="Pendant une réunion, cliquer dans une autre application (Teams, navigateur…) remplace la fenêtre par la Dynamic Island."
+          label={t('Quand Minute passe au second plan')}
+          hint={t('Pendant une réunion, cliquer dans une autre application (Teams, navigateur…) remplace la fenêtre par la Dynamic Island.')}
         >
           <Switch on={settings.autoCompact} onChange={(v) => void update({ autoCompact: v })} />
         </Row>
         <Row
-          label="Masquer des partages d’écran et captures"
+          label={t('Masquer des partages d’écran et captures')}
           hint={
             settings.miniHiddenFromCapture
-              ? 'Les participants ne la voient pas quand vous partagez votre écran — mais vos captures d’écran non plus.'
-              : 'Visible dans les captures d’écran… et dans vos partages d’écran Teams / Zoom.'
+              ? t('Les participants ne la voient pas quand vous partagez votre écran — mais vos captures d’écran non plus.')
+              : t('Visible dans les captures d’écran… et dans vos partages d’écran Teams / Zoom.')
           }
         >
           <Switch on={settings.miniHiddenFromCapture} onChange={(v) => void update({ miniHiddenFromCapture: v })} />
         </Row>
       </Group>
-      <Group title="Raccourcis — depuis n’importe quelle application">
+      <Group title={t('Raccourcis — depuis n’importe quelle application')}>
         {(
           [
             ['toggleRecord', 'Démarrer / arrêter'],
@@ -1058,7 +1086,7 @@ function Compact({ settings, update, info }: P) {
             ['mini', 'Mode compact'],
           ] as [keyof Shortcuts, string][]
         ).map(([k, label]) => (
-          <Row key={k} label={label} hint={fresh.shortcutErrors.includes(settings.shortcuts[k]) ? <span className="ko">Déjà pris par une autre application.</span> : undefined}>
+          <Row key={k} label={t(label)} hint={fresh.shortcutErrors.includes(settings.shortcuts[k]) ? <span className="ko">{t('Déjà pris par une autre application.')}</span> : undefined}>
             <ShortcutInput value={settings.shortcuts[k]} platform={info.platform} onChange={(v) => void setShortcut(k, v)} />
           </Row>
         ))}
@@ -1079,18 +1107,28 @@ function Data({ settings, update }: P) {
     setImporting(true);
     try {
       const r = await minute.natively.importAll();
-      toast(`${r.imported} réunion${r.imported > 1 ? 's' : ''} importée${r.imported > 1 ? 's' : ''} depuis Natively`, 'success');
+      toast(r.imported > 1 ? t('{n} réunions importées depuis Natively', { n: r.imported }) : t('{n} réunion importée depuis Natively', { n: r.imported }), 'success');
       setNatively(await minute.natively.detect());
     } catch (e) {
-      toast(`Import impossible : ${(e as Error).message}`, 'error');
+      toast(t('Import impossible : {error}', { error: (e as Error).message }), 'error');
     } finally {
       setImporting(false);
     }
   };
+  const nativelyLine = (n: number, a: number) =>
+    !a
+      ? n > 1
+        ? t('{n} réunions. Natively n’est pas modifié.', { n })
+        : t('{n} réunion. Natively n’est pas modifié.', { n })
+      : n > 1
+        ? a > 1
+          ? t('{n} réunions, dont {a} déjà importées. Natively n’est pas modifié.', { n, a })
+          : t('{n} réunions, dont {a} déjà importée. Natively n’est pas modifié.', { n, a })
+        : t('{n} réunion, dont {a} déjà importée. Natively n’est pas modifié.', { n, a });
   return (
     <>
-      <Group foot="Vos réunions restent sur cet ordinateur. Seul l’audio des phrases part chez Groq pour être transcrit, et seul le texte part chez le service d’IA choisi.">
-        <Row label="Dossier des réunions" hint={<span className="path">{settings.storageDir}</span>}>
+      <Group foot={t('Vos réunions restent sur cet ordinateur. Seul l’audio des phrases part chez Groq pour être transcrit, et seul le texte part chez le service d’IA choisi.')}>
+        <Row label={t('Dossier des réunions')} hint={<span className="path">{settings.storageDir}</span>}>
           <button
             className="btn"
             onClick={async () => {
@@ -1103,23 +1141,23 @@ function Data({ settings, update }: P) {
               }
             }}
           >
-            <FolderOpen /> Changer…
+            <FolderOpen /> {t('Changer…')}
           </button>
         </Row>
       </Group>
       <Group>
         <Row
-          label="Historique Natively"
+          label={t('Historique Natively')}
           hint={
             natively === null
-              ? 'Recherche…'
+              ? t('Recherche…')
               : !natively.found
-                ? 'Aucun historique Natively sur cet ordinateur.'
-                : `${natively.meetings} réunion${natively.meetings > 1 ? 's' : ''}${natively.alreadyImported ? `, dont ${natively.alreadyImported} déjà importée${natively.alreadyImported > 1 ? 's' : ''}` : ''}. Natively n’est pas modifié.`
+                ? t('Aucun historique Natively sur cet ordinateur.')
+                : nativelyLine(natively.meetings, natively.alreadyImported)
           }
         >
           <button className="btn" disabled={!natively?.found || importing || natively.meetings === natively.alreadyImported} onClick={() => void runImport()}>
-            {importing ? <Loader2 className="spin" /> : <Import />} Importer
+            {importing ? <Loader2 className="spin" /> : <Import />} {t('Importer')}
           </button>
         </Row>
       </Group>

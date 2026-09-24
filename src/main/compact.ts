@@ -10,6 +10,7 @@
 //   après l'avoir réduite, pour qu'aucune étape ne soit visible.
 import { BrowserWindow, ipcMain, screen, type Rectangle } from 'electron';
 import type { Anchor, CompactLayout, CompactShape } from '../shared/types';
+import { t } from '../shared/i18n';
 import { settings } from './settings';
 import { fadeInOnNextShow, fadeWindow, getMain, paths, registerExtraWindows, secureWeb, setBeforeShowMain, showMain } from './windows';
 
@@ -122,7 +123,7 @@ function create(): BrowserWindow {
     // ne vole jamais le focus à Teams / Zoom : on clique sans perdre la frappe en cours
     focusable: !isWin,
     type: isMac ? 'panel' : undefined,
-    title: 'Minute — mode compact',
+    title: t('Minute — mode compact'),
     backgroundColor: '#00000000',
     webPreferences: { preload: paths.preload(), contextIsolation: true, sandbox: true },
   });

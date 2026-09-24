@@ -1,5 +1,6 @@
 import { Copy, History, Loader2, Mail, MessageSquareText, RotateCw, Send, Sparkles, Star, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { t } from '../../../shared/i18n';
 import { clock } from '../../../shared/transcript';
 import type { AiEvent, AiKind, MeetingMeta, Segment } from '../../../shared/types';
 import { minute, relativeTime } from '../api';
@@ -42,10 +43,11 @@ function useAi(meetingId: string) {
   }, [meetingId]);
   const run = async (kind: AiKind, extra: { question?: string; minutes?: number } = {}) => {
     const requestId = await minute.ai.run({ kind, meetingId, ...extra });
+    const question = extra.question ?? (kind === 'catchup' ? t('Rattrapage — {n} dernières minutes', { n: extra.minutes ?? '' }) : undefined);
     setStreams((prev) =>
       prev.some((s) => s.requestId === requestId)
-        ? prev.map((s) => (s.requestId === requestId ? { ...s, question: extra.question ?? (kind === 'catchup' ? `Rattrapage — ${extra.minutes} dernières minutes` : undefined) } : s))
-        : [...prev, { requestId, kind, text: '', done: false, question: extra.question ?? (kind === 'catchup' ? `Rattrapage — ${extra.minutes} dernières minutes` : undefined) }],
+        ? prev.map((s) => (s.requestId === requestId ? { ...s, question } : s))
+        : [...prev, { requestId, kind, text: '', done: false, question }],
     );
     return requestId;
   };
@@ -87,13 +89,13 @@ export function SidePanel({
       <div className="panel-head">
         <div className="segmented">
           <button className={tab === 'notes' ? 'active' : ''} onClick={() => onTab('notes')}>
-            Notes
+            {t('Notes')}
           </button>
           <button className={tab === 'summary' ? 'active' : ''} onClick={() => onTab('summary')}>
-            Compte-rendu
+            {t('Compte-rendu')}
           </button>
           <button className={tab === 'assistant' ? 'active' : ''} onClick={() => onTab('assistant')}>
-            Assistant
+            {t('Assistant')}
           </button>
         </div>
       </div>
@@ -154,17 +156,17 @@ function NotesTab({ meta, onTime }: { meta: MeetingMeta; onTime: (ms: number) =>
     <div className="panel-body">
       <textarea
         className="notes-area"
-        placeholder={'Vos notes…\n\nNotez l’essentiel en quelques mots : Minute s’en servira pour rédiger un compte-rendu centré sur ce qui compte pour vous.'}
+        placeholder={t('Vos notes…\n\nNotez l’essentiel en quelques mots : Minute s’en servira pour rédiger un compte-rendu centré sur ce qui compte pour vous.')}
         value={text}
         onChange={(e) => onChange(e.target.value)}
       />
       <div className="faint" style={{ textAlign: 'right' }}>
-        {saved ? 'Enregistré' : 'Enregistrement…'}
+        {saved ? t('Enregistré') : t('Enregistrement…')}
       </div>
       {meta.bookmarks.length > 0 && (
         <div>
           <div className="section-title" style={{ marginBottom: 6 }}>
-            Moments marqués
+            {t('Moments marqués')}
           </div>
           <div className="chips">
             {meta.bookmarks.map((b) => (
@@ -217,9 +219,9 @@ function SummaryTab({
       <div className="panel-body">
         <div className="empty" style={{ height: 'auto', paddingTop: 40 }}>
           <Sparkles size={28} color="var(--accent)" />
-          <p>Ajoutez une clé d’IA (votre clé Groq suffit) pour obtenir des comptes-rendus automatiques.</p>
+          <p>{t('Ajoutez une clé d’IA (votre clé Groq suffit) pour obtenir des comptes-rendus automatiques.')}</p>
           <button className="btn primary" onClick={onOpenSettings}>
-            Ouvrir les réglages
+            {t('Ouvrir les réglages')}
           </button>
         </div>
       </div>
@@ -231,16 +233,16 @@ function SummaryTab({
       <div className="panel-body">
         <div className="empty" style={{ height: 'auto', paddingTop: 40 }}>
           <Sparkles size={28} color="var(--accent)" />
-          <h2 style={{ fontSize: 16 }}>Compte-rendu</h2>
+          <h2 style={{ fontSize: 16 }}>{t('Compte-rendu')}</h2>
           <p>
             {live
-              ? 'Il sera rédigé automatiquement à la fin de la réunion. Vous pouvez aussi en demander un brouillon maintenant.'
-              : 'Résumé, décisions, actions et questions ouvertes — rédigés à partir de la transcription et de vos notes.'}
+              ? t('Il sera rédigé automatiquement à la fin de la réunion. Vous pouvez aussi en demander un brouillon maintenant.')
+              : t('Résumé, décisions, actions et questions ouvertes — rédigés à partir de la transcription et de vos notes.')}
           </p>
           <button className="btn primary" disabled={!segments.length || pending} onClick={() => void run('summary')}>
-            <Sparkles /> {live ? 'Brouillon maintenant' : 'Rédiger le compte-rendu'}
+            <Sparkles /> {live ? t('Brouillon maintenant') : t('Rédiger le compte-rendu')}
           </button>
-          {pending && <span className="faint">Transcription en cours de finalisation…</span>}
+          {pending && <span className="faint">{t('Transcription en cours de finalisation…')}</span>}
           {stream?.error && <span className="faint" style={{ color: 'var(--red)' }}>{stream.error}</span>}
         </div>
       </div>
@@ -251,7 +253,7 @@ function SummaryTab({
     <div className="panel-body">
       {generating && (
         <div className="row faint">
-          <Loader2 size={14} className="spin" /> {stream.progress || 'Rédaction du compte-rendu…'}
+          <Loader2 size={14} className="spin" /> {stream.progress || t('Rédaction du compte-rendu…')}
         </div>
       )}
       <Markdown
@@ -270,16 +272,16 @@ function SummaryTab({
               className="btn small"
               onClick={async () => {
                 await minute.meetings.copy(meta.id, { range: 'summary' });
-                toast('Compte-rendu copié — prêt à coller dans un e-mail ou Word', 'success');
+                toast(t('Compte-rendu copié — prêt à coller dans un e-mail ou Word'), 'success');
               }}
             >
-              <Copy /> Copier
+              <Copy /> {t('Copier')}
             </button>
             <button className="btn small" onClick={() => void run('followup')} disabled={!!follow && !follow.done}>
-              <Mail /> E-mail de suivi
+              <Mail /> {t('E-mail de suivi')}
             </button>
             <span className="spacer" />
-            <button className="icon-btn" title="Régénérer" onClick={() => void run('summary')}>
+            <button className="icon-btn" title={t('Régénérer')} onClick={() => void run('summary')}>
               <RotateCw />
             </button>
           </div>
@@ -293,7 +295,7 @@ function SummaryTab({
         <div className="card">
           <div className="row" style={{ marginBottom: 8 }}>
             <Mail size={15} color="var(--accent)" />
-            <b>E-mail de suivi</b>
+            <b>{t('E-mail de suivi')}</b>
             <span className="spacer" />
             {follow && !follow.done ? (
               <Loader2 size={14} className="spin" />
@@ -302,10 +304,10 @@ function SummaryTab({
                 className="btn small"
                 onClick={async () => {
                   await navigator.clipboard.writeText(followText);
-                  toast('E-mail copié', 'success');
+                  toast(t('E-mail copié'), 'success');
                 }}
               >
-                <Copy /> Copier
+                <Copy /> {t('Copier')}
               </button>
             )}
           </div>
@@ -347,9 +349,9 @@ function AssistantTab({
       <div className="panel-body">
         <div className="empty" style={{ height: 'auto', paddingTop: 40 }}>
           <MessageSquareText size={28} color="var(--accent)" />
-          <p>Ajoutez une clé d’IA pour interroger vos réunions.</p>
+          <p>{t('Ajoutez une clé d’IA pour interroger vos réunions.')}</p>
           <button className="btn primary" onClick={onOpenSettings}>
-            Ouvrir les réglages
+            {t('Ouvrir les réglages')}
           </button>
         </div>
       </div>
@@ -367,32 +369,32 @@ function AssistantTab({
     <div className="panel-body">
       <div>
         <div className="section-title" style={{ marginBottom: 6 }}>
-          {live ? 'Vous avez décroché ?' : 'Rattrapage'}
+          {live ? t('Vous avez décroché ?') : t('Rattrapage')}
         </div>
         <div className="chips">
           {[2, 5, 10].map((m) => (
             <button key={m} className="chip" onClick={() => void run('catchup', { minutes: m })}>
-              <History /> {m} dernières min
+              <History /> {t('{m} dernières min', { m })}
             </button>
           ))}
         </div>
       </div>
-      <div className="section-title">Demander à la réunion</div>
+      <div className="section-title">{t('Demander à la réunion')}</div>
       <div className="ask">
         <input
           className="field"
-          placeholder="Ex. : qu’a-t-on décidé pour le budget ?"
+          placeholder={t('Ex. : qu’a-t-on décidé pour le budget ?')}
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && ask()}
         />
-        <button className="btn primary" onClick={ask} disabled={!q.trim()} aria-label="Envoyer">
+        <button className="btn primary" onClick={ask} disabled={!q.trim()} aria-label={t('Envoyer')}>
           <Send />
         </button>
       </div>
       {!qa.length && (
         <div className="chips">
-          {['Qu’attend-on de moi ?', 'Quels chiffres ont été cités ?', 'Quelles sont les prochaines étapes ?'].map((s) => (
+          {[t('Qu’attend-on de moi ?'), t('Quels chiffres ont été cités ?'), t('Quelles sont les prochaines étapes ?')].map((s) => (
             <button key={s} className="chip" onClick={() => void run('ask', { question: s })}>
               {s}
             </button>
@@ -408,14 +410,14 @@ function AssistantTab({
             <Markdown text={s.text} streaming={!s.done} onTime={onTime} />
           ) : (
             <div className="row faint">
-              <Loader2 size={14} className="spin" /> {s.progress || 'Réflexion…'}
+              <Loader2 size={14} className="spin" /> {s.progress || t('Réflexion…')}
             </div>
           )}
         </div>
       ))}
       {qa.length > 0 && (
         <button className="btn small ghost" style={{ alignSelf: 'center' }} onClick={clear}>
-          <X /> Effacer
+          <X /> {t('Effacer')}
         </button>
       )}
       <div ref={bottom} />

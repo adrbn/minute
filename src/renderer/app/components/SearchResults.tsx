@@ -1,19 +1,20 @@
 import { FileText, Loader2, MessageSquare, NotebookPen, Type } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
+import { t, locale } from '../../../shared/i18n';
 import { clock, normalize } from '../../../shared/transcript';
 import type { SearchHit } from '../../../shared/types';
 import { minute } from '../api';
 
 function highlight(text: string, query: string): ReactNode[] {
-  const terms = normalize(query.replace(/"/g, '')).split(/\s+/).filter((t) => t.length > 1);
+  const terms = normalize(query.replace(/"/g, '')).split(/\s+/).filter((w) => w.length > 1);
   if (!terms.length) return [text];
   const n = normalize(text);
   const marks: [number, number][] = [];
-  for (const t of terms) {
-    let i = n.indexOf(t);
+  for (const w of terms) {
+    let i = n.indexOf(w);
     while (i >= 0) {
-      marks.push([i, i + t.length]);
-      i = n.indexOf(t, i + t.length);
+      marks.push([i, i + w.length]);
+      i = n.indexOf(w, i + w.length);
     }
   }
   marks.sort((a, b) => a[0] - b[0]);
@@ -32,25 +33,28 @@ export function SearchResults({ query, onOpen }: { query: string; onOpen: (id: s
   const [hits, setHits] = useState<SearchHit[] | null>(null);
   useEffect(() => {
     setHits(null);
-    const t = setTimeout(() => void minute.meetings.search(query).then(setHits), 180);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => void minute.meetings.search(query).then(setHits), 180);
+    return () => clearTimeout(timer);
   }, [query]);
 
   const icon = (k: SearchHit['kind']) =>
     k === 'title' ? <Type size={14} /> : k === 'notes' ? <NotebookPen size={14} /> : k === 'summary' ? <FileText size={14} /> : <MessageSquare size={14} />;
 
   const meetings = hits ? new Set(hits.map((h) => h.meetingId)).size : 0;
+  const count = () => {
+    const vars = { n: hits?.length ?? 0, m: meetings };
+    if (vars.n <= 1) return t('{n} passage dans {m} réunion', vars);
+    return meetings > 1 ? t('{n} passages dans {m} réunions', vars) : t('{n} passages dans {m} réunion', vars);
+  };
 
   return (
     <div className="content">
       <div className="titlebar drag">
         <div className="meeting-head">
           <div className="meeting-title" style={{ pointerEvents: 'none' }}>
-            Résultats pour « {query} »
+            {t('Résultats pour « {query} »', { query })}
           </div>
-          <div className="meeting-sub">
-            {hits === null ? 'Recherche…' : `${hits.length} passage${hits.length > 1 ? 's' : ''} dans ${meetings} réunion${meetings > 1 ? 's' : ''}`}
-          </div>
+          <div className="meeting-sub">{hits === null ? t('Recherche…') : count()}</div>
         </div>
       </div>
       <div className="results" style={{ borderTop: '1px solid var(--sep)' }}>
@@ -61,8 +65,8 @@ export function SearchResults({ query, onOpen }: { query: string; onOpen: (id: s
         )}
         {hits?.length === 0 && (
           <div className="empty">
-            <h2>Aucun résultat</h2>
-            <p>Essayez un autre mot, ou mettez une expression entre guillemets pour la chercher telle quelle.</p>
+            <h2>{t('Aucun résultat')}</h2>
+            <p>{t('Essayez un autre mot, ou mettez une expression entre guillemets pour la chercher telle quelle.')}</p>
           </div>
         )}
         {hits?.map((h, i) => (
@@ -71,7 +75,7 @@ export function SearchResults({ query, onOpen }: { query: string; onOpen: (id: s
               {icon(h.kind)}
               <span>{h.title}</span>
               <span className="faint">
-                {new Date(h.startedAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })}
+                {new Date(h.startedAt).toLocaleDateString(locale(), { day: 'numeric', month: 'short', year: 'numeric' })}
                 {h.t !== undefined ? ` · ${clock(h.t)}` : ''}
               </span>
             </div>

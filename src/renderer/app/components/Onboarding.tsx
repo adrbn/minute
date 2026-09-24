@@ -1,6 +1,7 @@
 import { Copy, Headphones, History, Import, Keyboard, Loader2, Mic, MonitorSpeaker, PictureInPicture2, ShieldCheck, Sparkles, Star } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { AppInfo, NativelyInfo, Settings } from '../../../shared/types';
+import { t } from '../../../shared/i18n';
 import { minute, shortcutLabel } from '../api';
 import { KeyField } from './SettingsSheet';
 import { Switch, useAudioInputs, useMicPreview, useToast } from './ui';
@@ -65,67 +66,72 @@ export function Onboarding({
         {step === 0 && (
           <>
             <Glyph />
-            <h1>Bienvenue dans Minute</h1>
-            <p>Vos réunions, transcrites en direct. Ce que vous dites, ce que disent les autres — lisible, copiable et consultable pendant la réunion.</p>
+            <h1>{t('Bienvenue dans Minute')}</h1>
+            <p>
+              {t(
+                'Vos réunions, transcrites en direct. Ce que vous dites, ce que disent les autres — lisible, copiable et consultable pendant la réunion.',
+              )}
+            </p>
             <div className="features">
               <div className="feature">
                 <Copy />
                 <div>
-                  <b>Copiez à tout moment</b>
-                  <span>Sans attendre la fin, même depuis une autre app.</span>
+                  <b>{t('Copiez à tout moment')}</b>
+                  <span>{t('Sans attendre la fin, même depuis une autre app.')}</span>
                 </div>
               </div>
               <div className="feature">
                 <History />
                 <div>
-                  <b>Vous avez décroché ?</b>
-                  <span>Un rattrapage des dernières minutes en un clic.</span>
+                  <b>{t('Vous avez décroché ?')}</b>
+                  <span>{t('Un rattrapage des dernières minutes en un clic.')}</span>
                 </div>
               </div>
               <div className="feature">
                 <Sparkles />
                 <div>
-                  <b>Compte-rendu automatique</b>
-                  <span>Décisions, actions, e-mail de suivi.</span>
+                  <b>{t('Compte-rendu automatique')}</b>
+                  <span>{t('Décisions, actions, e-mail de suivi.')}</span>
                 </div>
               </div>
               <div className="feature">
                 <ShieldCheck />
                 <div>
-                  <b>Rien ne se perd</b>
-                  <span>Chaque phrase est enregistrée dès qu’elle est dite.</span>
+                  <b>{t('Rien ne se perd')}</b>
+                  <span>{t('Chaque phrase est enregistrée dès qu’elle est dite.')}</span>
                 </div>
               </div>
             </div>
             <button className="btn primary large" onClick={next}>
-              Commencer
+              {t('Commencer')}
             </button>
           </>
         )}
 
         {step === 1 && (
           <>
-            <h1>Le moteur de transcription</h1>
+            <h1>{t('Le moteur de transcription')}</h1>
             <p>
-              Minute utilise Whisper via Groq — le même moteur que vous utilisiez dans Natively. La clé est gratuite et reste chiffrée sur cet
-              ordinateur.
+              {t(
+                'Minute utilise Whisper via Groq — le même moteur que vous utilisiez dans Natively. La clé est gratuite et reste chiffrée sur cet ordinateur.',
+              )}
             </p>
             <div className="card">
               <KeyField name="groq" onSaved={(ok) => setGroqOk(ok)} />
               <div className="faint" style={{ marginTop: 8 }}>
-                Pas encore de clé ?{' '}
+                {t('Pas encore de clé ?')}{' '}
                 <a href="#" onClick={() => void minute.windows.openExternal('https://console.groq.com/keys')}>
                   console.groq.com/keys
                 </a>{' '}
-                → « Create API Key ».
+                {t('→ « Create API Key ».')}
               </div>
             </div>
             <div className="row">
               <button className="btn ghost" onClick={next}>
-                Plus tard
+                {t('Plus tard')}
               </button>
               <button className="btn primary large" onClick={next} disabled={!groqOk}>
-                Continuer
+                {t('Continuer')}
               </button>
             </div>
           </>
@@ -133,17 +139,25 @@ export function Onboarding({
 
         {step === 2 && (
           <>
-            <h1>Deux voix, deux sources</h1>
-            <p>Votre micro devient « {settings.meName || 'Moi'} », le son de l’ordinateur (Teams, Meet, Zoom…) devient « {settings.themName && settings.themName !== 'Eux' ? settings.themName : 'Participants'} » — et chaque voix reconnue, « Participant A, B, C… ».</p>
+            <h1>{t('Deux voix, deux sources')}</h1>
+            <p>
+              {t(
+                'Votre micro devient « {me} », le son de l’ordinateur (Teams, Meet, Zoom…) devient « {them} » — et chaque voix reconnue, « Participant A, B, C… ».',
+                {
+                  me: settings.meName || t('Moi'),
+                  them: settings.themName && settings.themName !== 'Eux' ? settings.themName : t('Participants'),
+                },
+              )}
+            </p>
             <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <div className="row">
                 <Mic size={16} />
-                <b style={{ flex: 1 }}>Micro</b>
+                <b style={{ flex: 1 }}>{t('Micro')}</b>
                 <select className="field" style={{ maxWidth: 300 }} value={settings.micDeviceId} onChange={(e) => void update({ micDeviceId: e.target.value })}>
-                  <option value="">Micro par défaut</option>
+                  <option value="">{t('Micro par défaut')}</option>
                   {devices.map((d) => (
                     <option key={d.deviceId} value={d.deviceId}>
-                      {d.label || 'Micro'}
+                      {d.label || t('Micro')}
                     </option>
                   ))}
                 </select>
@@ -151,9 +165,9 @@ export function Onboarding({
               <div className="source">
                 {level < 0 ? (
                   <span className="faint" style={{ color: 'var(--red)' }}>
-                    Micro inaccessible —{' '}
+                    {t('Micro inaccessible —')}{' '}
                     <a href="#" onClick={() => void minute.windows.openPrivacySettings('microphone')}>
-                      ouvrir les autorisations
+                      {t('ouvrir les autorisations')}
                     </a>
                   </span>
                 ) : (
@@ -161,40 +175,45 @@ export function Onboarding({
                     <div className="level">
                       <i style={{ width: `${Math.round(level * 100)}%` }} />
                     </div>
-                    <span className="faint">Dites quelques mots : la barre doit bouger.</span>
+                    <span className="faint">{t('Dites quelques mots : la barre doit bouger.')}</span>
                   </>
                 )}
               </div>
               <div className="row">
                 <MonitorSpeaker size={16} />
-                <b style={{ flex: 1 }}>Son de l’ordinateur</b>
+                <b style={{ flex: 1 }}>{t('Son de l’ordinateur')}</b>
                 <Switch on={settings.captureSystem} onChange={(v) => void update({ captureSystem: v })} />
               </div>
               {p === 'darwin' && (
                 <div className="faint">
-                  Au premier enregistrement, macOS demandera l’accès au micro et à « l’enregistrement audio du système » : acceptez les deux.
+                  {t(
+                    'Au premier enregistrement, macOS demandera l’accès au micro et à « l’enregistrement audio du système » : acceptez les deux.',
+                  )}
                 </div>
               )}
               <div className="row faint">
-                <Headphones size={14} /> Avec un casque, la séparation des voix est parfaite ; sans casque, Minute retire les doublons automatiquement.
+                <Headphones size={14} />{' '}
+                {t('Avec un casque, la séparation des voix est parfaite ; sans casque, Minute retire les doublons automatiquement.')}
               </div>
             </div>
             <button className="btn primary large" onClick={next}>
-              Continuer
+              {t('Continuer')}
             </button>
           </>
         )}
 
         {step === 3 && hasNatively && (
           <>
-            <h1>Reprendre votre historique</h1>
+            <h1>{t('Reprendre votre historique')}</h1>
             <p>
-              {natively!.meetings} réunion{natively!.meetings > 1 ? 's' : ''} Natively trouvée{natively!.meetings > 1 ? 's' : ''} sur cet ordinateur.
-              Minute peut reprendre transcriptions et comptes-rendus, sans rien modifier dans Natively.
+              {natively!.meetings > 1
+                ? t('{n} réunions Natively trouvées sur cet ordinateur.', { n: natively!.meetings })
+                : t('{n} réunion Natively trouvée sur cet ordinateur.', { n: natively!.meetings })}{' '}
+              {t('Minute peut reprendre transcriptions et comptes-rendus, sans rien modifier dans Natively.')}
             </p>
             <div className="row">
               <button className="btn ghost" onClick={next}>
-                Pas maintenant
+                {t('Pas maintenant')}
               </button>
               <button
                 className="btn primary large"
@@ -203,16 +222,21 @@ export function Onboarding({
                   setImporting(true);
                   try {
                     const r = await minute.natively.importAll();
-                    toast(`${r.imported} réunions importées`, 'success');
+                    toast(
+                      r.imported > 1
+                        ? t('{n} réunions importées', { n: r.imported })
+                        : t('{n} réunion importée', { n: r.imported }),
+                      'success',
+                    );
                     next();
                   } catch (e) {
-                    toast(`Import impossible : ${(e as Error).message}`, 'error');
+                    toast(t('Import impossible : {error}', { error: (e as Error).message }), 'error');
                   } finally {
                     setImporting(false);
                   }
                 }}
               >
-                {importing ? <Loader2 className="spin" /> : <Import />} Importer
+                {importing ? <Loader2 className="spin" /> : <Import />} {t('Importer')}
               </button>
             </div>
           </>
@@ -221,15 +245,15 @@ export function Onboarding({
         {step === steps - 1 && step >= 3 && (
           <>
             <Glyph />
-            <h1>Tout est prêt</h1>
-            <p>Quelques raccourcis qui marchent partout, même quand Minute est en arrière-plan :</p>
+            <h1>{t('Tout est prêt')}</h1>
+            <p>{t('Quelques raccourcis qui marchent partout, même quand Minute est en arrière-plan :')}</p>
             <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {(
                 [
-                  [<Mic key="a" size={15} />, 'Démarrer / arrêter une réunion', sc.toggleRecord],
-                  [<Copy key="b" size={15} />, 'Copier toute la transcription', sc.copy],
-                  [<Star key="c" size={15} />, 'Marquer un moment important', sc.bookmark],
-                  [<PictureInPicture2 key="d" size={15} />, 'Mode compact (sous-titres flottants)', sc.mini],
+                  [<Mic key="a" size={15} />, t('Démarrer / arrêter une réunion'), sc.toggleRecord],
+                  [<Copy key="b" size={15} />, t('Copier toute la transcription'), sc.copy],
+                  [<Star key="c" size={15} />, t('Marquer un moment important'), sc.bookmark],
+                  [<PictureInPicture2 key="d" size={15} />, t('Mode compact (sous-titres flottants)'), sc.mini],
                 ] as const
               ).map(([icon, label, accel]) => (
                 <div className="row" key={label}>
@@ -239,11 +263,11 @@ export function Onboarding({
                 </div>
               ))}
               <div className="row faint">
-                <Keyboard size={14} /> Modifiables dans les Réglages.
+                <Keyboard size={14} /> {t('Modifiables dans les Réglages.')}
               </div>
             </div>
             <button className="btn primary large" onClick={() => void finish()}>
-              C’est parti
+              {t('C’est parti')}
             </button>
           </>
         )}
