@@ -1,5 +1,6 @@
 // Tout ce que l'IA fait pour l'utilisateur : compte-rendu, rattrapage,
 // questions sur la réunion, e-mail de suivi.
+import { langName, t } from '../shared/i18n';
 import { clock, dateLabel, durationLabel, speakerName, transcriptForAi } from '../shared/transcript';
 import type { AiEvent, AiRequest, MeetingMeta, Segment } from '../shared/types';
 import { activeProvider, chat, chatLocal, estimateTokens, findLocalLlm, inputBudget, LlmError, PROVIDER_LABEL } from './llm';
@@ -12,14 +13,17 @@ type Emit = (e: AiEvent) => void;
 const running = new Map<string, AbortController>();
 
 function context(meta: MeetingMeta) {
-  const cfg = settings().get();
-  const me = meta.speakers.me || cfg.meName || 'Moi';
-  return `Tu assistes ${me === 'Moi' ? 'l’utilisateur' : me} dans ses réunions de travail. La transcription est automatique (Whisper) :
+  // mêmes étiquettes que dans la transcription envoyée (elles suivent la langue de l'interface)
+  const me = speakerName(meta, 'me');
+  return `Tu assistes ${me === t('Moi') ? 'l’utilisateur' : me} dans ses réunions de travail. La transcription est automatique (Whisper) :
 - « ${me} » = la personne qui utilise l’app (son micro) ; « ${speakerName(meta, 'them')} » = les autres participants, quand leurs voix ne sont pas distinguées.
-- Les voix distinguées apparaissent sous leur nom ou « Participant A, B, C… » (séparation automatique, qui peut parfois se tromper). Si la conversation montre clairement qui est un « Participant X » (on l'appelle par son prénom et c'est lui qui répond), désigne-le par ce prénom — sans jamais compter deux fois la même personne.
+- Les voix distinguées apparaissent sous leur nom ou « ${voiceLabels()} » (séparation automatique, qui peut parfois se tromper). Si la conversation montre clairement qui est un « Participant X » (on l'appelle par son prénom et c'est lui qui répond), désigne-le par ce prénom — sans jamais compter deux fois la même personne.
 - Elle peut contenir des erreurs de reconnaissance : corrige silencieusement les mots manifestement mal transcrits grâce au contexte, sans jamais inventer de faits.
-- Réponds en français, avec un ton professionnel, clair et direct.`;
+- Réponds en ${langName()}, avec un ton professionnel, clair et direct.`;
 }
+
+/** « Participant A, B, C… » dans la langue de l'interface. */
+const voiceLabels = () => `${t('Participant {letter}', { letter: 'A' })}, B, C…`;
 
 function header(meta: MeetingMeta) {
   return `Réunion : ${meta.title}\nDate : ${dateLabel(meta.startedAt)} — durée ${durationLabel(meta.durationMs)}`;
@@ -44,24 +48,24 @@ function extras(meta: MeetingMeta, segments: Segment[]) {
   return parts.join('\n\n');
 }
 
-const SUMMARY_FORMAT = `Rédige le compte-rendu en Markdown, exactement dans ce format (omets une section qui serait vide) :
+const summaryFormat = () => `Rédige le compte-rendu en Markdown et en ${langName()}, exactement dans ce format, avec ces titres de sections tels quels (omets une section qui serait vide) :
 
 # <titre court et précis de la réunion, 3 à 8 mots, sans date>
 
-## En bref
+## ${t('En bref')}
 <2 à 4 phrases : de quoi il s’agissait et ce qui en ressort>
 
-## Décisions
+## ${t('Décisions')}
 - <décision prise>
 
-## Actions
+## ${t('Actions')}
 - [ ] **<Qui>** — <quoi> (<échéance si mentionnée>)
 
-## Points clés
+## ${t('Points clés')}
 ### <Thème>
 - <information utile : chiffres, noms, dates, arguments>
 
-## Questions ouvertes
+## ${t('Questions ouvertes')}
 - <question restée sans réponse ou point à clarifier>
 
 Règles : sois fidèle et concret (chiffres, noms, dates exacts) ; pas de remplissage ; n’invente aucune action ni décision ; n’ajoute aucun détail qui n’a pas été dit (pas de comparaison, de période ou de justification supposées) ; les moments marqués et les notes de l’utilisateur doivent apparaître.`;
@@ -73,7 +77,7 @@ async function withRetry<T>(fn: () => Promise<T>, onWait: (s: string) => void, s
     } catch (e) {
       if (e instanceof LlmError && e.kind === 'rate' && attempt < 4 && !signal.aborted) {
         const wait = Math.min(65_000, e.retryAfterMs || 30_000);
-        onWait(`Limite atteinte, reprise dans ${Math.ceil(wait / 1000)} s…`);
+        onWait(t('Limite atteinte, reprise dans {s} s…', { s: Math.ceil(wait / 1000) }));
         await new Promise((r) => setTimeout(r, wait));
         continue;
       }
@@ -112,16 +116,16 @@ export async function runAi(req: AiRequest, emit: Emit): Promise<string> {
   void (async () => {
     try {
       const meta = store.meta(req.meetingId);
-      if (!meta) throw new Error('Réunion introuvable');
+      if (!meta) throw new Error(t('Réunion introuvable.'));
       // mode confidentiel : seulement une IA installée sur cet ordinateur (le texte ne sort pas)
       const local = settings().get().privacyMode ? await findLocalLlm() : null;
       if (settings().get().privacyMode && !local) {
-        throw new Error('Mode confidentiel : aucune IA locale détectée (Ollama ou LM Studio). La transcription, elle, fonctionne.');
+        throw new Error(t('Mode confidentiel : aucune IA locale détectée (Ollama ou LM Studio). La transcription, elle, fonctionne.'));
       }
       const active = local ? { provider: 'openai' as const, model: local.model } : activeProvider();
       // une IA locale peut mettre un moment à répondre : on le dit tout de suite
-      if (local) send('', false, { progress: `IA locale (${local.model}) : réponse en cours…` });
-      if (!active) throw new Error('Ajoutez une clé d’IA (Groq suffit) dans les Réglages.');
+      if (local) send('', false, { progress: t('IA locale ({model}) : réponse en cours…', { model: local.model }) });
+      if (!active) throw new Error(t('Ajoutez une clé d’IA (Groq suffit) dans les Réglages.'));
       const { provider, model } = active;
       const segments = store.segments(req.meetingId).filter((s) => s.text);
       const call = (system: string, user: string, opts: { quick?: boolean; maxTokens: number; onText?: (t: string) => void }) =>
@@ -138,7 +142,7 @@ export async function runAi(req: AiRequest, emit: Emit): Promise<string> {
         const minutes = req.minutes ?? 5;
         const now = segments.length ? segments[segments.length - 1].t1 : 0;
         const recent = segments.filter((s) => s.t1 >= now - minutes * 60_000);
-        if (!recent.length) throw new Error('Rien n’a encore été dit sur cette période.');
+        if (!recent.length) throw new Error(t('Rien n’a encore été dit sur cette période.'));
         const text = await call(
           context(meta),
           `${header(meta)}\n\nVoici les ${minutes} dernières minutes :\n${transcriptForAi(meta, recent)}\n\nL’utilisateur a décroché un instant. Fais-lui un rattrapage express en 3 à 5 puces très courtes. Si on lui a posé une question, si on attend quelque chose de lui ou si une décision vient d’être prise, commence par cette ligne en **gras** avec ⚠️.`,
@@ -180,7 +184,7 @@ export async function runAi(req: AiRequest, emit: Emit): Promise<string> {
         const chunks = chunkTranscript(full, Math.floor(budget * 0.85));
         const notes: string[] = [];
         for (let i = 0; i < chunks.length; i++) {
-          send('', false, { progress: `Lecture de la réunion… partie ${i + 1}/${chunks.length}` });
+          send('', false, { progress: t('Lecture de la réunion… partie {i}/{n}', { i: i + 1, n: chunks.length }) });
           notes.push(
             await call(
               context(meta),
@@ -191,14 +195,14 @@ export async function runAi(req: AiRequest, emit: Emit): Promise<string> {
         }
         material = notes.map((n, i) => `### Partie ${i + 1}\n${n}`).join('\n\n');
         materialLabel = 'Notes détaillées de la réunion (issues de la transcription)';
-        send('', false, { progress: 'Rédaction du compte-rendu…' });
+        send('', false, { progress: t('Rédaction du compte-rendu…') });
       }
 
       if (req.kind === 'summary') {
         const ex = extras(meta, segments);
         const text = await call(
           context(meta),
-          `${header(meta)}\n\n${ex ? ex + '\n\n' : ''}${materialLabel} :\n${material}\n\n${SUMMARY_FORMAT}`,
+          `${header(meta)}\n\n${ex ? ex + '\n\n' : ''}${materialLabel} :\n${material}\n\n${summaryFormat()}`,
           { maxTokens: 3500, onText: (t) => send(t) },
         );
         const { title, body } = splitTitle(text);
@@ -227,11 +231,11 @@ export async function runAi(req: AiRequest, emit: Emit): Promise<string> {
 
       if (req.kind === 'names') {
         const unnamed = Object.values(meta.voices ?? {}).filter((v) => !v.name && !v.owner);
-        if (!unnamed.length) throw new Error('Toutes les voix ont déjà un nom.');
+        if (!unnamed.length) throw new Error(t('Toutes les voix ont déjà un nom.'));
         const who = meta.attendees?.length ? `Participants invités : ${meta.attendees.join(', ')}\n\n` : '';
         const text = await call(
           context(meta),
-          `${header(meta)}\n${who}Transcription :\n${full.slice(0, Math.floor(budget * 3.2))}\n\nLes voix notées « Participant A, B, C… » ont été distinguées automatiquement, sans connaître les noms. Pour chacune, donne son prénom UNIQUEMENT si la transcription le montre clairement : on s’adresse à elle par son prénom et c’est elle qui répond, elle se présente, on la remercie nommément… Si ce n’est pas clair, n’invente pas : omets-la.\nRéponds seulement par du JSON, sans texte autour, de la forme {"B": {"name": "<prénom>", "why": "<en une phrase courte, ce qui le montre, avec une citation>"}}.`,
+          `${header(meta)}\n${who}Transcription :\n${full.slice(0, Math.floor(budget * 3.2))}\n\nLes voix notées « ${voiceLabels()} » ont été distinguées automatiquement, sans connaître les noms. Pour chacune, donne son prénom UNIQUEMENT si la transcription le montre clairement : on s’adresse à elle par son prénom et c’est elle qui répond, elle se présente, on la remercie nommément… Si ce n’est pas clair, n’invente pas : omets-la.\nRéponds seulement par du JSON, sans texte autour, de la forme {"B": {"name": "<prénom>", "why": "<en une phrase courte, ce qui le montre, avec une citation>"}}.`,
           { quick: true, maxTokens: 700 },
         );
         send(text, true);
@@ -253,7 +257,7 @@ export async function runAi(req: AiRequest, emit: Emit): Promise<string> {
       }
     } catch (e) {
       const aborted = ctrl.signal.aborted || (e as Error).name === 'AbortError';
-      send('', true, { error: aborted ? 'Annulé' : (e as Error).message });
+      send('', true, { error: aborted ? t('Annulé') : (e as Error).message });
     } finally {
       running.delete(requestId);
     }

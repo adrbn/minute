@@ -77,7 +77,7 @@ function VoiceNamer({ meta }: { meta: MeetingMeta }) {
         { name?: string; why?: string }
       >;
       guesses = Object.entries(json)
-        .map(([letter, g]) => ({ letter: letter.replace(/^Participant\s+/i, '').trim(), name: g?.name?.trim() ?? '', why: g?.why ?? '' }))
+        .map(([letter, g]) => ({ letter: letter.trim().split(/\s+/).pop() ?? '', name: g?.name?.trim() ?? '', why: g?.why ?? '' }))
         .map((g) => ({ ...g, key: byLetter.get(g.letter) ?? '' }))
         .filter((g) => g.key && g.name && !dismissed.includes(g.key));
     } catch {
