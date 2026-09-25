@@ -6,6 +6,8 @@
 // - Mode confidentiel : aucune connexion vers l'extérieur, donc pas de vérification.
 import { app } from 'electron';
 import { autoUpdater, type UpdateInfo } from 'electron-updater';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import type { UpdateState } from '../shared/types';
 import { diagLog } from './diag';
 import { t } from '../shared/i18n';
@@ -14,6 +16,8 @@ const RELEASES = 'https://github.com/adrbn/minute/releases/latest';
 const canInstall = process.platform === 'win32';
 
 let state: UpdateState = { status: 'idle', current: app.getVersion(), canInstall, url: RELEASES };
+/** Version de développement, ou compilée sans canal de mise à jour : jamais de vérification. */
+let unavailable = false;
 let notify: (s: UpdateState) => void = () => undefined;
 let enabled: () => { auto: boolean; privacy: boolean } = () => ({ auto: true, privacy: false });
 
@@ -58,7 +62,15 @@ export function initUpdater(opts: { notify: (s: UpdateState) => void; enabled: (
     );
     return;
   }
-  if (!app.isPackaged) return set({ status: 'disabled', reason: t('Version de développement') });
+  if (!app.isPackaged) {
+    unavailable = true;
+    return set({ status: 'disabled', reason: t('Version de développement') });
+  }
+  // version compilée sans canal de mise à jour (build local) : rien à vérifier, pas d'erreur technique
+  if (!existsSync(join(process.resourcesPath, 'app-update.yml'))) {
+    unavailable = true;
+    return set({ status: 'disabled', reason: t('Cette version ne reçoit pas les mises à jour automatiques') });
+  }
 
   autoUpdater.logger = null;
   autoUpdater.autoDownload = canInstall;
@@ -81,7 +93,7 @@ export function initUpdater(opts: { notify: (s: UpdateState) => void; enabled: (
 
 /** `manual` : demandé depuis les réglages (même si les mises à jour automatiques sont coupées). */
 export async function checkForUpdates(manual = true): Promise<UpdateState> {
-  if (state.status === 'disabled' && !app.isPackaged) return state;
+  if (unavailable) return state;
   const { auto, privacy } = enabled();
   if (privacy) {
     set({ status: 'disabled', reason: t('Mode confidentiel : aucune connexion vers l’extérieur') });
