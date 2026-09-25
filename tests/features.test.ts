@@ -10,6 +10,7 @@ import { retrieve } from '../src/main/retrieval';
 import { Voices, type VoiceStore } from '../src/main/voices';
 import { toTurns, voiceLabel } from '../src/shared/transcript';
 import { applyCorrections, learnFromEdit, mentions, suggestTerms } from '../src/main/vocabulary';
+import { migrateShortcuts } from '../src/main/settings';
 import type { MeetingMeta, Segment, Voice } from '../src/shared/types';
 
 const ics = `BEGIN:VCALENDAR
@@ -119,6 +120,25 @@ test('alerte prénom : détecte « Adrien » sans tenir compte des accents ni de
   assert.equal(mentions('adrien, tu peux valider les visuels ?', 'Adrien Robino'), true);
   assert.equal(mentions('On en reparle demain.', 'Adrien'), false);
   assert.equal(mentions('Moi je pense que…', 'Moi'), false);
+});
+
+test('raccourcis Mac : les anciens ⌃⌥⌘ par défaut deviennent ⌃⌥, les personnalisés restent', () => {
+  const saved = { toggleRecord: 'Control+Alt+Command+R', copy: 'Command+Shift+C', mini: 'Control+Alt+Command+T' };
+  const out = migrateShortcuts(saved);
+  if (process.platform === 'darwin') {
+    assert.deepEqual(out, { toggleRecord: 'Control+Alt+R', copy: 'Command+Shift+C', mini: 'Control+Alt+T' });
+  } else {
+    assert.deepEqual(out, saved);
+  }
+  assert.equal(saved.toggleRecord, 'Control+Alt+Command+R'); // l'original n'est pas modifié
+});
+
+test('raccourcis Mac : pas de migration si les nouvelles touches sont déjà prises par une autre action', () => {
+  const saved = { toggleRecord: 'Control+Alt+Command+R', bookmark: 'Control+Alt+R' }; // ⌃⌥R déjà pris par le signet
+  assert.deepEqual(migrateShortcuts(saved), saved);
+  // ⌃⌥M est le défaut du signet
+  const swapped = { toggleRecord: 'Control+Alt+Command+M' };
+  assert.deepEqual(migrateShortcuts(swapped), swapped);
 });
 
 test('question sur une longue réunion : retrouve les bons passages, même écrits autrement', () => {

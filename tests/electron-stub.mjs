@@ -2,4 +2,5 @@
 export const shell = { openExternal: async () => undefined };
 export const app = { getPath: () => '.', isPackaged: false };
 export const session = { defaultSession: { webRequest: { onBeforeRequest: () => undefined } } };
-export default { shell, app, session };
+export const safeStorage = { isEncryptionAvailable: () => false };
+export default { shell, app, session, safeStorage };

@@ -301,7 +301,7 @@ function purgeExpired() {
 
 // ------------------------------------------------------------------ actions communes (UI, menu, raccourcis)
 let stopArmedAt = 0;
-/** « Control+Alt+R » → « Ctrl+Alt+R » (ou ⌃⌥⌘R sur Mac) pour les messages. */
+/** « Control+Alt+R » → « Ctrl+Alt+R » (ou ⌃⌥R sur Mac) pour les messages. */
 const shortcutText = (accel: string) =>
   isMac
     ? accel.replace(/Control\+?/g, '⌃').replace(/Alt\+?/g, '⌥').replace(/Command\+?/g, '⌘').replace(/Shift\+?/g, '⇧')

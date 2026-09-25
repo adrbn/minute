@@ -12,6 +12,31 @@ export const DEFAULT_MODELS: Record<LlmProvider, string> = {
   openai: 'gpt-5.4',
 };
 
+// mêmes touches partout : Ctrl+Alt+R sous Windows, ⌃⌥R sur Mac
+const DEFAULT_SHORTCUTS: Settings['shortcuts'] = {
+  toggleRecord: 'Control+Alt+R',
+  copy: 'Control+Alt+C',
+  bookmark: 'Control+Alt+M',
+  mini: 'Control+Alt+T',
+};
+
+/** Anciens raccourcis Mac par défaut (⌃⌥⌘, jusqu'à la v0.5.2) : remplacés par ⌃⌥ s'ils n'ont pas été personnalisés. */
+const LEGACY_MAC_SHORTCUT = /^Control\+Alt\+Command\+([RCMT])$/;
+
+export function migrateShortcuts(saved: Partial<Settings['shortcuts']>): Partial<Settings['shortcuts']> {
+  if (!isMac) return saved;
+  const current: Record<string, unknown> = { ...DEFAULT_SHORTCUTS, ...saved };
+  return Object.fromEntries(
+    Object.entries(saved).map(([k, v]) => {
+      if (typeof v !== 'string') return [k, v];
+      const next = v.replace(LEGACY_MAC_SHORTCUT, 'Control+Alt+$1');
+      // on garde l'ancien si les nouvelles touches appartiennent déjà à une autre action
+      const taken = Object.entries(current).some(([other, keys]) => other !== k && keys === next);
+      return [k, taken ? v : next];
+    }),
+  );
+}
+
 export function defaultSettings(): Settings {
   return {
     onboarded: false,
@@ -28,19 +53,7 @@ export function defaultSettings(): Settings {
     meName: 'Moi',
     themName: 'Participants',
     storageDir: process.env.MINUTE_STORAGE || join(app.getPath('documents'), 'Minute'),
-    shortcuts: isMac
-      ? {
-          toggleRecord: 'Control+Alt+Command+R',
-          copy: 'Control+Alt+Command+C',
-          bookmark: 'Control+Alt+Command+M',
-          mini: 'Control+Alt+Command+T',
-        }
-      : {
-          toggleRecord: 'Control+Alt+R',
-          copy: 'Control+Alt+C',
-          bookmark: 'Control+Alt+M',
-          mini: 'Control+Alt+T',
-        },
+    shortcuts: { ...DEFAULT_SHORTCUTS },
     miniHiddenFromCapture: true,
     compactOnStart: 'background',
     copyWithTimestamps: false,
@@ -95,7 +108,7 @@ class SettingsStore {
       ...d,
       ...saved,
       llmModels: { ...d.llmModels, ...(saved.llmModels ?? {}) },
-      shortcuts: { ...d.shortcuts, ...(saved.shortcuts ?? {}) },
+      shortcuts: { ...d.shortcuts, ...migrateShortcuts(saved.shortcuts ?? {}) },
     };
     this.secrets = this.loadSecrets();
   }
