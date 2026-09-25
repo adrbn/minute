@@ -47,8 +47,9 @@ def tray(size, color, rec=False):
         hh = s8 * h
         d.rounded_rectangle([x, s8 / 2 - hh / 2, x + bw, s8 / 2 + hh / 2], radius=bw / 2, fill=color)
     if rec:
+        # point plein, de la même couleur : l'image reste « template » (blanche ou noire selon la barre des menus)
         r = s8 * 0.17
-        d.ellipse([s8 - 2 * r - s8 * 0.02, s8 * 0.02, s8 - s8 * 0.02, s8 * 0.02 + 2 * r], fill=(255, 59, 48, 255))
+        d.ellipse([s8 - 2 * r - s8 * 0.02, s8 * 0.02, s8 - s8 * 0.02, s8 * 0.02 + 2 * r], fill=color)
     return img.resize((size, size), Image.LANCZOS)
 
 

@@ -247,8 +247,9 @@ export interface TrayActions {
 function trayImage(recording: boolean) {
   const dir = paths.icons();
   if (isMac) {
+    // toujours « template » : macOS la teinte comme les autres icônes de la barre des menus
     const img = nativeImage.createFromPath(join(dir, recording ? 'trayRecTemplate.png' : 'trayTemplate.png'));
-    img.setTemplateImage(!recording);
+    img.setTemplateImage(true);
     return img;
   }
   return nativeImage.createFromPath(join(dir, recording ? 'tray-rec.png' : 'tray.png'));
