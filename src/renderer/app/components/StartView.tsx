@@ -1,12 +1,13 @@
-import { AlertTriangle, CalendarDays, KeyRound, Link2, Mic, MonitorSpeaker, Users } from 'lucide-react';
+import { CalendarDays, KeyRound, Link2, Users } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { AppInfo, CalendarEvent, CalendarState, Settings } from '../../../shared/types';
 import { locale, t } from '../../../shared/i18n';
 import { minute, shortcutLabel } from '../api';
+import { ListenCard } from './ListenCard';
 import type { SettingsSection } from './SettingsSheet';
-import { Switch, useAudioInputs, useMicPreview, useToast } from './ui';
+import { useToast } from './ui';
 
-/** « Ctrl+Alt+R » → [Ctrl, Alt, R] ; « ⌃⌥⌘R » → [⌃, ⌥, ⌘, R] */
+/** « Ctrl+Alt+R » → [Ctrl, Alt, R] ; « ⌃⌥R » → [⌃, ⌥, R] */
 const shortcutKeys = (label: string) => (label.includes('+') ? label.split('+') : [...label]);
 
 const hhmm = (ts: number) => new Date(ts).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' });
@@ -40,8 +41,6 @@ export function StartView({
   const [busy, setBusy] = useState(false);
   const [cal, setCal] = useState<CalendarState | null>(null);
   const toast = useToast();
-  const devices = useAudioInputs();
-  const level = useMicPreview(settings.micDeviceId, !busy);
 
   useEffect(() => {
     void minute.calendar.state().then(setCal);
@@ -60,7 +59,7 @@ export function StartView({
   const now = Date.now();
   const upcoming = (cal?.events ?? []).filter((e) => e.end > now).slice(0, 5);
   const current = upcoming.find((e) => e.start - 10 * 60_000 <= now && now < e.end);
-  const micName = devices.find((d) => d.deviceId === settings.micDeviceId)?.label || t('Périphérique par défaut');
+  const shortcut = shortcutLabel(settings.shortcuts.toggleRecord, info.platform);
 
   return (
     <div className="content">
@@ -78,72 +77,29 @@ export function StartView({
         </button>
         <div className="start-title">
           <h1>{current ? current.title : t('Nouvelle réunion')}</h1>
-          <p>
-            {current
-              ? `${hhmm(current.start)} – ${hhmm(current.end)}${
-                  current.attendees.length
-                    ? ` · ${
-                        current.attendees.length > 1
-                          ? t('{n} participants', { n: current.attendees.length })
-                          : t('{n} participant', { n: current.attendees.length })
-                      }`
-                    : ''
-                }`
-              : t('Transcription en direct du microphone et de l’audio système.')}
-          </p>
+          {current && (
+            <p>
+              {`${hhmm(current.start)} – ${hhmm(current.end)}${
+                current.attendees.length
+                  ? ` · ${
+                      current.attendees.length > 1
+                        ? t('{n} participants', { n: current.attendees.length })
+                        : t('{n} participant', { n: current.attendees.length })
+                    }`
+                  : ''
+              }`}
+            </p>
+          )}
+          {!!shortcut && (
+            <span className="start-keys" title={t('Raccourci global')} aria-label={`${t('Raccourci global')} ${shortcut}`}>
+              {shortcutKeys(shortcut).map((k, i) => (
+                <kbd key={i}>{k}</kbd>
+              ))}
+            </span>
+          )}
         </div>
 
-        {/* ce que Minute écoute : deux lignes claires, façon réglages iOS */}
-        <div className="listen-card">
-          <label className="listen-row">
-            <span className="listen-icon me">
-              <Mic />
-            </span>
-            <span className="listen-text">
-              <b>{t('Microphone')}</b>
-              <select value={settings.micDeviceId} onChange={(e) => void update({ micDeviceId: e.target.value })} aria-label={t('Microphone')}>
-                <option value="">{t('Périphérique par défaut')}</option>
-                {devices.map((d) => (
-                  <option key={d.deviceId} value={d.deviceId}>
-                    {d.label || t('Microphone')}
-                  </option>
-                ))}
-              </select>
-            </span>
-            {level < 0 ? (
-              <button
-                className="source-alert"
-                onClick={() => void minute.windows.openPrivacySettings('microphone')}
-                title={t('Microphone inaccessible — ouvrir les autorisations')}
-              >
-                <AlertTriangle />
-              </button>
-            ) : (
-              <span className="mini-level" aria-hidden title={micName}>
-                <i style={{ transform: `scaleX(${Math.max(0.04, level)})` }} />
-              </span>
-            )}
-          </label>
-          <label className="listen-row">
-            <span className="listen-icon them">
-              <MonitorSpeaker />
-            </span>
-            <span className="listen-text">
-              <b>{t('Audio système')}</b>
-              <span>{t('Participants distants (Teams, Zoom, Meet…)')}</span>
-            </span>
-            <Switch on={settings.captureSystem} onChange={(v) => void update({ captureSystem: v })} />
-          </label>
-        </div>
-
-        <p className="start-shortcut">
-          {t('Raccourci global :')}{' '}
-          <span className="keys">
-            {shortcutKeys(shortcutLabel(settings.shortcuts.toggleRecord, info.platform)).map((k, i) => (
-              <kbd key={i}>{k}</kbd>
-            ))}
-          </span>
-        </p>
+        <ListenCard settings={settings} update={update} listening={!busy} />
 
         <div className="agenda">
           {upcoming.length ? (

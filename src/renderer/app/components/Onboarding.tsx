@@ -1,25 +1,15 @@
-import { Copy, Headphones, History, Import, Keyboard, Loader2, Mic, MonitorSpeaker, PictureInPicture2, ShieldCheck, Sparkles, Star } from 'lucide-react';
+import { Import, Loader2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { AppInfo, NativelyInfo, Settings } from '../../../shared/types';
 import { t } from '../../../shared/i18n';
-import { minute, shortcutLabel } from '../api';
+import { minute } from '../api';
+import { ListenCard } from './ListenCard';
 import { KeyField } from './SettingsSheet';
-import { Switch, useAudioInputs, useMicPreview, useToast } from './ui';
+import { AppIcon, useToast } from './ui';
 
-function Glyph() {
-  return (
-    <div className="app-glyph">
-      <svg viewBox="0 0 48 48" fill="none">
-        <rect x="9" y="17" width="4" height="14" rx="2" fill="white" opacity="0.9" />
-        <rect x="16" y="11" width="4" height="26" rx="2" fill="white" />
-        <rect x="23" y="15" width="4" height="18" rx="2" fill="white" opacity="0.95" />
-        <rect x="30" y="20" width="4" height="8" rx="2" fill="white" opacity="0.8" />
-        <rect x="37" y="22" width="4" height="4" rx="2" fill="white" opacity="0.65" />
-      </svg>
-    </div>
-  );
-}
+type Step = 'key' | 'audio' | 'import';
 
+/** Premier lancement : la clé Groq, puis ce que Minute écoute (et l'import Natively s'il y a un historique). */
 export function Onboarding({
   settings,
   update,
@@ -31,15 +21,11 @@ export function Onboarding({
   info: AppInfo;
   onDone: () => void;
 }) {
-  const [step, setStep] = useState(0);
+  const [step, setStep] = useState<Step>('key');
   const [groqOk, setGroqOk] = useState(false);
   const [natively, setNatively] = useState<NativelyInfo | null>(null);
   const [importing, setImporting] = useState(false);
   const toast = useToast();
-  const devices = useAudioInputs();
-  const level = useMicPreview(settings.micDeviceId, step === 2);
-  const sc = settings.shortcuts;
-  const p = info.platform;
 
   useEffect(() => {
     void minute.secrets.status().then((s) => setGroqOk(s.groq));
@@ -47,162 +33,82 @@ export function Onboarding({
   }, []);
 
   const hasNatively = !!natively?.found && natively.meetings > natively.alreadyImported;
-  const steps = hasNatively ? 5 : 4;
-  const next = () => setStep((s) => s + 1);
+  const steps: Step[] = hasNatively ? ['key', 'audio', 'import'] : ['key', 'audio'];
   const finish = async () => {
     await update({ onboarded: true });
     onDone();
   };
+  const importAll = async () => {
+    setImporting(true);
+    try {
+      const r = await minute.natively.importAll();
+      toast(r.imported > 1 ? t('{n} réunions importées', { n: r.imported }) : t('{n} réunion importée', { n: r.imported }), 'success');
+      await finish();
+    } catch (e) {
+      toast(t('Import impossible : {error}', { error: (e as Error).message }), 'error');
+    } finally {
+      setImporting(false);
+    }
+  };
 
   return (
     <div className="onboarding drag">
-      <div className="onb-card no-drag">
-        <div className="steps">
-          {Array.from({ length: steps }, (_, i) => (
-            <i key={i} className={i === step ? 'on' : ''} />
+      <div className="onb-card no-drag" key={step}>
+        <div className="steps" aria-hidden>
+          {steps.map((s) => (
+            <i key={s} className={s === step ? 'on' : ''} />
           ))}
         </div>
 
-        {step === 0 && (
+        {step === 'key' && (
           <>
-            <Glyph />
+            <AppIcon size={96} />
             <h1>{t('Bienvenue dans Minute')}</h1>
-            <p>
-              {t(
-                'Vos réunions, transcrites en direct. Ce que vous dites, ce que disent les autres — lisible, copiable et consultable pendant la réunion.',
-              )}
-            </p>
-            <div className="features">
-              <div className="feature">
-                <Copy />
-                <div>
-                  <b>{t('Copiez à tout moment')}</b>
-                  <span>{t('Sans attendre la fin, même depuis une autre app.')}</span>
-                </div>
-              </div>
-              <div className="feature">
-                <History />
-                <div>
-                  <b>{t('Vous avez décroché ?')}</b>
-                  <span>{t('Un rattrapage des dernières minutes en un clic.')}</span>
-                </div>
-              </div>
-              <div className="feature">
-                <Sparkles />
-                <div>
-                  <b>{t('Compte-rendu automatique')}</b>
-                  <span>{t('Décisions, actions, e-mail de suivi.')}</span>
-                </div>
-              </div>
-              <div className="feature">
-                <ShieldCheck />
-                <div>
-                  <b>{t('Rien ne se perd')}</b>
-                  <span>{t('Chaque phrase est enregistrée dès qu’elle est dite.')}</span>
-                </div>
-              </div>
-            </div>
-            <button className="btn primary large" onClick={next}>
-              {t('Commencer')}
-            </button>
-          </>
-        )}
-
-        {step === 1 && (
-          <>
-            <h1>{t('Le moteur de transcription')}</h1>
-            <p>
-              {t(
-                'Minute utilise Whisper via Groq — le même moteur que vous utilisiez dans Natively. La clé est gratuite et reste chiffrée sur cet ordinateur.',
-              )}
-            </p>
-            <div className="card">
+            <p>{t('Vos réunions transcrites en direct : ce que vous dites et ce que disent les autres.')}</p>
+            <div className="card onb-key">
+              <b>{t('Votre clé Groq')}</b>
               <KeyField name="groq" onSaved={(ok) => setGroqOk(ok)} />
-              <div className="faint" style={{ marginTop: 8 }}>
-                {t('Pas encore de clé ?')}{' '}
+              <span className="faint">
+                {t('Gratuite, elle reste chiffrée sur cet ordinateur.')}{' '}
                 <a href="#" onClick={() => void minute.windows.openExternal('https://console.groq.com/keys')}>
-                  console.groq.com/keys
-                </a>{' '}
-                {t('→ « Create API Key ».')}
-              </div>
+                  {t('Créer une clé')}
+                </a>
+              </span>
             </div>
-            <div className="row">
-              <button className="btn ghost" onClick={next}>
+            <div className="onb-actions">
+              <button className="btn ghost large" onClick={() => setStep('audio')}>
                 {t('Plus tard')}
               </button>
-              <button className="btn primary large" onClick={next} disabled={!groqOk}>
+              <button className="btn primary large" onClick={() => setStep('audio')} disabled={!groqOk}>
                 {t('Continuer')}
               </button>
             </div>
           </>
         )}
 
-        {step === 2 && (
+        {step === 'audio' && (
           <>
-            <h1>{t('Deux sources audio')}</h1>
-            <p>
-              {t(
-                'Le microphone est étiqueté « {me} », l’audio système (Teams, Zoom, Meet…) « {them} ». Chaque voix distinguée devient « Participant A, B, C… ».',
-                {
-                  me: settings.meName || t('Moi'),
-                  them: settings.themName && settings.themName !== 'Eux' ? settings.themName : t('Participants'),
-                },
+            <h1>{t('Ce que Minute écoute')}</h1>
+            <p>{t('Parlez : la barre du micro doit bouger.')}</p>
+            <ListenCard settings={settings} update={update} listening />
+            {info.platform === 'darwin' && (
+              <p className="onb-note">{t('Au premier enregistrement, macOS demande l’accès au micro et à l’audio système : autorisez les deux.')}</p>
+            )}
+            <div className="onb-actions">
+              {hasNatively ? (
+                <button className="btn primary large" onClick={() => setStep('import')}>
+                  {t('Continuer')}
+                </button>
+              ) : (
+                <button className="btn primary large" onClick={() => void finish()}>
+                  {t('Commencer')}
+                </button>
               )}
-            </p>
-            <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div className="row">
-                <Mic size={16} />
-                <b style={{ flex: 1 }}>{t('Microphone')}</b>
-                <select className="field" style={{ maxWidth: 300 }} value={settings.micDeviceId} onChange={(e) => void update({ micDeviceId: e.target.value })}>
-                  <option value="">{t('Périphérique par défaut')}</option>
-                  {devices.map((d) => (
-                    <option key={d.deviceId} value={d.deviceId}>
-                      {d.label || t('Microphone')}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="source">
-                {level < 0 ? (
-                  <span className="faint" style={{ color: 'var(--red)' }}>
-                    {t('Micro inaccessible —')}{' '}
-                    <a href="#" onClick={() => void minute.windows.openPrivacySettings('microphone')}>
-                      {t('ouvrir les autorisations')}
-                    </a>
-                  </span>
-                ) : (
-                  <>
-                    <div className="level">
-                      <i style={{ width: `${Math.round(level * 100)}%` }} />
-                    </div>
-                    <span className="faint">{t('Dites quelques mots : la barre doit bouger.')}</span>
-                  </>
-                )}
-              </div>
-              <div className="row">
-                <MonitorSpeaker size={16} />
-                <b style={{ flex: 1 }}>{t('Audio système')}</b>
-                <Switch on={settings.captureSystem} onChange={(v) => void update({ captureSystem: v })} />
-              </div>
-              {p === 'darwin' && (
-                <div className="faint">
-                  {t(
-                    'Au premier enregistrement, macOS demande l’accès au microphone et à l’enregistrement audio du système : autorisez les deux.',
-                  )}
-                </div>
-              )}
-              <div className="row faint">
-                <Headphones size={14} />{' '}
-                {t('Avec un casque, la séparation des voix est parfaite ; sans casque, Minute retire les doublons automatiquement.')}
-              </div>
             </div>
-            <button className="btn primary large" onClick={next}>
-              {t('Continuer')}
-            </button>
           </>
         )}
 
-        {step === 3 && hasNatively && (
+        {step === 'import' && hasNatively && (
           <>
             <h1>{t('Reprendre votre historique')}</h1>
             <p>
@@ -211,64 +117,14 @@ export function Onboarding({
                 : t('{n} réunion Natively trouvée sur cet ordinateur.', { n: natively!.meetings })}{' '}
               {t('Minute peut reprendre transcriptions et comptes-rendus, sans rien modifier dans Natively.')}
             </p>
-            <div className="row">
-              <button className="btn ghost" onClick={next}>
+            <div className="onb-actions">
+              <button className="btn ghost large" onClick={() => void finish()}>
                 {t('Pas maintenant')}
               </button>
-              <button
-                className="btn primary large"
-                disabled={importing}
-                onClick={async () => {
-                  setImporting(true);
-                  try {
-                    const r = await minute.natively.importAll();
-                    toast(
-                      r.imported > 1
-                        ? t('{n} réunions importées', { n: r.imported })
-                        : t('{n} réunion importée', { n: r.imported }),
-                      'success',
-                    );
-                    next();
-                  } catch (e) {
-                    toast(t('Import impossible : {error}', { error: (e as Error).message }), 'error');
-                  } finally {
-                    setImporting(false);
-                  }
-                }}
-              >
+              <button className="btn primary large" disabled={importing} onClick={() => void importAll()}>
                 {importing ? <Loader2 className="spin" /> : <Import />} {t('Importer')}
               </button>
             </div>
-          </>
-        )}
-
-        {step === steps - 1 && step >= 3 && (
-          <>
-            <Glyph />
-            <h1>{t('Tout est prêt')}</h1>
-            <p>{t('Quelques raccourcis qui marchent partout, même quand Minute est en arrière-plan :')}</p>
-            <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {(
-                [
-                  [<Mic key="a" size={15} />, t('Démarrer / arrêter une réunion'), sc.toggleRecord],
-                  [<Copy key="b" size={15} />, t('Copier toute la transcription'), sc.copy],
-                  [<Star key="c" size={15} />, t('Marquer un moment important'), sc.bookmark],
-                  [<PictureInPicture2 key="d" size={15} />, t('Mode compact (sous-titres flottants)'), sc.mini],
-                ] as const
-              ).map(([icon, label, accel]) => (
-                <div className="row" key={label}>
-                  {icon}
-                  <span style={{ flex: 1 }}>{label}</span>
-                  <kbd>{shortcutLabel(accel, p)}</kbd>
-                </div>
-              ))}
-              <div className="row faint">
-                <Keyboard size={14} /> {t('Modifiables dans les Réglages.')}
-              </div>
-            </div>
-            <button className="btn primary large" onClick={() => void finish()}>
-              {t('C’est parti')}
-            </button>
           </>
         )}
       </div>

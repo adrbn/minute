@@ -1144,8 +1144,8 @@ select.field {
 }
 /* bouton d'enregistrement façon Dictaphone : anneau fin et neutre, disque rouge au centre */
 .rec-button {
-  width: 88px;
-  height: 88px;
+  width: 76px;
+  height: 76px;
   border-radius: 50%;
   border: none;
   padding: 0;
@@ -1157,8 +1157,8 @@ select.field {
   transition: transform 0.15s var(--ease);
 }
 .rec-button i {
-  width: 70px;
-  height: 70px;
+  width: 60px;
+  height: 60px;
   border-radius: 50%;
   background: var(--red);
   transition:
@@ -1455,7 +1455,7 @@ select.field {
   padding: 60px 20px;
 }
 .onb-card {
-  width: min(560px, 100%);
+  width: min(460px, 100%);
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -1473,54 +1473,47 @@ select.field {
   color: var(--text-2);
   font-size: 14.5px;
 }
-.onb-card .card {
+.onb-card .card,
+.onb-card .listen-card {
   width: 100%;
   text-align: left;
 }
-.app-glyph {
-  width: 84px;
-  height: 84px;
-  border-radius: 22px;
-  background: linear-gradient(160deg, #4f8dff, #3a4fd8 60%, #2a2f9e);
-  display: grid;
-  place-items: center;
-  box-shadow:
-    var(--shadow-2),
-    inset 0 1px 0 rgba(255, 255, 255, 0.25);
-}
-.app-glyph svg {
-  width: 46px;
-  height: 46px;
-}
-.features {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  width: 100%;
-  text-align: left;
-}
-.feature {
-  display: flex;
-  gap: 10px;
-  padding: 12px;
-  border-radius: 12px;
-  background: var(--elev);
-  border: 1px solid var(--sep);
-}
-.feature svg {
-  width: 20px;
-  height: 20px;
-  color: var(--accent);
-  flex-shrink: 0;
-  margin-top: 1px;
-}
-.feature b {
+.app-icon {
   display: block;
+  user-select: none;
+  /* le PNG contient déjà l'ombre de l'icône : on compense sa marge */
+  margin: -6px 0 -4px;
+}
+.onb-card .onb-key {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.onb-key b {
   font-size: 13px;
 }
-.feature span {
-  font-size: 12px;
-  color: var(--text-2);
+.onb-key .faint {
+  font-size: 12.5px;
+}
+.onb-key a {
+  color: var(--accent-ink);
+  font-weight: 500;
+  text-decoration: none;
+}
+.onb-key a:hover {
+  text-decoration: underline;
+}
+.onb-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: center;
+  margin-top: 4px;
+}
+.onb-card .onb-note {
+  font-size: 12.5px;
+  color: var(--text-3);
+  max-width: 440px;
 }
 .steps {
   display: flex;
@@ -1546,16 +1539,16 @@ select.field {
 
 /* ---------- accueil ---------- */
 .start {
-  gap: 18px;
+  gap: 12px;
   justify-content: center;
-  padding: 40px 32px 48px;
+  padding: 24px 32px 20px;
 }
 .start-title {
   text-align: center;
   margin-top: -2px;
 }
 .start-title h1 {
-  font: 700 26px/1.15 var(--font-display);
+  font: 700 24px/1.15 var(--font-display);
   letter-spacing: -0.02em;
   margin: 0 0 4px;
 }
@@ -1654,19 +1647,18 @@ select.field {
 
 .agenda {
   width: min(520px, 100%);
-  margin-top: 10px;
 }
 .agenda-day {
   font-size: 12px;
   font-weight: 650;
   color: var(--text-3);
-  margin: 14px 4px 4px;
+  margin: 10px 4px 4px;
 }
 .agenda-row {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 8px 10px;
+  padding: 7px 10px;
   border-radius: 12px;
   transition: background 0.12s;
 }
@@ -2034,12 +2026,12 @@ html.mac .app.narrow .content .titlebar {
     padding-top: 24px;
   }
   .rec-button {
-    width: 74px;
-    height: 74px;
+    width: 64px;
+    height: 64px;
   }
   .rec-button i {
-    width: 58px;
-    height: 58px;
+    width: 50px;
+    height: 50px;
   }
 }
 
@@ -3067,16 +3059,16 @@ html.mac .brand {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 14px;
-  min-height: 54px;
+  padding: 7px 14px;
+  min-height: 46px;
   cursor: default;
 }
 .listen-row + .listen-row {
   border-top: 1px solid var(--sep);
 }
 .listen-icon {
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   border-radius: 8px;
   display: grid;
   place-items: center;
@@ -3127,18 +3119,6 @@ html.mac .brand {
 .listen-row .mini-level {
   width: 46px;
 }
-.start-shortcut {
-  margin: 2px 0 0;
-  font-size: 12.5px;
-  color: var(--text-3);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.start-shortcut .keys {
-  display: inline-flex;
-  gap: 4px;
-}
 kbd {
   display: inline-grid;
   place-items: center;
@@ -3158,7 +3138,6 @@ kbd {
 .start > .rec-button,
 .start > .start-title,
 .start > .listen-card,
-.start > .start-shortcut,
 .start > .callout {
   flex-shrink: 0;
 }
@@ -3168,4 +3147,26 @@ kbd {
 /* centré tant que ça tient ; sinon on part du haut (le haut n'est jamais coupé) */
 .start {
   justify-content: safe center;
+}
+/* raccourci global : petites touches discrètes sous le titre */
+.start-keys {
+  display: inline-flex;
+  justify-content: center;
+  gap: 3px;
+  margin-top: 6px;
+  opacity: 0.75;
+}
+.start-keys kbd {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 5px;
+  font-size: 10.5px;
+  color: var(--text-3);
+  background: transparent;
+  box-shadow: 0 0 0 1px var(--sep-strong);
+}
+/* le premier jour de l'agenda colle à la carte au-dessus */
+.agenda > :first-child .agenda-day {
+  margin-top: 4px;
 }
