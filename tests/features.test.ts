@@ -122,6 +122,38 @@ test('alerte prénom : détecte « Adrien » sans tenir compte des accents ni de
   assert.equal(mentions('Moi je pense que…', 'Moi'), false);
 });
 
+test('alerte prénom : un prénom qui est aussi un mot courant (« Will ») ne sonne que si on s’adresse à la personne', () => {
+  const ordinary = [
+    'I will send the deck tomorrow.',
+    'Will you share your screen?',
+    'We will see next week, will we?',
+    'That will be all for today.',
+    'Will it be ready by Friday?',
+    'Will do.',
+    'I think it will work. Will see.',
+  ];
+  const addressed = [
+    'Will, can you share your screen?',
+    'Thanks, Will.',
+    'What do you think, Will?',
+    'Over to you Will.',
+    'I’ll ask Will to send it.',
+    'OK. Will?',
+  ];
+  const falseAlerts = ordinary.filter((s) => mentions(s, 'Will'));
+  const missed = addressed.filter((s) => !mentions(s, 'Will Turner'));
+  assert.deepEqual(falseAlerts, []);
+  assert.deepEqual(missed, []);
+  // français et italien
+  assert.equal(mentions('C’est solide comme la pierre.', 'Pierre'), false);
+  assert.equal(mentions('Pierre, tu peux partager ton écran ?', 'Pierre'), true);
+  assert.equal(mentions('La parete è bianca, sarà pronta domani.', 'Bianca'), false);
+  assert.equal(mentions('Sarà pronto domani.', 'Sara'), false);
+  assert.equal(mentions('Bianca, ci sei?', 'Bianca'), true);
+  assert.equal(mentions('On pousse au max.', 'Max'), false);
+  assert.equal(mentions('Merci Max !', 'Max'), true);
+});
+
 test('raccourcis Mac : les anciens ⌃⌥⌘ par défaut deviennent ⌃⌥, les personnalisés restent', () => {
   const saved = { toggleRecord: 'Control+Alt+Command+R', copy: 'Command+Shift+C', mini: 'Control+Alt+Command+T' };
   const out = migrateShortcuts(saved);

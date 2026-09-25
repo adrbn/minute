@@ -124,10 +124,43 @@ export function suggestTerms(
     .map((e) => ({ term: e.term, count: e.count, meetings: e.meetings.size }));
 }
 
+/** Prénoms qui sont aussi des mots courants en anglais, français ou italien (« I will », « la pierre », « sarà »). */
+const COMMON_WORD_NAMES = new Set(
+  (
+    'will bill mark grace hope rose pat sue may june april frank rich rob guy jack joy faith art chase dawn drew gene max ' +
+    'nick ray sandy summer amber carol chip crystal daisy glen holly iris ivy jade lily lance miles norm penny pearl reed ' +
+    'ruby rusty sky sunny wade woody autumn brook cliff dean don hunter mason pepper basil cash heather hazel olive violet ' +
+    'sage roger jean ben al ' +
+    'pierre claire prudence constance aime aimee blanche celeste desire desiree juste modeste pascal clement aurore colombe ' +
+    'victoire marine melodie violette perle capucine ambre cerise prune fleur lys parfait fortune noel olivier marin ' +
+    'constant innocent honore ange ' +
+    'bianca serena felice rosa gioia fortunato giusto leone vera marina stella aurora speranza innocente benedetto onesto ' +
+    'viola chiara angelo sole luce sereno franco grazia fiore primo santo massimo vittoria letizia libero fausto ' +
+    'salvatore alba sara gemma perla ambra fede mia bruno moreno candido lupo'
+  ).split(' '),
+);
+
 /** La phrase s'adresse-t-elle à l'utilisateur (son prénom y figure) ? */
 export function mentions(text: string, name: string): boolean {
   const first = name.trim().split(/\s+/)[0];
   if (!first || first.length < 2 || /^moi$/i.test(first)) return false;
-  const re = new RegExp(`(?<![\\p{L}])${escapeRe(normalize(first))}(?![\\p{L}])`, 'u');
+  const key = normalize(first);
+  if (COMMON_WORD_NAMES.has(key)) return namedInPerson(text, key);
+  const re = new RegExp(`(?<![\\p{L}])${escapeRe(key)}(?![\\p{L}])`, 'u');
   return re.test(normalize(text));
+}
+
+/**
+ * Prénom ambigu : Whisper l'écrit avec une majuscule quand c'est un nom. On ne le compte qu'avec
+ * sa majuscule, et en début de phrase seulement s'il est interpellé (« Will, tu… », « Will ? ») :
+ * « Will you share…? » ne sonne pas.
+ */
+function namedInPerson(text: string, key: string): boolean {
+  for (const m of text.matchAll(/[\p{L}\p{M}]+/gu)) {
+    if (!/^\p{Lu}/u.test(m[0]) || normalize(m[0]) !== key) continue;
+    const sentenceStart = /(^|[.!?…])[^\p{L}\p{N}]*$/u.test(text.slice(0, m.index));
+    const calledOut = /^\s*([,!?.…:;]|$)/.test(text.slice(m.index + m[0].length));
+    if (!sentenceStart || calledOut) return true;
+  }
+  return false;
 }
