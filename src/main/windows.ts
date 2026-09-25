@@ -92,8 +92,9 @@ export function createMain(): BrowserWindow {
   // « mainBounds2 » : les tailles mémorisées avant la v0.3 (trop grandes par défaut) sont ignorées
   const bounds = settings().appState<{ x: number; y: number; width: number; height: number }>('mainBounds2');
   main = new BrowserWindow({
-    width: bounds?.width ?? 1000,
-    height: bounds?.height ?? 680,
+    // taille par défaut sur Mac : celle réglée à la main par l'utilisateur (≈ 900 × 650)
+    width: bounds?.width ?? (isMac ? 900 : 1000),
+    height: bounds?.height ?? (isMac ? 650 : 680),
     x: process.env.MINUTE_OFFSCREEN ? -4000 : bounds?.x,
     y: process.env.MINUTE_OFFSCREEN ? 40 : bounds?.y,
     skipTaskbar: !!process.env.MINUTE_OFFSCREEN,
