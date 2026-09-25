@@ -91,7 +91,8 @@ et lancez-le. Il s’installe pour votre compte, sans droits d’administrateur.
 [Intel](https://github.com/adrbn/minute/releases/latest/download/Minute-macOS-x64.dmg)) et glissez Minute dans
 **Applications**.
 
-> La première fois, clic droit sur Minute › **Ouvrir**. Si macOS dit que l’app est endommagée, lancez
+> La première fois, macOS bloque l’app : ouvrez **Réglages Système › Confidentialité et sécurité** et cliquez sur
+> **Ouvrir quand même** (sur macOS 14 : clic droit sur Minute › **Ouvrir**). Si macOS dit que l’app est endommagée, lancez
 > `xattr -cr /Applications/Minute.app` dans le Terminal. À la première réunion, autorisez **Microphone** et
 > **Enregistrement audio du système**.
 

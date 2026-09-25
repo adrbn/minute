@@ -87,7 +87,8 @@ and run it. It installs for your account, no admin rights needed.
 ([Apple Silicon](https://github.com/adrbn/minute/releases/latest/download/Minute-macOS-arm64.dmg) or
 [Intel](https://github.com/adrbn/minute/releases/latest/download/Minute-macOS-x64.dmg)) and drag Minute to **Applications**.
 
-> The first time, right-click Minute › **Open**. If macOS says the app is damaged, run
+> The first time, macOS blocks the app: open **System Settings › Privacy & Security** and click **Open Anyway**
+> (on macOS 14, right-click Minute › **Open** instead). If macOS says the app is damaged, run
 > `xattr -cr /Applications/Minute.app` in Terminal. On your first recording, allow **Microphone** and
 > **System Audio Recording**.
 
