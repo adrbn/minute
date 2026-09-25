@@ -32,6 +32,12 @@ jobs:
           chmod +x "$GITHUB_WORKSPACE/resources/mac/audiotee"
           lipo -info "$GITHUB_WORKSPACE/resources/mac/audiotee"
       - run: npm test
+      - name: Xcode 26 (actool compile l’icône Liquid Glass build/icon.icon)
+        run: |
+          XC=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          [ -n "$XC" ] || { echo "::error::Xcode 26 introuvable sur ce runner"; exit 1; }
+          sudo xcode-select -s "$XC"
+          xcrun actool --version
       - name: Construire l’app
         env:
           CSC_LINK: ${{ secrets.MAC_CERT_P12_BASE64 }}

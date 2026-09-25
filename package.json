@@ -117,7 +117,7 @@
       ],
       "category": "public.app-category.productivity",
       "artifactName": "Minute-macOS-${arch}.${ext}",
-      "icon": "build/icon.png",
+      "icon": "build/icon.icon",
       "minimumSystemVersion": "14.2",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,

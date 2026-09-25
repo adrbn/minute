@@ -38,6 +38,11 @@ export function AppGlyph({ size = 18 }: { size?: number }) {
   );
 }
 
+/** Icône de l'app (rendu macOS « Liquid Glass » de build/icon.icon) pour les grands formats. */
+export function AppIcon({ size }: { size: number }) {
+  return <img className="app-icon" src="icon.png" width={size} height={size} alt="" draggable={false} />;
+}
+
 /** Largeur de la fenêtre (mise en page adaptative). */
 export function useWidth(): number {
   const [w, setW] = useState(window.innerWidth);
@@ -256,7 +261,7 @@ export function UpdatePrompt({ recording }: { recording: boolean }) {
   return (
     <div className="scrim update-scrim" onMouseDown={(e) => e.target === e.currentTarget && setLater(st.version!)}>
       <div className="sheet update-sheet" role="dialog" aria-label={t('Mise à jour disponible')}>
-        <AppGlyph size={56} />
+        <AppIcon size={64} />
         <h2>{t('Minute {v} est disponible', { v: st.version })}</h2>
         <p className="update-sub">
           {t('Vous avez la version {v}.', { v: st.current })}{' '}

@@ -22,7 +22,7 @@ import {
 import { useEffect, useState, type ReactNode } from 'react';
 import type { AppInfo, CalendarState, LlmProvider, LocalStatus, NativelyInfo, SecretName, Settings, Shortcuts, UpdateState } from '../../../shared/types';
 import { minute, relativeTime, shortcutLabel } from '../api';
-import { AppGlyph, Switch, useAudioInputs, useToast } from './ui';
+import { AppIcon, Switch, useAudioInputs, useToast } from './ui';
 import { t } from '../../../shared/i18n';
 
 const PROVIDERS: { id: LlmProvider; label: string; hint: string; url: string }[] = [
@@ -429,7 +429,7 @@ function About({ info, settings, update }: { info: AppInfo; settings: Settings; 
   return (
     <div className="about">
       <div className="about-hero">
-        <AppGlyph size={72} />
+        <AppIcon size={84} />
         <h2>Minute</h2>
         <p className="about-version">
           {t('Version {v}', { v: info.version })} · {system}
