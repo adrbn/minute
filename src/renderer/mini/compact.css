@@ -223,7 +223,7 @@ html.mini body {
   transform: none;
 }
 /* retour d'action : l'icône change d'état sur place (aucun décalage) et reste visible le temps de le voir */
-.reveal:has(.marked, .done) {
+.reveal:has(.marked, .done, .confirm) {
   opacity: 1;
   transform: none;
 }
@@ -233,6 +233,18 @@ html.mini body {
 }
 .hud-btn.done {
   color: var(--hud-green);
+}
+/* terminer depuis la pilule : un premier clic arme, le second confirme */
+.hud-btn.stop {
+  color: var(--hud-red);
+}
+.hud-btn.stop.confirm {
+  background: var(--hud-red);
+  color: white;
+}
+.hud-btn.stop svg {
+  width: 11px;
+  height: 11px;
 }
 
 .hud-btn {
@@ -700,8 +712,8 @@ html.mini body {
 }
 .shape:hover .pill-content .reveal,
 .shape.hover .pill-content .reveal,
-.pill-content .reveal:has(.marked, .done) {
-  max-width: 70px;
+.pill-content .reveal:has(.marked, .done, .confirm) {
+  max-width: 100px;
 }
 
 /* ------------------------------------------------------------------ onglets du panneau */

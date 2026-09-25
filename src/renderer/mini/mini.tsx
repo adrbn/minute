@@ -525,6 +525,15 @@ function Compact() {
             >
               {copied ? <Check /> : <Copy />}
             </button>
+            <button
+              className={`hud-btn stop ${confirmStop ? 'confirm' : ''}`}
+              title={confirmStop ? t('Confirmer') : t('Terminer')}
+              aria-label={confirmStop ? t('Confirmer') : t('Terminer')}
+              onClick={stop}
+              disabled={status === 'stopping' || status === 'starting'}
+            >
+              <Square fill="currentColor" />
+            </button>
           </span>
           <button
             className="hud-btn"
