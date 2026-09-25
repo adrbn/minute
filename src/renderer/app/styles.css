@@ -3,6 +3,8 @@
   --accent: var(--os-accent, #0a84ff);
   --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
   --accent-ink: color-mix(in srgb, var(--accent) 85%, black);
+  /* texte posé sur l'accent : blanc sur un accent foncé, presque noir sur un accent clair (jaune, vert…) */
+  --on-accent: oklch(from var(--accent) clamp(0.2, (0.72 - l) * 1000, 1) 0 0);
   --red: #ff3b30;
   --red-soft: color-mix(in srgb, var(--red) 14%, transparent);
   --green: #30b158;
@@ -212,7 +214,7 @@ html.mac .sidebar .titlebar {
 }
 .btn.primary {
   background: var(--accent);
-  color: white;
+  color: var(--on-accent);
 }
 .btn.primary:hover {
   background: color-mix(in srgb, var(--accent) 88%, black);
@@ -476,7 +478,7 @@ select.field {
 }
 .item.active {
   background: var(--accent);
-  color: white;
+  color: var(--on-accent);
 }
 .item .t {
   font-weight: 600;
@@ -509,7 +511,7 @@ select.field {
 }
 .item.active .m,
 .item.active .p {
-  color: rgba(255, 255, 255, 0.82);
+  color: color-mix(in srgb, var(--on-accent) 82%, transparent);
 }
 .badge {
   display: inline-flex;
@@ -525,8 +527,8 @@ select.field {
   flex-shrink: 0;
 }
 .item.active .badge {
-  background: rgba(255, 255, 255, 0.22);
-  color: white;
+  background: color-mix(in srgb, var(--on-accent) 22%, transparent);
+  color: var(--on-accent);
 }
 .sidebar-foot {
   display: flex;
@@ -1101,7 +1103,7 @@ select.field {
 .md .check.on {
   background: var(--accent);
   border-color: var(--accent);
-  color: white;
+  color: var(--on-accent);
 }
 .md .check svg {
   width: 11px;
@@ -1247,7 +1249,7 @@ select.field {
 }
 .menu button:hover {
   background: var(--accent);
-  color: white;
+  color: var(--on-accent);
 }
 .menu button:hover .k {
   color: rgba(255, 255, 255, 0.8);
@@ -1746,7 +1748,7 @@ select.field {
 }
 .item.active .badge.quiet {
   background: transparent;
-  color: rgba(255, 255, 255, 0.7);
+  color: color-mix(in srgb, var(--on-accent) 70%, transparent);
 }
 .sidebar .titlebar {
   gap: 6px;
@@ -1802,7 +1804,7 @@ select.field {
 }
 .settings-nav button.active {
   background: var(--accent);
-  color: white;
+  color: var(--on-accent);
 }
 .settings-nav svg {
   width: 16px;
@@ -2916,6 +2918,7 @@ html.mac .brand {
 }
 .icon-btn.counted.on i {
   background: var(--accent);
+  color: var(--on-accent);
 }
 .state-banner {
   display: flex;
@@ -3047,7 +3050,7 @@ html.mac .brand {
 }
 .lang-chips .chip.on {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 /* ================================================================== accueil : ce que Minute écoute */
@@ -3089,6 +3092,7 @@ html.mac .brand {
 }
 .listen-icon.them {
   background: var(--accent);
+  color: var(--on-accent);
 }
 .listen-text {
   flex: 1;

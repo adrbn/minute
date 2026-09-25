@@ -289,7 +289,7 @@ html.mini body {
 }
 .hud-pill-btn.primary {
   background: var(--accent);
-  color: white;
+  color: var(--on-accent);
 }
 .hud-pill-btn.rec-start .rec {
   animation: none;
@@ -429,7 +429,7 @@ html.mini body {
   border-radius: 13px;
   border: none;
   background: var(--accent);
-  color: white;
+  color: var(--on-accent);
   font-weight: 600;
   font-size: 12px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
@@ -870,7 +870,7 @@ html.mini body {
 }
 .hud-btn.send {
   background: var(--accent);
-  color: white;
+  color: var(--on-accent);
   width: 28px;
   height: 28px;
 }
