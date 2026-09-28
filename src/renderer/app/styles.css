@@ -3166,7 +3166,11 @@ kbd {
   background: transparent;
   box-shadow: 0 0 0 1px var(--sep-strong);
 }
-/* le premier jour de l'agenda colle à la carte au-dessus */
+/* l'agenda se détache du bloc « Nouvelle réunion » : l'écart suit la hauteur de la fenêtre
+   (≈ 28 px de plus à 860 px, presque rien sur une fenêtre basse, pour que l'agenda reste visible) */
+.agenda {
+  margin-top: clamp(4px, 6vh - 24px, 32px);
+}
 .agenda > :first-child .agenda-day {
   margin-top: 4px;
 }
