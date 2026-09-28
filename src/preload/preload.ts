@@ -59,6 +59,7 @@ const api: MinuteAPI = {
     compactFocus: (on) => ipcRenderer.send('compact:focus', on),
     showMain: (id) => invoke('windows:showMain', id),
     openSettings: (section) => invoke('windows:settings', section),
+    sidebar: (show) => invoke('windows:sidebar', show),
     openExternal: (url) => invoke('windows:openExternal', url),
     openPrivacySettings: (kind) => invoke('windows:privacy', kind),
   },

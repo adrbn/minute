@@ -67,6 +67,7 @@ import {
   setOnBackground,
   setQuitting,
   showMain,
+  resizeForSidebar,
 } from './windows';
 
 const isMac = process.platform === 'darwin';
@@ -702,6 +703,7 @@ function wireIpc() {
     if (w.webContents.isLoading()) w.webContents.once('did-finish-load', () => setTimeout(send, 120));
     else send();
   });
+  handle('windows:sidebar', (_e, show: boolean) => resizeForSidebar(!!show));
   handle('windows:showMain', (_e, meetingId?: string) => {
     showMain();
     if (meetingId) broadcast('navigate', { meetingId });

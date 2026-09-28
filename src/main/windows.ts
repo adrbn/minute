@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, nativeImage, nativeTheme, shell, Tray } from 'electron';
+import { app, BrowserWindow, Menu, nativeImage, nativeTheme, screen, shell, Tray } from 'electron';
 import { join } from 'node:path';
 import { release } from 'node:os';
 import { t } from '../shared/i18n';
@@ -91,10 +91,12 @@ export function createMain(): BrowserWindow {
   if (getMain()) return main!;
   // « mainBounds2 » : les tailles mémorisées avant la v0.3 (trop grandes par défaut) sont ignorées
   const bounds = settings().appState<{ x: number; y: number; width: number; height: number }>('mainBounds2');
+  // taille par défaut : Mac ≈ 900 × 650 ; Windows, une colonne haute sans barre latérale (660 × 860,
+  // bornée à l'écran), la barre latérale élargit la fenêtre à la demande
+  const area = screen.getPrimaryDisplay().workAreaSize;
   main = new BrowserWindow({
-    // taille par défaut sur Mac : celle réglée à la main par l'utilisateur (≈ 900 × 650)
-    width: bounds?.width ?? (isMac ? 900 : 1000),
-    height: bounds?.height ?? (isMac ? 650 : 680),
+    width: bounds?.width ?? (isMac ? 900 : 660),
+    height: bounds?.height ?? (isMac ? 650 : Math.min(860, area.height - 40)),
     x: process.env.MINUTE_OFFSCREEN ? -4000 : bounds?.x,
     y: process.env.MINUTE_OFFSCREEN ? 40 : bounds?.y,
     skipTaskbar: !!process.env.MINUTE_OFFSCREEN,
@@ -161,6 +163,32 @@ export function createMain(): BrowserWindow {
     if (!isMac && getMain()) main!.setTitleBarOverlay({ color: '#00000000', symbolColor: overlaySymbols(), height: 52 });
   });
   return main;
+}
+
+/**
+ * Windows : afficher la barre latérale élargit la fenêtre vers la gauche (le contenu ne bouge pas),
+ * la masquer la rétrécit d'autant. Faux si c'est impossible (fenêtre maximisée, écran trop petit) :
+ * la barre latérale passe alors par-dessus le contenu, comme avant.
+ */
+export function resizeForSidebar(show: boolean): boolean {
+  const w = getMain();
+  if (!isWin || !w || w.isMaximized() || w.isFullScreen()) return false;
+  const b = w.getBounds();
+  const wa = screen.getDisplayMatching(b).workArea;
+  // largeur de la barre latérale : 280 px au-delà de 1 100 px de fenêtre, 248 px en dessous (styles.css)
+  if (show) {
+    const side = b.width + 248 >= 1100 ? 280 : 248;
+    const width = b.width + side;
+    if (width > wa.width) return false;
+    const x = Math.min(Math.max(wa.x, b.x - side), wa.x + wa.width - width);
+    w.setBounds({ ...b, x, width });
+  } else {
+    const side = b.width >= 1100 ? 280 : 248;
+    const [minW] = w.getMinimumSize();
+    const width = Math.max(minW, b.width - side);
+    w.setBounds({ ...b, x: b.x + (b.width - width), width });
+  }
+  return true;
 }
 
 export function showMain() {

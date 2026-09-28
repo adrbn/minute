@@ -363,6 +363,8 @@ export interface MinuteAPI {
     showMain(meetingId?: string): Promise<void>;
     /** quitte la Dynamic Island et ouvre les réglages de l'app (section donnée) */
     openSettings(section?: string): Promise<void>;
+    /** Windows : élargit / rétrécit la fenêtre pour la barre latérale ; faux si impossible */
+    sidebar(show: boolean): Promise<boolean>;
     openExternal(url: string): Promise<void>;
     openPrivacySettings(kind: 'microphone' | 'audio'): Promise<void>;
   };

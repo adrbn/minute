@@ -36,6 +36,14 @@ export function App() {
   const narrow = width < 820;
   const [sidebar, setSidebar] = useState(() => window.innerWidth >= 820);
   useEffect(() => setSidebar(!narrow), [narrow]);
+  // Windows : la barre latérale élargit la fenêtre (le contenu visible ne bouge pas) ; ailleurs, ou si la
+  // fenêtre ne peut pas grandir (maximisée, écran trop petit), elle se pose par-dessus comme avant
+  const toggleSidebar = async (show: boolean) => {
+    if (info?.platform !== 'win32') return setSidebar(show);
+    if (!show) setSidebar(false);
+    await minute.windows.sidebar(show).catch(() => false);
+    setSidebar(show);
+  };
 
   const refreshSecrets = useCallback(() => void minute.secrets.status().then(setSecrets), []);
   useEffect(refreshSecrets, [refreshSecrets, showSettings, settings]);
@@ -129,7 +137,7 @@ export function App() {
     <div className={`app ${sidebar ? '' : 'no-sidebar'} ${narrow ? 'narrow' : ''}`}>
       <button
         className="icon-btn sidebar-toggle no-drag"
-        onClick={() => setSidebar((v) => !v)}
+        onClick={() => void toggleSidebar(!sidebar)}
         title={sidebar ? t('Masquer la barre latérale') : t('Afficher la barre latérale')}
         aria-label={t('Barre latérale')}
       >
@@ -137,6 +145,7 @@ export function App() {
       </button>
       {narrow && sidebar && <div className="sidebar-scrim" onClick={() => setSidebar(false)} />}
       <Sidebar
+        onHide={!narrow && info?.platform === 'win32' ? () => void toggleSidebar(false) : undefined}
         meetings={meetings}
         privacy={!!settings?.privacyMode}
         selected={query ? null : selected}

@@ -1,4 +1,4 @@
-import { Archive, ArchiveRestore, ChevronLeft, Clock, Download, FileText, FolderOpen, Hourglass, Lock, Merge, RotateCcw, Pencil, Pin, PinOff, Search, Settings, SquarePen, Star, Trash2, X } from 'lucide-react';
+import { Archive, ArchiveRestore, ChevronLeft, Clock, Download, FileText, FolderOpen, Hourglass, Lock, Merge, PanelLeft, RotateCcw, Pencil, Pin, PinOff, Search, Settings, SquarePen, Star, Trash2, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { clock, durationLabel } from '../../../shared/transcript';
 import type { LiveState, MeetingMeta } from '../../../shared/types';
@@ -34,8 +34,11 @@ export function Sidebar({
   onNew,
   onSettings,
   onRename,
+  onHide,
   privacy = false,
 }: {
+  /** Windows : masquer la barre latérale (la fenêtre rétrécit d'autant) */
+  onHide?: () => void;
   meetings: MeetingMeta[];
   selected: string | null;
   live: LiveState | null;
@@ -194,6 +197,11 @@ export function Sidebar({
           </span>
         )}
         <span className="spacer" />
+        {onHide && (
+          <button className="icon-btn no-drag" onClick={onHide} title={t('Masquer la barre latérale')} aria-label={t('Masquer la barre latérale')}>
+            <PanelLeft />
+          </button>
+        )}
         <button className="icon-btn no-drag" onClick={onNew} title={`${t('Nouvelle réunion')} (Ctrl+N)`} aria-label={t('Nouvelle réunion')}>
           <SquarePen />
         </button>
