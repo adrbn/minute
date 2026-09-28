@@ -135,14 +135,6 @@ export function App() {
 
   return (
     <div className={`app ${sidebar ? '' : 'no-sidebar'} ${narrow ? 'narrow' : ''}`}>
-      <button
-        className="icon-btn sidebar-toggle no-drag"
-        onClick={() => void toggleSidebar(!sidebar)}
-        title={sidebar ? t('Masquer la barre latérale') : t('Afficher la barre latérale')}
-        aria-label={t('Barre latérale')}
-      >
-        <PanelLeft />
-      </button>
       {narrow && sidebar && <div className="sidebar-scrim" onClick={() => setSidebar(false)} />}
       <Sidebar
         onHide={!narrow && info?.platform === 'win32' ? () => void toggleSidebar(false) : undefined}
@@ -191,6 +183,16 @@ export function App() {
           onOpenSettings={(section) => setShowSettings(section ?? 'general')}
         />
       )}
+      {/* après la barre de titre dans le document : Electron applique les zones « drag » / « no-drag »
+          dans l'ordre du document ; placé avant, le bouton restait sous la zone de déplacement (non cliquable) */}
+      <button
+        className="icon-btn sidebar-toggle no-drag"
+        onClick={() => void toggleSidebar(!sidebar)}
+        title={sidebar ? t('Masquer la barre latérale') : t('Afficher la barre latérale')}
+        aria-label={t('Barre latérale')}
+      >
+        <PanelLeft />
+      </button>
       <UpdatePrompt recording={!!live?.meetingId} />
       {showReport && <BugReport onClose={() => setShowReport(false)} />}
       {showSettings && (
