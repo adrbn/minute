@@ -12,9 +12,14 @@ import type { Channel, MeetingMeta, Segment, Voice } from '../shared/types';
 export const JOIN = 0.5;
 /** extrait court : empreinte moins fiable, on se contente de rattacher à la voix la plus proche */
 const JOIN_SHORT = 0.35;
-/** fin de réunion : deux groupes aussi proches sont la même personne */
-export const MERGE = 0.62;
+/** deux groupes aussi proches sont la même personne (calibré sur une vraie réunion de 55 min) */
+export const MERGE = 0.5;
 const NEW_VOICE_MS = 1500;
+/** un groupe de moins de 15 s de parole n'est presque jamais une vraie personne : une variante de voix
+ *  (ton, distance au micro) qu'on rend à la voix la plus proche */
+export const ABSORB_MS = 15_000;
+/** en réunion, on laisse 2 minutes à une nouvelle voix pour se confirmer avant de l'absorber */
+const ABSORB_AFTER_MS = 120_000;
 
 interface Print {
   id: string;
@@ -28,6 +33,8 @@ interface Cluster {
   sum: Float32Array;
   count: number;
   ms: number;
+  /** création (ms) ; 0 pour un groupe relu depuis le disque */
+  born: number;
 }
 interface State {
   prints: Print[];
@@ -76,7 +83,7 @@ export class Voices {
           const print = { id: p.id, ch: p.ch, dur: p.d, v: unpack(p.v) };
           st.prints.push(print);
           const spk = spkOf.get(p.id);
-          if (spk) this.addTo(st, spk, print);
+          if (spk) this.addTo(st, spk, print, 0);
         } catch {
           /* ligne tronquée */
         }
@@ -86,10 +93,10 @@ export class Voices {
     return st;
   }
 
-  private addTo(st: State, key: string, p: Print) {
+  private addTo(st: State, key: string, p: Print, born = Date.now()) {
     let c = st.clusters.find((k) => k.key === key);
     if (!c) {
-      c = { key, ch: p.ch, sum: new Float32Array(p.v.length), count: 0, ms: 0 };
+      c = { key, ch: p.ch, sum: new Float32Array(p.v.length), count: 0, ms: 0, born };
       st.clusters.push(c);
     }
     for (let i = 0; i < p.v.length; i++) c.sum[i] += p.v[i];
@@ -159,29 +166,8 @@ export class Voices {
     const meta = this.io.meta(id);
     const voices: Record<string, Voice> = { ...(meta?.voices ?? {}) };
     const alias = new Map<string, string>();
-    for (;;) {
-      let pair: [Cluster, Cluster] | null = null;
-      let best = MERGE;
-      for (const a of st.clusters)
-        for (const b of st.clusters) {
-          if (a === b || a.ch !== b.ch || a.key > b.key) continue;
-          const s = cosine(a.sum, b.sum);
-          if (s >= best) {
-            best = s;
-            pair = [a, b];
-          }
-        }
-      if (!pair) break;
-      // on garde le groupe le plus fourni (et un nom donné par l'utilisateur, s'il y en a un)
-      const [keep, gone] = pair[0].ms >= pair[1].ms ? pair : [pair[1], pair[0]];
-      for (let i = 0; i < keep.sum.length; i++) keep.sum[i] += gone.sum[i];
-      keep.count += gone.count;
-      keep.ms += gone.ms;
-      st.clusters = st.clusters.filter((c) => c !== gone);
-      alias.set(gone.key, keep.key);
-      if (!voices[keep.key]?.name && voices[gone.key]?.name) voices[keep.key] = { ...voices[keep.key], name: voices[gone.key].name };
-      delete voices[gone.key];
-    }
+    this.mergeClose(st, voices, alias);
+    this.absorbSmall(st, voices, alias, Infinity);
     const resolve = (k?: string) => {
       while (k && alias.has(k)) k = alias.get(k);
       return k;
@@ -231,5 +217,96 @@ export class Voices {
       }
     }
     return changed;
+  }
+
+  /**
+   * En réunion (toutes les 2 min) : regroupe les voix qui sont la même personne et rend les petits
+   * groupes, une fois confirmés comme tels, à la voix la plus proche. Les lettres déjà affichées ne
+   * changent pas (la renumérotation se fait en fin de réunion). Renvoie les extraits réattribués.
+   */
+  consolidate(id: string): Segment[] {
+    const st = this.states.get(id);
+    if (!st || st.clusters.length < 2) return [];
+    const voices: Record<string, Voice> = { ...(this.io.meta(id)?.voices ?? {}) };
+    const alias = new Map<string, string>();
+    this.mergeClose(st, voices, alias);
+    this.absorbSmall(st, voices, alias, Date.now() - ABSORB_AFTER_MS);
+    if (!alias.size) return [];
+    const resolve = (k?: string) => {
+      while (k && alias.has(k)) k = alias.get(k);
+      return k;
+    };
+    this.io.setVoices(id, voices);
+    for (const ch of Object.keys(st.last) as Channel[]) {
+      const l = st.last[ch];
+      if (l) l.spk = resolve(l.spk);
+    }
+    const changed: Segment[] = [];
+    for (const s of this.io.segments(id)) {
+      const k = resolve(s.spk);
+      if (k !== s.spk) {
+        const seg = { ...s, spk: k };
+        this.io.putSegment(id, seg);
+        changed.push(seg);
+      }
+    }
+    return changed;
+  }
+
+  /** Fusionne `gone` dans `keep` (nom de l'utilisateur et statut « moi » conservés). */
+  private fold(st: State, voices: Record<string, Voice>, alias: Map<string, string>, keep: Cluster, gone: Cluster) {
+    for (let i = 0; i < keep.sum.length; i++) keep.sum[i] += gone.sum[i];
+    keep.count += gone.count;
+    keep.ms += gone.ms;
+    st.clusters = st.clusters.filter((c) => c !== gone);
+    alias.set(gone.key, keep.key);
+    const g = voices[gone.key];
+    if (g?.name && !voices[keep.key]?.name) voices[keep.key] = { ...voices[keep.key], name: g.name };
+    if (g?.owner) voices[keep.key] = { ...voices[keep.key], owner: true, n: 0 };
+    delete voices[gone.key];
+  }
+
+  /** Deux groupes proches = la même personne ; on garde le plus fourni. Jamais deux noms différents. */
+  private mergeClose(st: State, voices: Record<string, Voice>, alias: Map<string, string>) {
+    for (;;) {
+      let pair: [Cluster, Cluster] | null = null;
+      let best = MERGE;
+      for (const a of st.clusters)
+        for (const b of st.clusters) {
+          if (a === b || a.ch !== b.ch || a.key > b.key) continue;
+          const na = voices[a.key]?.name;
+          const nb = voices[b.key]?.name;
+          if (na && nb && na !== nb) continue;
+          const s = cosine(a.sum, b.sum);
+          if (s >= best) {
+            best = s;
+            pair = [a, b];
+          }
+        }
+      if (!pair) return;
+      const [keep, gone] = pair[0].ms >= pair[1].ms ? pair : [pair[1], pair[0]];
+      this.fold(st, voices, alias, keep, gone);
+    }
+  }
+
+  /** Petits groupes (< 15 s, sans nom, nés avant `bornBefore`) rendus à la voix la plus proche du même canal. */
+  private absorbSmall(st: State, voices: Record<string, Voice>, alias: Map<string, string>, bornBefore: number) {
+    const small = st.clusters
+      .filter((c) => c.ms < ABSORB_MS && c.born < bornBefore && !voices[c.key]?.name)
+      .sort((a, b) => a.ms - b.ms);
+    for (const c of small) {
+      const targets = st.clusters.filter((o) => o !== c && o.ch === c.ch && o.ms >= ABSORB_MS);
+      if (!targets.length) continue;
+      let best = targets[0];
+      let sim = -2;
+      for (const o of targets) {
+        const s = cosine(c.sum, o.sum);
+        if (s > sim) {
+          sim = s;
+          best = o;
+        }
+      }
+      this.fold(st, voices, alias, best, c);
+    }
   }
 }
