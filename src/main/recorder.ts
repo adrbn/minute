@@ -24,6 +24,7 @@ import { settings } from './settings';
 import { newId, store } from './store';
 import { applyCorrections, mentions } from './vocabulary';
 import { pcm16ToWav } from './wav';
+import { packWavs, splitPacked } from './pack';
 
 export interface RecorderHooks {
   live(e: LiveEvent): void;
@@ -52,6 +53,12 @@ interface Job {
   ch: Channel;
   file: string;
   tries: number;
+  /** mise en file (ms) : on attend un peu la phrase suivante pour les grouper */
+  at: number;
+  /** voix de l'extrait, pour ne grouper que des phrases dans la même langue */
+  spk?: string;
+  /** Groq a refusé le groupe : cette phrase repart seule */
+  solo?: boolean;
 }
 
 const idleState = (): LiveState => ({
@@ -83,6 +90,8 @@ export class Recorder {
   private authBlocked = false;
   private failures = 0;
   private recent = new Map<string, Record<Channel, string>>();
+  /** dernière langue détectée par voix (« réunion:voix ») */
+  private langOf = new Map<string, string>();
   private interimBusy: Record<Channel, boolean> = { me: false, them: false };
   private lastInterim: Record<Channel, { t0: number; text: string } | null> = { me: null, them: null };
   private lastFinalT0: Record<Channel, number> = { me: -1, them: -1 };
@@ -90,6 +99,7 @@ export class Recorder {
   private lastSpeechAt = 0;
   private autoStopWarned = false;
   private silenceTimer: NodeJS.Timeout | null = null;
+  private voiceTimer: NodeJS.Timeout | null = null;
   private stoppedResolve: (() => void) | null = null;
   private finishedPending = new Set<string>();
 
@@ -202,6 +212,8 @@ export class Recorder {
     this.emitState();
     if (this.silenceTimer) clearInterval(this.silenceTimer);
     this.silenceTimer = setInterval(() => this.checkSilence(), 15_000);
+    if (this.voiceTimer) clearInterval(this.voiceTimer);
+    this.voiceTimer = setInterval(() => this.consolidateVoices(), 120_000);
     return { ok: true };
   }
 
@@ -281,6 +293,8 @@ export class Recorder {
     this.hooks.systemAudio?.stop();
     if (this.silenceTimer) clearInterval(this.silenceTimer);
     this.silenceTimer = null;
+    if (this.voiceTimer) clearInterval(this.voiceTimer);
+    this.voiceTimer = null;
     this.clearInterims(id);
     // intervenants : on regroupe au mieux maintenant que toute la réunion est connue
     try {
@@ -349,6 +363,21 @@ export class Recorder {
     }
   }
 
+  /** Toutes les 2 min : les voix qui sont la même personne sont regroupées (sinon les lettres s'accumulent). */
+  private consolidateVoices() {
+    const id = this.state.meetingId;
+    if (!id || !settings().get().voices) return;
+    try {
+      const changed = voices.consolidate(id);
+      if (!changed.length) return;
+      diagLog('voix', `${changed.length} extraits regroupés en cours de réunion`);
+      for (const seg of changed) this.hooks.live({ type: 'segment', meetingId: id, segment: seg });
+      this.hooks.meetingsChanged();
+    } catch (e) {
+      diagLog('voix', `regroupement impossible : ${(e as Error).message}`);
+    }
+  }
+
   // ---------------------------------------------------------------- extraits audio
   onEngineSegment(s: EngineSegment) {
     const id = this.state.meetingId;
@@ -376,7 +405,7 @@ export class Recorder {
     }
     store.putSegment(id, seg);
     this.hooks.live({ type: 'segment', meetingId: id, segment: seg });
-    this.queue.push({ meetingId: id, segId, ch: s.ch, file: path, tries: 0 });
+    this.queue.push({ meetingId: id, segId, ch: s.ch, file: path, tries: 0, at: Date.now(), spk: seg.spk });
     this.pump();
   }
 
@@ -435,7 +464,7 @@ export class Recorder {
         if (!s.pending || !s.audio) continue;
         const file = store.audioFile(meta.id, s.audio);
         if (file && existsSync(file)) {
-          this.queue.push({ meetingId: meta.id, segId: s.id, ch: s.ch, file, tries: 0 });
+          this.queue.push({ meetingId: meta.id, segId: s.id, ch: s.ch, file, tries: 0, at: 0, spk: s.spk });
           this.finishedPending.add(meta.id);
         } else {
           store.removeSegment(meta.id, s.id);
@@ -460,7 +489,7 @@ export class Recorder {
       if (this.queue.some((j) => j.segId === s.id) || this.inflightSegs.has(s.id)) continue;
       const file = store.audioFile(meetingId, s.audio);
       if (file && existsSync(file)) {
-        this.queue.push({ meetingId, segId: s.id, ch: s.ch, file, tries: 0 });
+        this.queue.push({ meetingId, segId: s.id, ch: s.ch, file, tries: 0, at: 0, spk: s.spk });
         n++;
       }
     }
@@ -499,21 +528,76 @@ export class Recorder {
       if (n >= 4) this.notice('warn', t('Transcription locale plus lente que la parole sur cet ordinateur : {n} phrases en attente — rien n’est perdu.', { n }), 'slowLocal');
       else if (n === 0 && this.noticeIs('slowLocal')) this.notice('info', null);
     }
+    const held = new Set<string>();
+    let holdMs = Infinity;
     while (this.inflight < parallel && this.queue.length) {
-      const idx = this.queue.findIndex((j) => !this.busy.has(j.meetingId + j.ch));
+      const idx = this.queue.findIndex((j) => !this.busy.has(j.meetingId + j.ch) && !held.has(j.meetingId + j.ch));
       if (idx < 0) break;
       const job = this.queue[idx];
-      const dur = fileDuration(job.file);
+      const { jobs, hold } = this.packFor(idx);
+      if (hold > 0) {
+        held.add(job.meetingId + job.ch);
+        holdMs = Math.min(holdMs, hold);
+        continue;
+      }
+      // phrases groupées : un demi-seconde de silence entre chacune
+      const dur = jobs.reduce((a, j) => a + fileDuration(j.file), 0) + (jobs.length - 1) * 0.5;
       const wait = settings().get().privacyMode ? 0 : this.budget.delayFor(dur, 'final');
       if (wait > 0) {
-        if (wait > 6000) this.notice('warn', t('Limite gratuite Groq atteinte : les phrases arrivent avec un peu de retard, rien n’est perdu.'));
+        if (wait > 6000) {
+          const mins = Math.ceil(wait / 60_000);
+          this.notice(
+            'warn',
+            wait > 90_000
+              ? t('Quota horaire gratuit de Groq atteint : reprise dans {n} min environ. Rien n’est perdu.', { n: mins })
+              : t('Limite gratuite Groq atteinte : les phrases arrivent avec un peu de retard, rien n’est perdu.'),
+          );
+        }
         this.schedule(wait);
         break;
       }
-      this.queue.splice(idx, 1);
-      void this.run(job, dur);
+      this.queue = this.queue.filter((j) => !jobs.includes(j));
+      void (jobs.length > 1 ? this.runPack(jobs, dur) : this.run(job, dur));
     }
+    if (holdMs < Infinity) this.schedule(holdMs);
     this.emitState();
+  }
+
+  /**
+   * Offre gratuite de Groq : chaque requête compte au moins 10 s. Quand le quota horaire se resserre
+   * (ou que des phrases s'accumulent), les phrases courtes d'un même canal partent ensemble — seulement
+   * celles d'une même voix, ou de voix qui parlent la même langue (Whisper traduirait sinon).
+   * `hold` : attendre un peu la phrase suivante pour remplir la requête.
+   */
+  private packFor(idx: number): { jobs: Job[]; hold: number } {
+    const head = this.queue[idx];
+    if (settings().get().privacyMode || this.budget.tier === 'paid' || head.solo) return { jobs: [head], hold: 0 };
+    const same = this.queue.filter((j) => j.meetingId === head.meetingId && j.ch === head.ch && !j.solo);
+    const pressure = this.budget.pressure();
+    if (pressure < 0.35 && same.length < 3) return { jobs: [head], hold: 0 };
+    const langOf = (j: Job) => (j.spk ? this.langOf.get(`${j.meetingId}:${j.spk}`) : undefined);
+    const headLang = langOf(head);
+    const jobs = [head];
+    let total = fileDuration(head.file);
+    for (const j of same) {
+      if (j === head) continue;
+      const d = fileDuration(j.file);
+      if (jobs.length >= 8 || total + d + 0.5 > 28) break;
+      const lang = langOf(j);
+      if (j.spk !== head.spk && !(headLang && lang === headLang)) break;
+      jobs.push(j);
+      total += d + 0.5;
+    }
+    // en réunion, quota serré : quelques secondes de plus pour atteindre les 10 s facturées de toute façon
+    const age = Date.now() - head.at;
+    if (this.state.meetingId === head.meetingId && pressure >= 0.35 && total < 10 && head.at && age < 6000) {
+      return { jobs: [], hold: 6000 - age };
+    }
+    return { jobs, hold: 0 };
+  }
+
+  private noteLang(job: Job, lang?: string) {
+    if (job.spk && lang) this.langOf.set(`${job.meetingId}:${job.spk}`, lang);
   }
 
   /** La réunion a encore de l'audio en attente ou en cours de transcription. */
@@ -562,6 +646,7 @@ export class Recorder {
         }
       }
       this.failures = 0;
+      this.noteLang(job, r.language);
       if (this.state.notice && this.state.notice.kind !== 'error' && !this.noticeIs('silence')) {
         this.notice('info', null);
       }
@@ -592,6 +677,69 @@ export class Recorder {
       this.inflight--;
       this.busy.delete(busyKey);
       this.inflightSegs.delete(job.segId);
+      this.pump();
+    }
+  }
+
+  /** Plusieurs phrases d'un même canal en une seule requête Groq (cf. packFor). */
+  private async runPack(jobs: Job[], dur: number) {
+    const head = jobs[0];
+    const key = settings().secret('groq');
+    const busyKey = head.meetingId + head.ch;
+    this.inflight++;
+    this.busy.add(busyKey);
+    for (const j of jobs) this.inflightSegs.add(j.segId);
+    try {
+      const cfg = settings().get();
+      if (!key) throw new SttError(t('Clé Groq manquante'), 'auth');
+      const present = jobs.filter((j) => existsSync(j.file));
+      for (const j of jobs) if (!present.includes(j)) this.finalize(j, '');
+      if (!present.length) return;
+      const { wav, spans } = packWavs(present.map((j) => readFileSync(j.file)));
+      const prompt = buildPrompt(this.vocabFor(head.meetingId), this.recentText(head.meetingId, head.ch));
+      this.budget.record(dur);
+      let r = await transcribe(key, wav, { model: cfg.sttModel, language: cfg.language, prompt, words: true, timeoutMs: 60_000 }, this.budget);
+      const expected = cfg.languages?.length ? cfg.languages : ['fr', 'en', 'it'];
+      if (cfg.language === 'auto' && r.language && !expected.includes(r.language)) {
+        diagLog('langue', `« ${r.language} » inattendue (groupe) : nouvelle transcription en « ${expected[0]} »`);
+        this.budget.record(dur);
+        r = await transcribe(key, wav, { model: cfg.sttModel, language: expected[0], prompt, words: true, timeoutMs: 60_000 }, this.budget);
+      }
+      diagLog('groupage', `${present.length} phrases en une requête (${dur.toFixed(1)} s)`);
+      this.failures = 0;
+      if (this.state.notice && this.state.notice.kind !== 'error' && !this.noticeIs('silence')) {
+        this.notice('info', null);
+      }
+      const parts = splitPacked(r, spans);
+      present.forEach((j, i) => {
+        this.noteLang(j, r.language);
+        this.finalize(j, applyCorrections(cleanResult(parts[i]), cfg.learned));
+      });
+    } catch (e) {
+      const err = e instanceof SttError ? e : new SttError((e as Error).message, 'network');
+      if (err.kind === 'bad') {
+        // groupe refusé : chaque phrase repart seule (le cas phrase par phrase est déjà géré)
+        for (const j of jobs) j.solo = true;
+        diagLog('groupage', `groupe refusé par Groq : ${err.message}`);
+      }
+      this.queue.unshift(...jobs);
+      if (err.kind === 'auth') {
+        this.authBlocked = true;
+        this.notice('error', t('Clé Groq manquante ou refusée — ouvrez les Réglages. Vos phrases sont gardées en attente.'));
+      } else if (err.kind === 'rate') {
+        this.budget.block(err.retryAfterMs);
+      } else if (err.kind !== 'bad') {
+        for (const j of jobs) j.tries++;
+        this.failures++;
+        this.holdUntil = Date.now() + Math.min(60_000, 1000 * 2 ** Math.min(head.tries, 6));
+        if (this.failures >= 2) {
+          this.notice('warn', t('Connexion perdue : l’audio est gardé et sera transcrit dès le retour du réseau.'));
+        }
+      }
+    } finally {
+      this.inflight--;
+      this.busy.delete(busyKey);
+      for (const j of jobs) this.inflightSegs.delete(j.segId);
       this.pump();
     }
   }

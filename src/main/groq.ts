@@ -20,9 +20,23 @@ export interface SttResult {
   noSpeech: number;
   avgLogprob: number;
   compression: number;
+  /** avec `words` : les segments de Whisper (secondes) et chaque mot horodaté */
+  segments?: SttSegment[];
+  words?: { start: number; end: number }[];
+}
+
+export interface SttSegment {
+  start: number;
+  end: number;
+  text: string;
+  noSpeech: number;
+  avgLogprob: number;
+  compression: number;
 }
 
 interface VerboseSegment {
+  start?: number;
+  end?: number;
   text: string;
   no_speech_prob?: number;
   avg_logprob?: number;
@@ -35,7 +49,7 @@ const ENDPOINT = `${process.env.MINUTE_GROQ_BASE || 'https://api.groq.com/openai
 export async function transcribe(
   key: string,
   wav: Buffer,
-  opts: { model: string; language: string; prompt: string; timeoutMs?: number },
+  opts: { model: string; language: string; prompt: string; timeoutMs?: number; words?: boolean },
   budget?: Budget,
 ): Promise<SttResult> {
   const fd = new FormData();
@@ -45,6 +59,11 @@ export async function transcribe(
   if (opts.prompt) fd.append('prompt', opts.prompt);
   fd.append('response_format', 'verbose_json');
   fd.append('temperature', '0');
+  // phrases groupées : l'horodatage des mots permet de rendre à chacune son texte
+  if (opts.words) {
+    fd.append('timestamp_granularities[]', 'word');
+    fd.append('timestamp_granularities[]', 'segment');
+  }
 
   let res: Response;
   try {
@@ -68,7 +87,12 @@ export async function transcribe(
     const body = await res.text().catch(() => '');
     throw new SttError(t('Groq a refusé l\'audio ({status}) {details}', { status: res.status, details: body.slice(0, 200) }), 'bad');
   }
-  const json = (await res.json()) as { text?: string; segments?: VerboseSegment[]; language?: string };
+  const json = (await res.json()) as {
+    text?: string;
+    segments?: VerboseSegment[];
+    words?: { start?: number; end?: number }[];
+    language?: string;
+  };
   const segs = json.segments ?? [];
   const avg = (f: (s: VerboseSegment) => number | undefined, dflt: number) =>
     segs.length ? segs.reduce((a, s) => a + (f(s) ?? dflt), 0) / segs.length : dflt;
@@ -78,6 +102,19 @@ export async function transcribe(
     noSpeech: avg((s) => s.no_speech_prob, 0),
     avgLogprob: avg((s) => s.avg_logprob, 0),
     compression: avg((s) => s.compression_ratio, 1),
+    ...(opts.words
+      ? {
+          segments: segs.map((s) => ({
+            start: s.start ?? 0,
+            end: s.end ?? 0,
+            text: s.text ?? '',
+            noSpeech: s.no_speech_prob ?? 0,
+            avgLogprob: s.avg_logprob ?? 0,
+            compression: s.compression_ratio ?? 1,
+          })),
+          words: (json.words ?? []).map((w) => ({ start: w.start ?? 0, end: w.end ?? 0 })),
+        }
+      : {}),
   };
 }
 
@@ -121,7 +158,8 @@ export class Budget {
     if (now < this.blockedUntil) return this.blockedUntil - now;
     const billed = Math.max(10, durationSec);
     const rpmCap = Math.floor(this.rpm * (priority === 'final' ? 0.9 : 0.55));
-    const ashCap = this.ash * (priority === 'final' ? 0.97 : 0.6);
+    // les aperçus en direct s'arrêtent tôt : le quota horaire va d'abord aux vraies transcriptions
+    const ashCap = this.ash * (priority === 'final' ? 0.97 : 0.3);
     if (this.requests.length >= rpmCap) {
       if (priority === 'interim') return Infinity;
       return 60_000 - (now - this.requests[0]) + 50;
@@ -136,6 +174,13 @@ export class Budget {
       return 60_000;
     }
     return 0;
+  }
+
+  /** Part du quota horaire déjà consommée (0 à 1) ; 0 sur un compte payant. */
+  pressure(): number {
+    if (this.tier === 'paid') return 0;
+    this.prune(Date.now());
+    return this.audioUsed() / this.ash;
   }
 
   record(durationSec: number) {

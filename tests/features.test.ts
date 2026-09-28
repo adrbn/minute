@@ -8,6 +8,8 @@ import { sanitize } from '../src/main/diag';
 import { homedir } from 'node:os';
 import { retrieve } from '../src/main/retrieval';
 import { Voices, type VoiceStore } from '../src/main/voices';
+import { packWavs, splitPacked } from '../src/main/pack';
+import { pcm16ToWav } from '../src/main/wav';
 import { toTurns, voiceLabel } from '../src/shared/transcript';
 import { applyCorrections, learnFromEdit, mentions, suggestTerms } from '../src/main/vocabulary';
 import { migrateShortcuts } from '../src/main/settings';
@@ -333,4 +335,98 @@ test('rapport de problème : dossiers, clés et e-mails sont masqués', () => {
   assert.ok(out.startsWith('~'));
   assert.doesNotMatch(out, /gsk_|sk-ant|jean\.dupont|abcdefghijklmnopqrs/);
   assert.match(out, /<clé masquée>.*<clé masquée>.*<e-mail>.*Bearer <masqué>/);
+});
+
+test('voix : un petit groupe (variante de la même voix) est rendu à la voix principale ; un groupe nommé reste', () => {
+  let seed = 23;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647) * 2 - 1;
+  const main = Array.from({ length: 64 }, rnd);
+  const other = Array.from({ length: 64 }, rnd);
+  const meta = { id: 'm', speakers: { me: 'Moi', them: 'Participants' }, voices: {} as Record<string, Voice> } as MeetingMeta;
+  const segs: Segment[] = [];
+  const v = new Voices({
+    dir: () => null,
+    meta: () => meta,
+    segments: () => segs,
+    setVoices: (_id, x) => (meta.voices = x),
+    putSegment: (_id, seg) => {
+      const i = segs.findIndex((x) => x.id === seg.id);
+      if (i >= 0) segs[i] = seg;
+    },
+  });
+  const add = (i: number, e: number[], ms = 4_000) => {
+    const seg: Segment = { id: `s${i}`, ch: 'them', t0: i * 10_000, t1: i * 10_000 + ms, text: 't' };
+    seg.spk = v.assign('m', seg, e);
+    segs.push(seg);
+  };
+  // la voix principale parle 40 s ; deux phrases « à côté » (autre ton) forment un petit groupe de 6 s
+  for (let i = 0; i < 10; i++) add(i, main.map((x) => x + 0.3 * rnd()));
+  add(10, main.map((x, k) => 0.35 * x + other[k] + 0.2 * rnd()), 3_000);
+  add(11, main.map((x, k) => 0.35 * x + other[k] + 0.2 * rnd()), 3_000);
+  assert.equal(Object.keys(meta.voices!).length, 2, 'deux groupes en direct');
+  // en réunion : le petit groupe n'est pas absorbé tant qu'il n'a pas 2 minutes
+  assert.equal(v.consolidate('m').length, 0);
+  // groupe nommé par l'utilisateur : jamais absorbé
+  const small = segs[10].spk!;
+  meta.voices![small] = { ...meta.voices![small], name: 'Invité' };
+  v.refine('m');
+  assert.equal(Object.keys(meta.voices!).length, 2);
+  // sans nom : rendu à la voix principale en fin de réunion
+  const segs2 = segs.map((s) => ({ ...s, spk: undefined }));
+  segs.length = 0;
+  meta.voices = {};
+  const v2 = new Voices({
+    dir: () => null,
+    meta: () => meta,
+    segments: () => segs,
+    setVoices: (_id, x) => (meta.voices = x),
+    putSegment: (_id, seg) => {
+      const i = segs.findIndex((x) => x.id === seg.id);
+      if (i >= 0) segs[i] = seg;
+    },
+  });
+  seed = 23;
+  const again = segs2.map((s, i) => (i < 10 ? main.map((x) => x + 0.3 * rnd()) : main.map((x, k) => 0.35 * x + other[k] + 0.2 * rnd())));
+  segs2.forEach((s, i) => {
+    s.spk = v2.assign('m', s, again[i]);
+    segs.push(s);
+  });
+  v2.refine('m');
+  assert.equal(Object.keys(meta.voices!).length, 1);
+  assert.equal(new Set(segs.map((s) => s.spk)).size, 1);
+});
+
+test('groupage Groq : plusieurs phrases en une requête, chacune retrouve son texte', () => {
+  const tone = (sec: number) => pcm16ToWav(Buffer.alloc(Math.round(sec * 16000) * 2, 1));
+  const { wav, spans } = packWavs([tone(2), tone(3), tone(1.5)]);
+  assert.equal(spans.length, 3);
+  assert.deepEqual(spans.map((s) => +s.start.toFixed(2)), [0, 2.5, 6]);
+  assert.equal(+spans[2].end.toFixed(2), 7.5);
+  assert.equal(wav.length, 44 + Math.round(7.5 * 16000) * 2);
+  // Whisper a fait un seul segment à cheval sur les deux premières phrases : les mots horodatés tranchent
+  const r = {
+    text: 'Bonjour à tous. On commence ? Oui.',
+    noSpeech: 0.01,
+    avgLogprob: -0.2,
+    compression: 1.2,
+    language: 'fr',
+    segments: [
+      { start: 0, end: 5.2, text: ' Bonjour à tous. On commence ?', noSpeech: 0.01, avgLogprob: -0.2, compression: 1.2 },
+      { start: 6.1, end: 7.2, text: ' Oui.', noSpeech: 0.02, avgLogprob: -0.3, compression: 1 },
+    ],
+    words: [
+      { start: 0.1, end: 0.6 },
+      { start: 0.7, end: 0.8 },
+      { start: 0.9, end: 1.4 },
+      { start: 2.7, end: 2.9 },
+      { start: 3.0, end: 3.8 },
+      { start: 6.2, end: 6.6 },
+    ],
+  };
+  const parts = splitPacked(r, spans);
+  assert.deepEqual(parts.map((p) => p.text), ['Bonjour à tous.', 'On commence ?', 'Oui.']);
+  assert.ok(parts.every((p) => p.language === 'fr' && p.noSpeech < 0.1));
+  // une phrase où Whisper n'a rien entendu : texte vide (elle sera retirée comme d'habitude)
+  const empty = splitPacked({ ...r, segments: [r.segments[0]], words: r.words.slice(0, 5) }, spans);
+  assert.equal(empty[2].text, '');
 });
