@@ -34,10 +34,9 @@ jobs:
       - run: npm test
       - name: Xcode 26 (actool compile l’icône Liquid Glass build/icon.icon)
         run: |
+          # sans Xcode 26, l'étape suivante se rabat sur l'icône classique (pas d'échec ici)
           XC=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
-          [ -n "$XC" ] || { echo "::error::Xcode 26 introuvable sur ce runner"; exit 1; }
-          sudo xcode-select -s "$XC"
-          xcrun actool --version
+          if [ -n "$XC" ]; then sudo xcode-select -s "$XC"; xcrun actool --version; else echo "::warning::Xcode 26 introuvable"; fi
       - name: Construire l’app
         env:
           CSC_LINK: ${{ secrets.MAC_CERT_P12_BASE64 }}
@@ -50,10 +49,17 @@ jobs:
           if [ -n "$CSC_LINK" ]; then
             EXTRA=""
             [ -n "$APPLE_ID" ] && EXTRA="-c.mac.notarize=true"
-            npx electron-builder --mac --publish never $EXTRA
           else
             unset CSC_LINK CSC_KEY_PASSWORD
-            CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --mac --publish never -c.mac.identity=-
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+            EXTRA="-c.mac.identity=-"
+          fi
+          # icône Liquid Glass (actool de Xcode 26) ; si actool plante sur ce runner (vu : Xcode 26 sur
+          # macOS 15), on reconstruit avec l'icône classique plutôt que de bloquer la version
+          if ! npx electron-builder --mac --publish never $EXTRA; then
+            echo "::warning::échec avec l'icône Liquid Glass : nouvelle construction avec build/icon.png"
+            rm -rf release
+            npx electron-builder --mac --publish never $EXTRA -c.mac.icon=build/icon.png
           fi
       - uses: actions/upload-artifact@v4
         with:
