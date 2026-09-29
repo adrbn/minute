@@ -68,6 +68,7 @@ import {
   setQuitting,
   showMain,
   resizeForSidebar,
+  engineRefreshLoopback,
 } from './windows';
 
 const isMac = process.platform === 'darwin';
@@ -795,6 +796,12 @@ function wireIpc() {
   ipcMain.on('engine:levels', (e, l: Levels) => fromEngine(e) && recorder.levels(l));
   ipcMain.on('engine:status', (e, ch, ok, error) => fromEngine(e) && recorder.channelStatus(ch, ok, error));
   ipcMain.on('engine:stopped', (e) => fromEngine(e) && recorder.engineStopped());
+  ipcMain.on('engine:loopback', (e) => {
+    if (!fromEngine(e)) return;
+    void engineRefreshLoopback()
+      .then((ok) => diagLog('moteur', ok ? 'son de l’ordinateur rouvert' : 'son de l’ordinateur : rien à rouvrir'))
+      .catch((err) => diagLog('moteur', `réouverture du son de l’ordinateur : ${(err as Error).message}`));
+  });
   ipcMain.on('engine:log', (e, msg: string) => {
     if (!fromEngine(e)) return;
     console.log('[engine]', msg);

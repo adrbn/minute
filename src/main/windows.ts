@@ -252,6 +252,12 @@ export async function engineStart(o: unknown): Promise<{ me: boolean; them: bool
   return engine.webContents.executeJavaScript(`window.__minuteStart(${JSON.stringify(o)})`, true);
 }
 
+/** Rouvre la capture du son de l'ordinateur (getDisplayMedia exige un « geste utilisateur »). */
+export async function engineRefreshLoopback(): Promise<boolean> {
+  if (!engine || engine.isDestroyed()) return false;
+  return engine.webContents.executeJavaScript('window.__minuteLoopback ? window.__minuteLoopback() : false', true);
+}
+
 export function engineSend(channel: string, payload?: unknown) {
   if (engine && !engine.isDestroyed()) engine.webContents.send(channel, payload);
 }

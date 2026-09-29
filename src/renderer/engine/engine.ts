@@ -10,6 +10,7 @@ declare global {
   interface Window {
     engine: EngineBridge;
     __minuteStart?: (o: EngineStartOptions) => Promise<{ me: boolean; them: boolean }>;
+    __minuteLoopback?: () => Promise<boolean>;
   }
 }
 
@@ -66,7 +67,9 @@ class Pipe {
   frame(f: Float32Array, arrivedAt = clock.now()) {
     if (paused || stopped) return;
     const t = arrivedAt - FRAME_MS;
-    this.level = Math.max(this.level * 0.7, levelOf(f));
+    const lvl = levelOf(f);
+    this.level = Math.max(this.level * 0.7, lvl);
+    if (this.ch === 'them' && lvl > SYS_SOUND) sys.lastSound = performance.now();
     this.chain = this.chain.then(async () => {
       try {
         const p = await this.vad.prob(f);
@@ -121,6 +124,15 @@ let pipes: Partial<Record<Channel, Pipe>> = {};
 let paused = false;
 let stopped = true;
 let levelTimer: number | null = null;
+/**
+ * Son de l'ordinateur (Windows) : la capture « loopback » reste attachée à la sortie audio par défaut
+ * du moment où elle a été ouverte. Si l'appel sort ailleurs (sortie par défaut changée, casque branché…),
+ * elle reste « vivante » mais muette. On la rouvre quand les périphériques changent, ou quand elle est
+ * parfaitement muette depuis 1 min alors qu'on parle au micro.
+ */
+const sys = { mode: 'off' as EngineStartOptions['systemMode'], lastSound: 0, lastMicSpeech: 0, lastRefresh: 0, refreshes: 0, warned: false };
+/** au-dessus : quelque chose joue (même un souffle) ; en dessous : silence numérique */
+const SYS_SOUND = 0.0003;
 /** chaque démarrage / arrêt incrémente la génération : un démarrage dépassé s'annule de lui-même */
 let generation = 0;
 /** un modèle VAD par voix, créé une fois pour toute la vie de l'app */
@@ -275,8 +287,12 @@ async function start(o: EngineStartOptions): Promise<{ me: boolean; them: boolea
       if (loopback) {
         await attachStream(pipes.them, loopback);
         bridge.status('them', true);
-        loopback.getAudioTracks()[0].onended = () => {
-          if (!stopped && gen === generation) bridge.status('them', false, 'Capture du son de l’ordinateur interrompue');
+        watchLoopbackEnd(loopback, gen);
+        const now = performance.now();
+        Object.assign(sys, { mode: 'display', lastSound: now, lastMicSpeech: 0, lastRefresh: now, refreshes: 0, warned: false });
+        navigator.mediaDevices.ondevicechange = () => {
+          // sortie audio changée : la capture doit suivre (le process principal la rouvre avec un « geste »)
+          if (!stopped && gen === generation && sys.mode === 'display') setTimeout(() => bridge.requestLoopback(), 1000);
         };
         result.them = true;
       } else {
@@ -299,13 +315,75 @@ async function start(o: EngineStartOptions): Promise<{ me: boolean; them: boolea
     });
     if (pipes.me) pipes.me.level *= 0.6;
     if (pipes.them) pipes.them.level *= 0.6;
+    watchSystemSilence();
   }, 90);
   return result;
+}
+
+function watchLoopbackEnd(stream: MediaStream, gen: number) {
+  stream.getAudioTracks()[0].onended = () => {
+    if (!stopped && gen === generation) bridge.status('them', false, 'Capture du son de l’ordinateur interrompue');
+  };
+}
+
+/** Capture du son de l'ordinateur muette depuis 1 min alors qu'on parle au micro : on la rouvre. */
+function watchSystemSilence() {
+  if (sys.mode !== 'display' || !pipes.them || paused || stopped) return;
+  const now = performance.now();
+  if (pipes.me?.seg.isSpeaking) sys.lastMicSpeech = now;
+  const silentFor = now - sys.lastSound;
+  if (sys.warned && silentFor < 1000) {
+    sys.warned = false;
+    sys.refreshes = 0;
+    bridge.status('them', true);
+  }
+  if (silentFor < 60_000 || now - sys.lastMicSpeech > 60_000 || now - sys.lastRefresh < 60_000) return;
+  sys.lastRefresh = now;
+  sys.refreshes++;
+  bridge.log(`son de l'ordinateur muet depuis ${Math.round(silentFor / 1000)} s alors qu'on parle : reconnexion (${sys.refreshes})`);
+  bridge.requestLoopback();
+  // 5 min de silence malgré les reconnexions : peut-être personne d'autre ne parle, peut-être l'appel sort ailleurs
+  if (sys.refreshes >= 5 && !sys.warned) {
+    sys.warned = true;
+    bridge.status('them', false, 'Aucun son de l’appel reçu depuis 5 min. Si les autres parlent, vérifiez la sortie audio de l’appel.');
+  }
+}
+
+/** Rouvre la capture du son de l'ordinateur (appelé par le process principal, avec « geste utilisateur »). */
+async function refreshLoopback(): Promise<boolean> {
+  const pipe = pipes.them;
+  if (stopped || !ctx || !pipe?.node || sys.mode !== 'display') return false;
+  const gen = generation;
+  try {
+    const s = await getLoopback();
+    if (stopped || gen !== generation || pipes.them !== pipe || !ctx || !pipe.node) {
+      s.getTracks().forEach((t) => t.stop());
+      return false;
+    }
+    const old = pipe.stream;
+    const src = ctx.createMediaStreamSource(s);
+    src.connect(pipe.node);
+    pipe.source?.disconnect();
+    pipe.source = src;
+    pipe.stream = s;
+    old?.getTracks().forEach((t) => {
+      t.onended = null;
+      t.stop();
+    });
+    watchLoopbackEnd(s, gen);
+    bridge.log('son de l’ordinateur : capture rouverte');
+    return true;
+  } catch (e) {
+    bridge.log(`son de l’ordinateur : réouverture impossible (${(e as Error).message})`);
+    return false;
+  }
 }
 
 async function stop(notify = true) {
   generation++;
   stopped = true;
+  sys.mode = 'off';
+  navigator.mediaDevices.ondevicechange = null;
   if (levelTimer) clearInterval(levelTimer);
   levelTimer = null;
   const all = Object.values(pipes) as Pipe[];
@@ -319,6 +397,7 @@ async function stop(notify = true) {
 }
 
 window.__minuteStart = start;
+window.__minuteLoopback = refreshLoopback;
 // Diagnostic : charge la VAD et mesure une trame de silence (≈ 0).
 (window as unknown as { __minuteSelfTest: () => Promise<number> }).__minuteSelfTest = async () => {
   const vad = await SileroVad.create(ort, await model());

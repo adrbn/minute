@@ -18,6 +18,7 @@ const bridge: EngineBridge = {
   status: (ch, ok, error) => ipcRenderer.send('engine:status', ch, ok, error),
   stopped: () => ipcRenderer.send('engine:stopped'),
   log: (msg) => ipcRenderer.send('engine:log', msg),
+  requestLoopback: () => ipcRenderer.send('engine:loopback'),
 };
 
 contextBridge.exposeInMainWorld('engine', bridge);

@@ -456,4 +456,6 @@ export interface EngineBridge {
   status(ch: Channel, ok: boolean, error?: string): void;
   stopped(): void;
   log(msg: string): void;
+  /** Windows : demander au process principal de rouvrir la capture du son de l'ordinateur */
+  requestLoopback(): void;
 }
