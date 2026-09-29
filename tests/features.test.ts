@@ -9,6 +9,7 @@ import { homedir } from 'node:os';
 import { retrieve } from '../src/main/retrieval';
 import { Voices, type VoiceStore } from '../src/main/voices';
 import { packWavs, splitPacked } from '../src/main/pack';
+import { Budget, parseGroqDuration } from '../src/main/groq';
 import { pcm16ToWav } from '../src/main/wav';
 import { toTurns, voiceLabel } from '../src/shared/transcript';
 import { applyCorrections, learnFromEdit, mentions, suggestTerms } from '../src/main/vocabulary';
@@ -429,4 +430,43 @@ test('groupage Groq : plusieurs phrases en une requête, chacune retrouve son te
   // une phrase où Whisper n'a rien entendu : texte vide (elle sera retirée comme d'habitude)
   const empty = splitPacked({ ...r, segments: [r.segments[0]], words: r.words.slice(0, 5) }, spans);
   assert.equal(empty[2].text, '');
+});
+
+test('quota Groq : le budget suit le reste réel annoncé par Groq (même clé partagée avec une autre app)', () => {
+  assert.equal(parseGroqDuration('2m46.5s'), 166_500);
+  assert.equal(parseGroqDuration('15h7m12s'), 54_432_000);
+  assert.equal(parseGroqDuration('800ms'), 800);
+  assert.ok(Number.isNaN(parseGroqDuration(null)));
+  const headers = (audioLeft: number, requestsLeft = 740) =>
+    new Headers({
+      'x-ratelimit-limit-audio-seconds': '7200',
+      'x-ratelimit-remaining-audio-seconds': String(audioLeft),
+      'x-ratelimit-limit-requests': '2000',
+      'x-ratelimit-remaining-requests': String(requestsLeft),
+      'x-ratelimit-reset-requests': '15h7m12s',
+    });
+  // compte presque vide (une autre application a tout consommé) : Minute attend, sans rien avoir envoyé lui-même
+  const b = new Budget();
+  b.observeHeaders(headers(150));
+  const wait = b.delayFor(12, 'final');
+  assert.ok(wait > 0 && wait < 60_000, `attente ${wait}`);
+  assert.equal(b.lastReason, 'audio');
+  assert.equal(b.delayFor(3, 'interim'), Infinity); // pas d'aperçu en direct
+  assert.ok(b.pressure() > 0.9); // → les phrases sont groupées
+  // compte plein : envoi immédiat, aperçus permis
+  const full = new Budget();
+  full.observeHeaders(headers(7200));
+  assert.equal(full.delayFor(4, 'final'), 0);
+  assert.equal(full.delayFor(4, 'interim'), 0);
+  assert.ok(full.pressure() < 0.05);
+  // requêtes du jour presque épuisées : tout est groupé, les aperçus s'arrêtent, les 3 dernières sont gardées
+  const day = new Budget();
+  day.observeHeaders(headers(7200, 250));
+  assert.equal(day.pressure(), 1);
+  assert.equal(day.delayFor(4, 'interim'), Infinity);
+  assert.equal(day.delayFor(4, 'final'), 0);
+  const last = new Budget();
+  last.observeHeaders(headers(7200, 3));
+  assert.ok(last.delayFor(4, 'final') > 3_600_000);
+  assert.equal(last.lastReason, 'day');
 });

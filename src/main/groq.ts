@@ -134,6 +134,19 @@ export function languageCode(raw?: string): string | undefined {
 
 type Priority = 'final' | 'interim';
 
+/** Durées des en-têtes de Groq (« 2m46.5s », « 15h7m12s », « 800ms ») → millisecondes. */
+export function parseGroqDuration(s: string | null): number {
+  if (!s) return NaN;
+  let ms = 0;
+  let found = false;
+  for (const m of s.matchAll(/(\d+(?:\.\d+)?)(ms|h|m|s)/g)) {
+    found = true;
+    const v = parseFloat(m[1]);
+    ms += m[2] === 'h' ? v * 3_600_000 : m[2] === 'm' ? v * 60_000 : m[2] === 's' ? v * 1000 : v;
+  }
+  return found ? ms : NaN;
+}
+
 export class Budget {
   private rpm = 20;
   private ash = 7200;
@@ -141,6 +154,15 @@ export class Budget {
   private audio: { t: number; sec: number }[] = [];
   private blockedUntil = 0;
   tier: 'free' | 'paid' = 'free';
+  /**
+   * Ce que Groq dit du compte après chaque réponse : c'est le vrai reste, toutes applications confondues
+   * (Natively ou un autre outil avec la même clé consomme le même quota). Le quota audio se remplit en
+   * continu (7 200 s par heure, soit 2 s par seconde).
+   */
+  private remote: { audio: number; at: number } | null = null;
+  private day: { requests: number; resetAt: number; sent: number } | null = null;
+  /** pourquoi la dernière attente (pour un message juste) */
+  lastReason: 'rpm' | 'audio' | 'day' | null = null;
 
   private prune(now: number) {
     this.requests = this.requests.filter((t) => now - t < 60_000);
@@ -157,15 +179,42 @@ export class Budget {
     this.prune(now);
     if (now < this.blockedUntil) return this.blockedUntil - now;
     const billed = Math.max(10, durationSec);
+    // requêtes du jour presque épuisées : on garde les dernières pour les vraies transcriptions
+    if (this.day && now < this.day.resetAt) {
+      const left = this.day.requests - this.day.sent;
+      if (left <= (priority === 'final' ? 3 : 300)) {
+        if (priority === 'interim') return Infinity;
+        this.lastReason = 'day';
+        return this.day.resetAt - now + 1000;
+      }
+    }
+    // reste réel annoncé par Groq (récent) : il prime sur notre propre compte
+    if (this.remote && this.tier === 'free' && now - this.remote.at < 15 * 60_000) {
+      const left = this.remoteLeft(now);
+      const keep = this.ash * (priority === 'final' ? 0.03 : 0.7);
+      if (left - billed < keep) {
+        if (priority === 'interim') return Infinity;
+        this.lastReason = 'audio';
+        return Math.ceil(((billed + keep - left) / (this.ash / 3600)) * 1000) + 50;
+      }
+      if (this.requests.length >= Math.floor(this.rpm * (priority === 'final' ? 0.9 : 0.55))) {
+        if (priority === 'interim') return Infinity;
+        this.lastReason = 'rpm';
+        return 60_000 - (now - this.requests[0]) + 50;
+      }
+      return 0;
+    }
     const rpmCap = Math.floor(this.rpm * (priority === 'final' ? 0.9 : 0.55));
     // les aperçus en direct s'arrêtent tôt : le quota horaire va d'abord aux vraies transcriptions
     const ashCap = this.ash * (priority === 'final' ? 0.97 : 0.3);
     if (this.requests.length >= rpmCap) {
       if (priority === 'interim') return Infinity;
+      this.lastReason = 'rpm';
       return 60_000 - (now - this.requests[0]) + 50;
     }
     if (this.audioUsed() + billed > ashCap) {
       if (priority === 'interim') return Infinity;
+      this.lastReason = 'audio';
       let used = this.audioUsed();
       for (const a of this.audio) {
         used -= a.sec;
@@ -176,17 +225,31 @@ export class Budget {
     return 0;
   }
 
-  /** Part du quota horaire déjà consommée (0 à 1) ; 0 sur un compte payant. */
+  /** Reste du quota audio estimé maintenant, d'après la dernière réponse de Groq. */
+  private remoteLeft(now: number): number {
+    if (!this.remote) return Infinity;
+    const r = this.remote;
+    const refill = ((now - r.at) / 1000) * (this.ash / 3600);
+    const sent = this.audio.filter((a) => a.t > r.at).reduce((s, a) => s + a.sec, 0);
+    return Math.min(this.ash, r.audio + refill) - sent;
+  }
+
+  /** Part du quota déjà consommée (0 à 1), toutes applications confondues si Groq l'a dit ; 0 sur un compte payant. */
   pressure(): number {
     if (this.tier === 'paid') return 0;
-    this.prune(Date.now());
-    return this.audioUsed() / this.ash;
+    const now = Date.now();
+    this.prune(now);
+    let p = this.remote && now - this.remote.at < 15 * 60_000 ? 1 - Math.max(0, this.remoteLeft(now)) / this.ash : this.audioUsed() / this.ash;
+    // peu de requêtes restantes aujourd'hui : on groupe tout
+    if (this.day && now < this.day.resetAt && this.day.requests - this.day.sent < 400) p = Math.max(p, 1);
+    return Math.min(1, Math.max(0, p));
   }
 
   record(durationSec: number) {
     const now = Date.now();
     this.requests.push(now);
     this.audio.push({ t: now, sec: Math.max(10, durationSec) });
+    if (this.day) this.day.sent++;
   }
 
   block(ms: number) {
@@ -201,6 +264,15 @@ export class Budget {
       this.rpm = 300;
       this.ash = 1_000_000;
     }
+    if (this.tier === 'paid') return;
+    const num = (k: string) => (h.get(k) === null ? NaN : Number(h.get(k)));
+    const limit = num('x-ratelimit-limit-audio-seconds');
+    if (limit > 0) this.ash = limit;
+    const audio = num('x-ratelimit-remaining-audio-seconds');
+    if (Number.isFinite(audio)) this.remote = { audio, at: Date.now() };
+    const requests = num('x-ratelimit-remaining-requests');
+    const reset = parseGroqDuration(h.get('x-ratelimit-reset-requests'));
+    if (Number.isFinite(requests)) this.day = { requests, sent: 0, resetAt: Date.now() + (Number.isFinite(reset) ? reset : 3_600_000) };
   }
 
   get usageLabel(): string {

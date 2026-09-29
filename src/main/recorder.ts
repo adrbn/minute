@@ -546,11 +546,14 @@ export class Recorder {
       if (wait > 0) {
         if (wait > 6000) {
           const mins = Math.ceil(wait / 60_000);
+          const at = new Date(Date.now() + wait).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' });
           this.notice(
             'warn',
-            wait > 90_000
-              ? t('Quota horaire gratuit de Groq atteint : reprise dans {n} min environ. Rien n’est perdu.', { n: mins })
-              : t('Limite gratuite Groq atteinte : les phrases arrivent avec un peu de retard, rien n’est perdu.'),
+            this.budget.lastReason === 'day'
+              ? t('Quota journalier gratuit de Groq atteint : reprise vers {time}. Rien n’est perdu.', { time: at })
+              : wait > 90_000
+                ? t('Quota horaire gratuit de Groq atteint : reprise dans {n} min environ. Rien n’est perdu.', { n: mins })
+                : t('Limite gratuite Groq atteinte : les phrases arrivent avec un peu de retard, rien n’est perdu.'),
           );
         }
         this.schedule(wait);

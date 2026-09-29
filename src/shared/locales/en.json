@@ -420,6 +420,7 @@
  "Qui parle, d’après la conversation": "Who’s speaking, from the conversation",
  "Quitter Minute": "Quit Minute",
  "Quota horaire gratuit de Groq atteint : reprise dans {n} min environ. Rien n’est perdu.": "Groq free hourly quota reached: resuming in about {n} min. Nothing is lost.",
+ "Quota journalier gratuit de Groq atteint : reprise vers {time}. Rien n’est perdu.": "Groq free daily quota reached: resuming around {time}. Nothing is lost.",
  "Qu’attend-on de moi ?": "What’s expected of me?",
  "Raccourci global": "Global shortcut",
  "Raccourcis globaux": "Global shortcuts",
