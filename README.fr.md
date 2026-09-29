@@ -122,11 +122,13 @@ rédige aussi les comptes-rendus.
 
 ### Votre propre serveur de transcription (facultatif)
 
-Minute peut envoyer l’audio d’abord à votre propre serveur de transcription compatible OpenAI : par exemple
+Minute peut transcrire **hors ligne**, sur votre propre serveur de transcription compatible OpenAI : par exemple
 [Speaches](https://github.com/speaches-ai/speaches) (faster-whisper) sur un serveur maison avec carte graphique, ou
 NVIDIA [Parakeet TDT 0.6B v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) sur une machine sans carte graphique.
-Aucun quota, et l’audio reste chez vous. **Réglages › Transcription › Serveur personnel** : adresse, modèle et clé
-facultatifs, **Tester**. Si le serveur ne répond pas, Groq prend le relais automatiquement.
+Aucun quota, et l’audio reste chez vous. **Réglages › Transcription › Mode : Hors ligne**, puis adresse, modèle et clé
+facultatifs, **Tester**. Seul le mode choisi transcrit : hors ligne, rien ne part chez Groq ; si le serveur ne répond
+pas, les phrases attendent son retour. Les réglages et la clé de l’autre mode restent enregistrés : on repasse
+**En ligne** (Groq) d’un clic.
 
 Sur l’offre gratuite de Groq, chaque modèle Whisper a son propre quota : quand `whisper-large-v3-turbo` est épuisé,
 Minute passe tout seul à `whisper-large-v3`.
@@ -184,8 +186,8 @@ bloque toute connexion extérieure. Pour les comptes-rendus, installez [LM Studi
 ## Vos données
 
 - Les réunions restent **sur votre ordinateur**, dans `Documents/Minute` : un dossier lisible par réunion.
-- En mode standard, seul **le son de chaque phrase** part chez Groq pour être transcrit, et seul **le texte** part
-  vers l’IA choisie pour les comptes-rendus. La reconnaissance des voix se fait sur votre ordinateur.
+- En mode standard, seul **le son de chaque phrase** part chez Groq pour être transcrit (en mode hors ligne : vers votre
+  serveur, et nulle part ailleurs), et seul **le texte** part vers l’IA choisie pour les comptes-rendus. La reconnaissance des voix se fait sur votre ordinateur.
 - Aucune télémétrie, aucun compte, aucun serveur Minute.
 - Pour les organisations : une [note RGPD pour votre délégué à la protection des données](docs/RGPD.md).
 

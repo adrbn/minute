@@ -117,11 +117,12 @@ you. At worst, sentences arrive a few seconds late — nothing is ever lost. The
 
 ### Your own transcription server (optional)
 
-Minute can send audio to your own OpenAI-compatible transcription server first — for example
+Minute can transcribe **offline**, on your own OpenAI-compatible transcription server — for example
 [Speaches](https://github.com/speaches-ai/speaches) (faster-whisper) on a home server with a GPU, or NVIDIA
 [Parakeet TDT 0.6B v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) on a CPU-only machine. No quota, and the
-audio stays with you. **Settings › Transcription › Personal server**: address, optional model and key, **Test**.
-If the server doesn't answer, Groq takes over automatically.
+audio stays with you. **Settings › Transcription › Mode: Offline**, then address, optional model and key, **Test**.
+Only the chosen mode transcribes: offline, nothing goes to Groq; if the server doesn't answer, sentences wait for it.
+The other mode's settings and key stay saved: switch back **Online** (Groq) in one click.
 
 On Groq's free plan, each Whisper model has its own quota: when `whisper-large-v3-turbo` runs out, Minute switches
 to `whisper-large-v3` on its own.
@@ -178,8 +179,8 @@ install [LM Studio](https://lmstudio.ai) or [Ollama](https://ollama.com): Minute
 ## Your data
 
 - Meetings live **on your computer**, in `Documents/Minute`: one readable folder per meeting.
-- In standard mode, only the **audio of each sentence** goes to Groq to be transcribed, and only the **text** goes to
-  the AI you picked for summaries. Voice recognition runs on your computer.
+- In standard mode, only the **audio of each sentence** goes to Groq to be transcribed (in offline mode: to your
+  server, and nowhere else), and only the **text** goes to the AI you picked for summaries. Voice recognition runs on your computer.
 - No telemetry, no account, no Minute server.
 - For organisations: a [GDPR note for your data protection officer](docs/RGPD.md) (in French).
 
