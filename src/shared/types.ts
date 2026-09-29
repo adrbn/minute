@@ -113,7 +113,7 @@ export type LiveEvent =
   | { type: 'interim'; meetingId: string; ch: Channel; t0: number; text: string }
   | { type: 'bookmark'; meetingId: string; bookmark: Bookmark };
 
-export type SecretName = 'groq' | 'anthropic' | 'gemini' | 'openai';
+export type SecretName = 'groq' | 'anthropic' | 'gemini' | 'openai' | 'sttServer';
 export type LlmProvider = 'groq' | 'anthropic' | 'gemini' | 'openai';
 
 export interface CalendarSource {
@@ -183,6 +183,10 @@ export interface Settings {
   onboarded: boolean;
   language: string;
   sttModel: string;
+  /** serveur de transcription personnel compatible OpenAI (ex. sur Asgard) : utilisé en premier, Groq en relais */
+  sttServerUrl: string;
+  /** identifiant de modèle attendu par ce serveur (facultatif) */
+  sttServerModel: string;
   vocabulary: string;
   livePreview: boolean;
   micDeviceId: string;

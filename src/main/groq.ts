@@ -44,17 +44,25 @@ interface VerboseSegment {
 }
 
 // MINUTE_GROQ_BASE : serveur de test local (scripts/mock-groq.mjs)
-const ENDPOINT = `${process.env.MINUTE_GROQ_BASE || 'https://api.groq.com/openai/v1'}/audio/transcriptions`;
+const GROQ_BASE = process.env.MINUTE_GROQ_BASE || 'https://api.groq.com/openai/v1';
+
+/** Adresse de transcription d'un serveur compatible OpenAI : « http://asgard:8000 » → « http://asgard:8000/v1/audio/transcriptions ». */
+export function sttEndpoint(base?: string): string {
+  let b = (base || GROQ_BASE).trim().replace(/\/+$/, '');
+  if (/\/audio\/transcriptions$/.test(b)) return b;
+  if (!/\/v\d+$/.test(b)) b += '/v1';
+  return `${b}/audio/transcriptions`;
+}
 
 export async function transcribe(
   key: string,
   wav: Buffer,
-  opts: { model: string; language: string; prompt: string; timeoutMs?: number; words?: boolean },
+  opts: { model: string; language: string; prompt: string; timeoutMs?: number; words?: boolean; base?: string },
   budget?: Budget,
 ): Promise<SttResult> {
   const fd = new FormData();
   fd.append('file', new Blob([new Uint8Array(wav)], { type: 'audio/wav' }), 'audio.wav');
-  fd.append('model', opts.model);
+  if (opts.model) fd.append('model', opts.model);
   if (opts.language && opts.language !== 'auto') fd.append('language', opts.language);
   if (opts.prompt) fd.append('prompt', opts.prompt);
   fd.append('response_format', 'verbose_json');
@@ -67,9 +75,9 @@ export async function transcribe(
 
   let res: Response;
   try {
-    res = await fetch(ENDPOINT, {
+    res = await fetch(sttEndpoint(opts.base), {
       method: 'POST',
-      headers: { Authorization: `Bearer ${key}` },
+      headers: key ? { Authorization: `Bearer ${key}` } : {},
       body: fd,
       signal: AbortSignal.timeout(opts.timeoutMs ?? 45_000),
     });
@@ -77,15 +85,25 @@ export async function transcribe(
     throw new SttError(t('Réseau indisponible ({error})', { error: (e as Error).message }), 'network');
   }
   budget?.observeHeaders(res.headers);
-  if (res.status === 401 || res.status === 403) throw new SttError(t('Clé Groq refusée'), 'auth');
+  // serveur personnel : mêmes erreurs, mais nommées comme telles
+  const own = !!opts.base;
+  if (res.status === 401 || res.status === 403) throw new SttError(own ? t('Clé du serveur personnel refusée') : t('Clé Groq refusée'), 'auth');
   if (res.status === 429) {
     const ra = Number(res.headers.get('retry-after'));
-    throw new SttError(t('Limite Groq atteinte'), 'rate', Number.isFinite(ra) && ra > 0 ? ra * 1000 : 20_000);
+    throw new SttError(own ? t('Serveur personnel saturé') : t('Limite Groq atteinte'), 'rate', Number.isFinite(ra) && ra > 0 ? ra * 1000 : 20_000);
   }
-  if (res.status >= 500) throw new SttError(t('Groq indisponible ({status})', { status: res.status }), 'server');
+  if (res.status >= 500) {
+    throw new SttError(own ? t('Serveur personnel indisponible ({status})', { status: res.status }) : t('Groq indisponible ({status})', { status: res.status }), 'server');
+  }
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    throw new SttError(t('Groq a refusé l\'audio ({status}) {details}', { status: res.status, details: body.slice(0, 200) }), 'bad');
+    const details = body.slice(0, 200);
+    throw new SttError(
+      own
+        ? t('Le serveur personnel a refusé l’audio ({status}) {details}', { status: res.status, details })
+        : t('Groq a refusé l\'audio ({status}) {details}', { status: res.status, details }),
+      'bad',
+    );
   }
   const json = (await res.json()) as {
     text?: string;

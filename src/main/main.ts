@@ -402,6 +402,8 @@ function wireIpc() {
   handle('settings:get', () => settings().get());
   handle('settings:set', (_e, patch: Partial<Settings>) => {
     const before = settings().get();
+    // nouvelle adresse de serveur personnel : on le réessaie tout de suite
+    if (patch.sttServerUrl !== undefined && patch.sttServerUrl !== before.sttServerUrl) setImmediate(() => recorder.unblock());
     if (patch.storageDir && patch.storageDir !== before.storageDir && (recorder.state.meetingId || recorder.busyTranscribing)) {
       throw new Error(t('Impossible de changer de dossier pendant un enregistrement ou une transcription en cours.'));
     }
@@ -508,11 +510,25 @@ function wireIpc() {
   handle('secrets:status', () => settings().secretStatus());
   handle('secrets:set', (_e, name: SecretName, value: string) => {
     settings().setSecret(name, value);
-    if (name === 'groq') recorder.unblock();
+    if (name === 'groq' || name === 'sttServer') recorder.unblock();
     broadcast('settings', settings().get());
   });
   handle('secrets:test', async (_e, name: SecretName) => {
     try {
+      if (name === 'sttServer') {
+        // serveur personnel : une seconde de silence, avec la clé si elle est définie
+        const cfg = settings().get();
+        if (!cfg.sttServerUrl.trim()) return { ok: false, message: t('Indiquez d’abord l’adresse du serveur.') };
+        const started = Date.now();
+        await transcribe(settings().secret('sttServer') ?? '', pcm16ToWav(Buffer.alloc(32000)), {
+          base: cfg.sttServerUrl.trim(),
+          model: cfg.sttServerModel.trim(),
+          language: 'fr',
+          prompt: '',
+          timeoutMs: 15_000,
+        });
+        return { ok: true, message: t('Serveur joignable — réponse en {ms} ms.', { ms: Date.now() - started }) };
+      }
       if (name === 'groq') {
         const key = settings().secret('groq');
         if (!key) return { ok: false, message: t('Aucune clé') };

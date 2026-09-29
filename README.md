@@ -115,6 +115,17 @@ Keychain on macOS). Only one is required.
 The free tier allows 20 requests per minute and about two hours of audio per hour; Minute manages that budget for
 you. At worst, sentences arrive a few seconds late — nothing is ever lost. The same key also writes the summaries.
 
+### Your own transcription server (optional)
+
+Minute can send audio to your own OpenAI-compatible transcription server first — for example
+[Speaches](https://github.com/speaches-ai/speaches) (faster-whisper) on a home server with a GPU, or NVIDIA
+[Parakeet TDT 0.6B v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) on a CPU-only machine. No quota, and the
+audio stays with you. **Settings › Transcription › Personal server**: address, optional model and key, **Test**.
+If the server doesn't answer, Groq takes over automatically.
+
+On Groq's free plan, each Whisper model has its own quota: when `whisper-large-v3-turbo` runs out, Minute switches
+to `whisper-large-v3` on its own.
+
 ### Summaries with another AI (optional)
 
 Choose the provider in **Settings › Intelligence** and paste its key:

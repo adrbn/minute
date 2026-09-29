@@ -42,6 +42,8 @@ export function defaultSettings(): Settings {
     onboarded: false,
     language: 'auto', // chaque phrase dans sa langue (sinon Whisper traduit tout en français)
     sttModel: 'whisper-large-v3-turbo',
+    sttServerUrl: '',
+    sttServerModel: '',
     vocabulary: '',
     livePreview: true,
     micDeviceId: '',
@@ -185,6 +187,7 @@ class SettingsStore {
       anthropic: !!this.secret('anthropic'),
       gemini: !!this.secret('gemini'),
       openai: !!this.secret('openai'),
+      sttServer: !!this.secret('sttServer'),
     };
   }
 

@@ -9,7 +9,7 @@ import { homedir } from 'node:os';
 import { retrieve } from '../src/main/retrieval';
 import { Voices, type VoiceStore } from '../src/main/voices';
 import { packWavs, splitPacked } from '../src/main/pack';
-import { Budget, parseGroqDuration } from '../src/main/groq';
+import { Budget, parseGroqDuration, sttEndpoint } from '../src/main/groq';
 import { pcm16ToWav } from '../src/main/wav';
 import { toTurns, voiceLabel } from '../src/shared/transcript';
 import { applyCorrections, learnFromEdit, mentions, suggestTerms } from '../src/main/vocabulary';
@@ -469,4 +469,12 @@ test('quota Groq : le budget suit le reste réel annoncé par Groq (même clé p
   last.observeHeaders(headers(7200, 3));
   assert.ok(last.delayFor(4, 'final') > 3_600_000);
   assert.equal(last.lastReason, 'day');
+});
+
+test('serveur personnel : l’adresse saisie donne toujours la bonne route OpenAI', () => {
+  assert.equal(sttEndpoint('http://asgard:8000'), 'http://asgard:8000/v1/audio/transcriptions');
+  assert.equal(sttEndpoint('http://asgard:8000/'), 'http://asgard:8000/v1/audio/transcriptions');
+  assert.equal(sttEndpoint('http://100.64.0.7:8000/v1'), 'http://100.64.0.7:8000/v1/audio/transcriptions');
+  assert.equal(sttEndpoint('https://stt.exemple.fr/v1/audio/transcriptions'), 'https://stt.exemple.fr/v1/audio/transcriptions');
+  assert.equal(sttEndpoint(), 'https://api.groq.com/openai/v1/audio/transcriptions');
 });

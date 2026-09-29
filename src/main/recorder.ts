@@ -61,6 +61,18 @@ interface Job {
   solo?: boolean;
 }
 
+/** Où part une requête de transcription. */
+type Route =
+  | { kind: 'local' }
+  | { kind: 'server'; base: string; key: string; model: string }
+  | { kind: 'groq'; model: string; budget: Budget };
+
+/** Groq : chaque modèle Whisper a son propre quota gratuit (vérifié) ; l'un prend le relais de l'autre. */
+const OTHER_MODEL: Record<string, string> = {
+  'whisper-large-v3-turbo': 'whisper-large-v3',
+  'whisper-large-v3': 'whisper-large-v3-turbo',
+};
+
 const idleState = (): LiveState => ({
   meetingId: null,
   status: 'idle',
@@ -80,7 +92,18 @@ const voices = new Voices({
 
 export class Recorder {
   state: LiveState = idleState();
-  readonly budget = new Budget();
+  private budgets = new Map<string, Budget>();
+  private budgetFor(model: string): Budget {
+    let b = this.budgets.get(model);
+    if (!b) this.budgets.set(model, (b = new Budget()));
+    return b;
+  }
+  /** budget du modèle Groq choisi dans les réglages (aperçus, affichage) */
+  get budget(): Budget {
+    return this.budgetFor(settings().get().sttModel);
+  }
+  /** serveur personnel injoignable : Groq prend le relais jusqu'à cette date */
+  private serverDownUntil = 0;
   private queue: Job[] = [];
   private inflight = 0;
   private busy = new Set<string>();
@@ -153,7 +176,7 @@ export class Recorder {
 
   private async doStart(opts: { title?: string; event?: CalendarEvent | null }): Promise<{ ok: boolean; error?: string }> {
     const cfg = settings().get();
-    if (!settings().secret('groq')) {
+    if (!settings().secret('groq') && !(cfg.sttServerUrl ?? '').trim()) {
       return { ok: false, error: t('Ajoutez votre clé Groq dans les Réglages pour transcrire.') };
     }
     if (process.platform === 'darwin') {
@@ -411,20 +434,21 @@ export class Recorder {
 
   private async onInterim(meetingId: string, s: EngineSegment) {
     const key = settings().secret('groq');
-    if (settings().get().privacyMode || !key || this.interimBusy[s.ch] || this.authBlocked) return;
+    // serveur personnel : aperçus gratuits ; sinon Groq, tant que le quota le permet
+    const server = this.serverRoute();
+    if (settings().get().privacyMode || (!key && !server) || this.interimBusy[s.ch] || this.authBlocked) return;
     const dur = s.pcm.byteLength / 32000;
     // les aperçus passent après les vraies transcriptions et ne s'accumulent jamais
-    if (this.queue.length > 1 || this.budget.delayFor(dur, 'interim') > 0) return;
+    if (this.queue.length > 1 || (!server && this.budget.delayFor(dur, 'interim') > 0)) return;
     this.interimBusy[s.ch] = true;
-    this.budget.record(dur);
+    if (!server) this.budget.record(dur);
     const cfg = settings().get();
     try {
-      const r = await transcribe(
-        key,
-        pcm16ToWav(Buffer.from(s.pcm)),
-        { model: cfg.sttModel, language: cfg.language, prompt: buildPrompt(this.vocabFor(meetingId), this.recent.get(meetingId)?.[s.ch] ?? ''), timeoutMs: 15_000 },
-        this.budget,
-      );
+      const prompt = buildPrompt(this.vocabFor(meetingId), this.recent.get(meetingId)?.[s.ch] ?? '');
+      const wav = pcm16ToWav(Buffer.from(s.pcm));
+      const r = server
+        ? await transcribe(server.key, wav, { base: server.base, model: server.model, language: cfg.language, prompt, timeoutMs: 8_000 })
+        : await transcribe(key!, wav, { model: cfg.sttModel, language: cfg.language, prompt, timeoutMs: 15_000 }, this.budget);
       const expected = cfg.languages?.length ? cfg.languages : ['fr', 'en', 'it'];
       if (cfg.language === 'auto' && r.language && !expected.includes(r.language)) return; // aperçu douteux : on attend la version définitive
       const text = applyCorrections(cleanResult(r), cfg.learned);
@@ -501,6 +525,7 @@ export class Recorder {
   unblock() {
     this.authBlocked = false;
     this.holdUntil = 0;
+    this.serverDownUntil = 0;
     if (this.state.notice?.kind === 'error') this.notice('info', null);
     this.pump();
   }
@@ -534,7 +559,8 @@ export class Recorder {
       const idx = this.queue.findIndex((j) => !this.busy.has(j.meetingId + j.ch) && !held.has(j.meetingId + j.ch));
       if (idx < 0) break;
       const job = this.queue[idx];
-      const { jobs, hold } = this.packFor(idx);
+      // serveur personnel : pas de quota, donc pas de groupage
+      const { jobs, hold } = this.serverRoute() ? { jobs: [job], hold: 0 } : this.packFor(idx);
       if (hold > 0) {
         held.add(job.meetingId + job.ch);
         holdMs = Math.min(holdMs, hold);
@@ -542,14 +568,15 @@ export class Recorder {
       }
       // phrases groupées : un demi-seconde de silence entre chacune
       const dur = jobs.reduce((a, j) => a + fileDuration(j.file), 0) + (jobs.length - 1) * 0.5;
-      const wait = settings().get().privacyMode ? 0 : this.budget.delayFor(dur, 'final');
+      const { route, wait, budget } = this.route(dur);
       if (wait > 0) {
-        if (wait > 6000) {
+        // serveur personnel en panne : son propre message (serverFailed) reste affiché
+        if (wait > 6000 && route.kind === 'groq') {
           const mins = Math.ceil(wait / 60_000);
           const at = new Date(Date.now() + wait).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' });
           this.notice(
             'warn',
-            this.budget.lastReason === 'day'
+            (budget ?? this.budget).lastReason === 'day'
               ? t('Quota journalier gratuit de Groq atteint : reprise vers {time}. Rien n’est perdu.', { time: at })
               : wait > 90_000
                 ? t('Quota horaire gratuit de Groq atteint : reprise dans {n} min environ. Rien n’est perdu.', { n: mins })
@@ -560,7 +587,12 @@ export class Recorder {
         break;
       }
       this.queue = this.queue.filter((j) => !jobs.includes(j));
-      void (jobs.length > 1 ? this.runPack(jobs, dur) : this.run(job, dur));
+      if (route.kind === 'groq' && jobs.length > 1) void this.runPack(jobs, dur, route);
+      else {
+        // un groupe prévu pour Groq mais parti ailleurs : les autres phrases restent dans la file
+        this.queue.push(...jobs.filter((j) => j !== job));
+        void this.run(job, dur, route);
+      }
     }
     if (holdMs < Infinity) this.schedule(holdMs);
     this.emitState();
@@ -576,7 +608,8 @@ export class Recorder {
     const head = this.queue[idx];
     if (settings().get().privacyMode || this.budget.tier === 'paid' || head.solo) return { jobs: [head], hold: 0 };
     const same = this.queue.filter((j) => j.meetingId === head.meetingId && j.ch === head.ch && !j.solo);
-    const pressure = this.budget.pressure();
+    const other = OTHER_MODEL[settings().get().sttModel];
+    const pressure = Math.min(this.budget.pressure(), other ? this.budgetFor(other).pressure() : 1);
     if (pressure < 0.35 && same.length < 3) return { jobs: [head], hold: 0 };
     const langOf = (j: Job) => (j.spk ? this.langOf.get(`${j.meetingId}:${j.spk}`) : undefined);
     const headLang = langOf(head);
@@ -599,6 +632,50 @@ export class Recorder {
     return { jobs, hold: 0 };
   }
 
+  /** Serveur personnel utilisable maintenant (configuré, pas en mode confidentiel, pas en panne récente). */
+  private serverRoute(force = false): Extract<Route, { kind: 'server' }> | null {
+    const cfg = settings().get();
+    const base = (cfg.sttServerUrl ?? '').trim();
+    if (cfg.privacyMode || !base || (!force && Date.now() < this.serverDownUntil)) return null;
+    return { kind: 'server', base, key: settings().secret('sttServer') ?? '', model: (cfg.sttServerModel ?? '').trim() };
+  }
+
+  /**
+   * Où envoyer une requête : le serveur personnel s'il répond ; sinon le modèle Groq choisi ; sinon l'autre
+   * modèle Groq, qui a son propre quota, s'il peut partir plus tôt.
+   */
+  private route(dur: number): { route: Route; wait: number; budget?: Budget } {
+    if (settings().get().privacyMode) return { route: { kind: 'local' }, wait: 0 };
+    const server = this.serverRoute();
+    if (server) return { route: server, wait: 0 };
+    // serveur en panne et pas de clé Groq : on attend son retour
+    const forced = this.serverRoute(true);
+    if (forced && !settings().secret('groq')) return { route: forced, wait: Math.max(1000, this.serverDownUntil - Date.now()) };
+    const primary = settings().get().sttModel;
+    const bp = this.budgetFor(primary);
+    const wp = bp.delayFor(dur, 'final');
+    if (wp <= 0) return { route: { kind: 'groq', model: primary, budget: bp }, wait: 0, budget: bp };
+    const other = OTHER_MODEL[primary];
+    if (other) {
+      const bo = this.budgetFor(other);
+      const wo = bo.delayFor(dur, 'final');
+      if (wo < wp) {
+        if (wo <= 0) diagLog('quota', `${primary} en attente : relais par ${other}`);
+        return { route: { kind: 'groq', model: other, budget: bo }, wait: wo, budget: bo };
+      }
+    }
+    return { route: { kind: 'groq', model: primary, budget: bp }, wait: wp, budget: bp };
+  }
+
+  /** Le serveur personnel n'a pas répondu : Groq prend le relais un moment. */
+  private serverFailed(err: SttError) {
+    const pause = err.kind === 'auth' ? 10 * 60_000 : 60_000;
+    this.serverDownUntil = Date.now() + pause;
+    diagLog('serveur', `${err.message} — relais pendant ${pause / 60_000} min`);
+    if (settings().secret('groq')) this.notice('info', t('Serveur personnel injoignable : Groq prend le relais.'));
+    else this.notice('warn', t('Serveur personnel injoignable : les phrases attendent son retour, rien n’est perdu.'));
+  }
+
   private noteLang(job: Job, lang?: string) {
     if (job.spk && lang) this.langOf.set(`${job.meetingId}:${job.spk}`, lang);
   }
@@ -617,7 +694,7 @@ export class Recorder {
     this.queue = this.queue.filter((j) => j.meetingId !== meetingId);
   }
 
-  private async run(job: Job, dur: number) {
+  private async run(job: Job, dur: number, route: Route) {
     const key = settings().secret('groq');
     const busyKey = job.meetingId + job.ch;
     this.inflight++;
@@ -625,7 +702,7 @@ export class Recorder {
     this.inflightSegs.add(job.segId);
     try {
       const cfg = settings().get();
-      if (!key && !cfg.privacyMode) throw new SttError(t('Clé Groq manquante'), 'auth');
+      if (!key && route.kind === 'groq') throw new SttError(t('Clé Groq manquante'), 'auth');
       if (!existsSync(job.file)) {
         this.finalize(job, '');
         return;
@@ -633,19 +710,24 @@ export class Recorder {
       const prompt = buildPrompt(this.vocabFor(job.meetingId), this.recentText(job.meetingId, job.ch));
       const wav = readFileSync(job.file);
       let r;
-      if (cfg.privacyMode) {
+      if (route.kind === 'local') {
         // mode confidentiel : l'audio ne quitte pas l'ordinateur
         r = await transcribeLocal(wav, { model: cfg.localModel, language: cfg.language, prompt });
       } else {
-        this.budget.record(dur);
-        r = await transcribe(key!, wav, { model: cfg.sttModel, language: cfg.language, prompt }, this.budget);
+        const send = (language: string) => {
+          if (route.kind === 'server') {
+            return transcribe(route.key, wav, { base: route.base, model: route.model, language, prompt, timeoutMs: 30_000 });
+          }
+          route.budget.record(dur);
+          return transcribe(key!, wav, { model: route.model, language, prompt }, route.budget);
+        };
+        r = await send(cfg.language);
         // détection libre : une langue que personne ne parle (coréen sur un bruit de fond…) est une
         // hallucination de Whisper ; on retranscrit dans la langue principale, le filtre fait le reste
         const expected = cfg.languages?.length ? cfg.languages : ['fr', 'en', 'it'];
         if (cfg.language === 'auto' && r.language && !expected.includes(r.language)) {
           diagLog('langue', `« ${r.language} » inattendue : nouvelle transcription en « ${expected[0]} »`);
-          this.budget.record(dur);
-          r = await transcribe(key!, wav, { model: cfg.sttModel, language: expected[0], prompt }, this.budget);
+          r = await send(expected[0]);
         }
       }
       this.failures = 0;
@@ -657,11 +739,14 @@ export class Recorder {
     } catch (e) {
       const err = e instanceof SttError ? e : new SttError((e as Error).message, 'network');
       this.queue.unshift(job);
-      if (err.kind === 'auth') {
+      if (route.kind === 'server') {
+        // serveur personnel en panne : la phrase repart par Groq (ou attend le serveur)
+        this.serverFailed(err);
+      } else if (err.kind === 'auth') {
         this.authBlocked = true;
         this.notice('error', t('Clé Groq manquante ou refusée — ouvrez les Réglages. Vos phrases sont gardées en attente.'));
       } else if (err.kind === 'rate') {
-        this.budget.block(err.retryAfterMs);
+        if (route.kind === 'groq') route.budget.block(err.retryAfterMs);
       } else if (err.kind === 'bad') {
         job.tries++;
         if (job.tries >= 3) {
@@ -685,7 +770,7 @@ export class Recorder {
   }
 
   /** Plusieurs phrases d'un même canal en une seule requête Groq (cf. packFor). */
-  private async runPack(jobs: Job[], dur: number) {
+  private async runPack(jobs: Job[], dur: number, route: Extract<Route, { kind: 'groq' }>) {
     const head = jobs[0];
     const key = settings().secret('groq');
     const busyKey = head.meetingId + head.ch;
@@ -700,13 +785,13 @@ export class Recorder {
       if (!present.length) return;
       const { wav, spans } = packWavs(present.map((j) => readFileSync(j.file)));
       const prompt = buildPrompt(this.vocabFor(head.meetingId), this.recentText(head.meetingId, head.ch));
-      this.budget.record(dur);
-      let r = await transcribe(key, wav, { model: cfg.sttModel, language: cfg.language, prompt, words: true, timeoutMs: 60_000 }, this.budget);
+      route.budget.record(dur);
+      let r = await transcribe(key, wav, { model: route.model, language: cfg.language, prompt, words: true, timeoutMs: 60_000 }, route.budget);
       const expected = cfg.languages?.length ? cfg.languages : ['fr', 'en', 'it'];
       if (cfg.language === 'auto' && r.language && !expected.includes(r.language)) {
         diagLog('langue', `« ${r.language} » inattendue (groupe) : nouvelle transcription en « ${expected[0]} »`);
-        this.budget.record(dur);
-        r = await transcribe(key, wav, { model: cfg.sttModel, language: expected[0], prompt, words: true, timeoutMs: 60_000 }, this.budget);
+        route.budget.record(dur);
+        r = await transcribe(key, wav, { model: route.model, language: expected[0], prompt, words: true, timeoutMs: 60_000 }, route.budget);
       }
       diagLog('groupage', `${present.length} phrases en une requête (${dur.toFixed(1)} s)`);
       this.failures = 0;
@@ -730,7 +815,7 @@ export class Recorder {
         this.authBlocked = true;
         this.notice('error', t('Clé Groq manquante ou refusée — ouvrez les Réglages. Vos phrases sont gardées en attente.'));
       } else if (err.kind === 'rate') {
-        this.budget.block(err.retryAfterMs);
+        route.budget.block(err.retryAfterMs);
       } else if (err.kind !== 'bad') {
         for (const j of jobs) j.tries++;
         this.failures++;

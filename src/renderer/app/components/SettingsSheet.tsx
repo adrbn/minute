@@ -612,6 +612,73 @@ function General({ settings, update }: P) {
 }
 
 // ------------------------------------------------------------------ Transcription
+/** Serveur de transcription personnel (compatible OpenAI, ex. sur Asgard) : utilisé avant Groq. */
+function PersonalServer({ settings, update }: Pick<P, 'settings' | 'update'>) {
+  const [url, setUrl] = useState(settings.sttServerUrl);
+  const [model, setModel] = useState(settings.sttServerModel);
+  const [state, setState] = useState<{ busy?: boolean; ok?: boolean; msg?: string }>({});
+  useEffect(() => setUrl(settings.sttServerUrl), [settings.sttServerUrl]);
+  useEffect(() => setModel(settings.sttServerModel), [settings.sttServerModel]);
+  const saveUrl = () => url.trim() !== settings.sttServerUrl && void update({ sttServerUrl: url.trim() });
+  const saveModel = () => model.trim() !== settings.sttServerModel && void update({ sttServerModel: model.trim() });
+  const test = async () => {
+    saveUrl();
+    saveModel();
+    setState({ busy: true });
+    const r = await minute.secrets.test('sttServer');
+    setState({ ok: r.ok, msg: r.message });
+  };
+  return (
+    <Group
+      title={t('Serveur personnel')}
+      foot={t('Facultatif. Un serveur de transcription compatible OpenAI chez vous (ex. Asgard) : utilisé en premier, sans quota. S’il ne répond pas, Groq prend le relais.')}
+    >
+      <Row label={t('Adresse')} col>
+        <div className="row">
+          <input
+            className="field"
+            placeholder="http://asgard:8000"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            onBlur={saveUrl}
+            onKeyDown={(e) => e.key === 'Enter' && saveUrl()}
+            spellCheck={false}
+          />
+          {!!url.trim() && (
+            <button className="btn" onClick={() => void test()} disabled={state.busy}>
+              {t('Tester')}
+            </button>
+          )}
+        </div>
+        {state.busy && (
+          <span className="test-msg faint">
+            <Loader2 size={12} className="spin" style={{ verticalAlign: -2 }} /> {t('Vérification…')}
+          </span>
+        )}
+        {!state.busy && state.msg && <span className={`test-msg ${state.ok ? 'ok' : 'ko'}`}>{state.msg}</span>}
+      </Row>
+      {!!settings.sttServerUrl && (
+        <>
+          <Row label={t('Modèle')} hint={t('Identifiant attendu par le serveur (laisser vide s’il n’en demande pas).')} col>
+            <input
+              className="field"
+              placeholder="deepdml/faster-whisper-large-v3-turbo-ct2"
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              onBlur={saveModel}
+              onKeyDown={(e) => e.key === 'Enter' && saveModel()}
+              spellCheck={false}
+            />
+          </Row>
+          <Row label={t('Clé du serveur')} col>
+            <KeyField name="sttServer" />
+          </Row>
+        </>
+      )}
+    </Group>
+  );
+}
+
 function Transcription({ settings, update }: P) {
   const [sugg, setSugg] = useState<{ term: string; count: number; meetings: number }[] | null>(null);
   const [vocab, setVocab] = useState(settings.vocabulary);
@@ -638,6 +705,7 @@ function Transcription({ settings, update }: P) {
           <KeyField name="groq" />
         </Row>
       </Group>
+      <PersonalServer settings={settings} update={update} />
       <Group>
         <Row
           label={t('Langue des réunions')}
@@ -695,7 +763,7 @@ function Transcription({ settings, update }: P) {
             </div>
           </Row>
         )}
-        <Row label={t('Modèle')} hint={t('Turbo suffit presque toujours ; Large v3 est un peu plus précis, un peu plus lent.')}>
+        <Row label={t('Modèle')} hint={t('Turbo suffit presque toujours ; Large v3 est un peu plus précis. Chacun a son propre quota gratuit : quand l’un est épuisé, Minute passe à l’autre.')}>
           <select className="field" value={settings.sttModel} onChange={(e) => void update({ sttModel: e.target.value })}>
             <option value="whisper-large-v3-turbo">Large v3 turbo</option>
             <option value="whisper-large-v3">Large v3</option>

@@ -120,6 +120,17 @@ L’offre gratuite permet 20 requêtes par minute et environ deux heures d’aud
 pour vous. Au pire, les phrases arrivent avec quelques secondes de retard, rien n’est jamais perdu. La même clé
 rédige aussi les comptes-rendus.
 
+### Votre propre serveur de transcription (facultatif)
+
+Minute peut envoyer l’audio d’abord à votre propre serveur de transcription compatible OpenAI : par exemple
+[Speaches](https://github.com/speaches-ai/speaches) (faster-whisper) sur un serveur maison avec carte graphique, ou
+NVIDIA [Parakeet TDT 0.6B v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) sur une machine sans carte graphique.
+Aucun quota, et l’audio reste chez vous. **Réglages › Transcription › Serveur personnel** : adresse, modèle et clé
+facultatifs, **Tester**. Si le serveur ne répond pas, Groq prend le relais automatiquement.
+
+Sur l’offre gratuite de Groq, chaque modèle Whisper a son propre quota : quand `whisper-large-v3-turbo` est épuisé,
+Minute passe tout seul à `whisper-large-v3`.
+
 ### Comptes-rendus avec une autre IA (facultatif)
 
 Choisissez le fournisseur dans **Réglages › Intelligence** et collez sa clé :
