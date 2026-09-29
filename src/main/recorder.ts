@@ -21,6 +21,7 @@ import { diagLog } from './diag';
 import { locale, t } from '../shared/i18n';
 import { Voices } from './voices';
 import { settings } from './settings';
+import { sttMissing, sttModeOf } from '../shared/stt';
 import { newId, store } from './store';
 import { applyCorrections, mentions } from './vocabulary';
 import { pcm16ToWav } from './wav';
@@ -102,7 +103,7 @@ export class Recorder {
   get budget(): Budget {
     return this.budgetFor(settings().get().sttModel);
   }
-  /** serveur personnel injoignable : Groq prend le relais jusqu'à cette date */
+  /** serveur personnel injoignable : les phrases attendent jusqu'à cette date avant un nouvel essai */
   private serverDownUntil = 0;
   private queue: Job[] = [];
   private inflight = 0;
@@ -176,9 +177,8 @@ export class Recorder {
 
   private async doStart(opts: { title?: string; event?: CalendarEvent | null }): Promise<{ ok: boolean; error?: string }> {
     const cfg = settings().get();
-    if (!settings().secret('groq') && !(cfg.sttServerUrl ?? '').trim()) {
-      return { ok: false, error: t('Ajoutez votre clé Groq dans les Réglages pour transcrire.') };
-    }
+    const missing = sttMissing(cfg, !!settings().secret('groq'));
+    if (missing) return { ok: false, error: missing };
     if (process.platform === 'darwin') {
       const st = systemPreferences.getMediaAccessStatus('microphone');
       if (st !== 'granted') {
@@ -433,9 +433,9 @@ export class Recorder {
   }
 
   private async onInterim(meetingId: string, s: EngineSegment) {
-    const key = settings().secret('groq');
-    // serveur personnel : aperçus gratuits ; sinon Groq, tant que le quota le permet
+    // hors ligne : aperçus gratuits par le serveur (aucun s'il est en panne) ; en ligne : Groq, tant que le quota le permet
     const server = this.serverRoute();
+    const key = sttModeOf(settings().get()) === 'cloud' ? settings().secret('groq') : undefined;
     if (settings().get().privacyMode || (!key && !server) || this.interimBusy[s.ch] || this.authBlocked) return;
     const dur = s.pcm.byteLength / 32000;
     // les aperçus passent après les vraies transcriptions et ne s'accumulent jamais
@@ -521,7 +521,7 @@ export class Recorder {
     return n;
   }
 
-  /** À appeler quand la clé Groq change. */
+  /** À appeler quand une clé, l'adresse du serveur ou le mode de transcription change. */
   unblock() {
     this.authBlocked = false;
     this.holdUntil = 0;
@@ -540,6 +540,13 @@ export class Recorder {
 
   private pump() {
     if (this.authBlocked) return this.emitState();
+    // mode choisi pas encore configuré (ex. hors ligne sans adresse) : les phrases attendent, rien ne part ailleurs
+    const missing = sttMissing(settings().get(), !!settings().secret('groq'));
+    if (missing && this.queue.length) {
+      this.notice('warn', t('{reason} : vos phrases sont gardées en attente.', { reason: missing }), 'setup');
+      return this.emitState();
+    }
+    if (!missing && this.noticeIs('setup')) this.notice('info', null);
     const now = Date.now();
     if (now < this.holdUntil) {
       this.schedule(this.holdUntil - now);
@@ -559,8 +566,8 @@ export class Recorder {
       const idx = this.queue.findIndex((j) => !this.busy.has(j.meetingId + j.ch) && !held.has(j.meetingId + j.ch));
       if (idx < 0) break;
       const job = this.queue[idx];
-      // serveur personnel : pas de quota, donc pas de groupage
-      const { jobs, hold } = this.serverRoute() ? { jobs: [job], hold: 0 } : this.packFor(idx);
+      // hors ligne : pas de quota, donc pas de groupage
+      const { jobs, hold } = sttModeOf(settings().get()) === 'server' ? { jobs: [job], hold: 0 } : this.packFor(idx);
       if (hold > 0) {
         held.add(job.meetingId + job.ch);
         holdMs = Math.min(holdMs, hold);
@@ -632,25 +639,25 @@ export class Recorder {
     return { jobs, hold: 0 };
   }
 
-  /** Serveur personnel utilisable maintenant (configuré, pas en mode confidentiel, pas en panne récente). */
+  /** Serveur personnel utilisable maintenant (mode hors ligne, configuré, pas en mode confidentiel, pas en panne récente). */
   private serverRoute(force = false): Extract<Route, { kind: 'server' }> | null {
     const cfg = settings().get();
     const base = (cfg.sttServerUrl ?? '').trim();
-    if (cfg.privacyMode || !base || (!force && Date.now() < this.serverDownUntil)) return null;
+    if (cfg.privacyMode || sttModeOf(cfg) !== 'server' || !base || (!force && Date.now() < this.serverDownUntil)) return null;
     return { kind: 'server', base, key: settings().secret('sttServer') ?? '', model: (cfg.sttServerModel ?? '').trim() };
   }
 
   /**
-   * Où envoyer une requête : le serveur personnel s'il répond ; sinon le modèle Groq choisi ; sinon l'autre
-   * modèle Groq, qui a son propre quota, s'il peut partir plus tôt.
+   * Où envoyer une requête. Hors ligne : uniquement le serveur personnel (en panne, les phrases attendent son
+   * retour). En ligne : le modèle Groq choisi, sinon l'autre modèle Groq, qui a son propre quota, s'il peut partir plus tôt.
    */
   private route(dur: number): { route: Route; wait: number; budget?: Budget } {
     if (settings().get().privacyMode) return { route: { kind: 'local' }, wait: 0 };
-    const server = this.serverRoute();
-    if (server) return { route: server, wait: 0 };
-    // serveur en panne et pas de clé Groq : on attend son retour
-    const forced = this.serverRoute(true);
-    if (forced && !settings().secret('groq')) return { route: forced, wait: Math.max(1000, this.serverDownUntil - Date.now()) };
+    if (sttModeOf(settings().get()) === 'server') {
+      // l'adresse existe : pump() s'arrête avant sinon (sttMissing)
+      const server = this.serverRoute(true)!;
+      return { route: server, wait: Math.max(0, this.serverDownUntil - Date.now()) };
+    }
     const primary = settings().get().sttModel;
     const bp = this.budgetFor(primary);
     const wp = bp.delayFor(dur, 'final');
@@ -667,13 +674,18 @@ export class Recorder {
     return { route: { kind: 'groq', model: primary, budget: bp }, wait: wp, budget: bp };
   }
 
-  /** Le serveur personnel n'a pas répondu : Groq prend le relais un moment. */
+  /** La requête est partie par l'autre mode (en ligne / hors ligne) que celui choisi maintenant. */
+  private modeChanged(route: Route): boolean {
+    if (route.kind === 'local') return false;
+    return (route.kind === 'server') !== (sttModeOf(settings().get()) === 'server');
+  }
+
+  /** Le serveur personnel n'a pas répondu : les phrases attendent son retour (le mode hors ligne n'envoie rien ailleurs). */
   private serverFailed(err: SttError) {
     const pause = err.kind === 'auth' ? 10 * 60_000 : 60_000;
     this.serverDownUntil = Date.now() + pause;
-    diagLog('serveur', `${err.message} — relais pendant ${pause / 60_000} min`);
-    if (settings().secret('groq')) this.notice('info', t('Serveur personnel injoignable : Groq prend le relais.'));
-    else this.notice('warn', t('Serveur personnel injoignable : les phrases attendent son retour, rien n’est perdu.'));
+    diagLog('serveur', `${err.message} — nouvel essai dans ${pause / 60_000} min`);
+    this.notice('warn', t('Serveur personnel injoignable : les phrases attendent son retour, rien n’est perdu.'));
   }
 
   private noteLang(job: Job, lang?: string) {
@@ -739,8 +751,10 @@ export class Recorder {
     } catch (e) {
       const err = e instanceof SttError ? e : new SttError((e as Error).message, 'network');
       this.queue.unshift(job);
-      if (route.kind === 'server') {
-        // serveur personnel en panne : la phrase repart par Groq (ou attend le serveur)
+      if (this.modeChanged(route)) {
+        // mode changé pendant l'envoi : la phrase repart simplement par le nouveau mode
+      } else if (route.kind === 'server') {
+        // serveur personnel en panne : la phrase attend son retour
         this.serverFailed(err);
       } else if (err.kind === 'auth') {
         this.authBlocked = true;
@@ -811,7 +825,9 @@ export class Recorder {
         diagLog('groupage', `groupe refusé par Groq : ${err.message}`);
       }
       this.queue.unshift(...jobs);
-      if (err.kind === 'auth') {
+      if (this.modeChanged(route)) {
+        // mode changé pendant l'envoi : les phrases repartent simplement par le nouveau mode
+      } else if (err.kind === 'auth') {
         this.authBlocked = true;
         this.notice('error', t('Clé Groq manquante ou refusée — ouvrez les Réglages. Vos phrases sont gardées en attente.'));
       } else if (err.kind === 'rate') {

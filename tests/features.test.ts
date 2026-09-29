@@ -14,6 +14,7 @@ import { pcm16ToWav } from '../src/main/wav';
 import { toTurns, voiceLabel } from '../src/shared/transcript';
 import { applyCorrections, learnFromEdit, mentions, suggestTerms } from '../src/main/vocabulary';
 import { migrateShortcuts } from '../src/main/settings';
+import { sttMissing, sttModeOf } from '../src/shared/stt';
 import type { MeetingMeta, Segment, Voice } from '../src/shared/types';
 
 const ics = `BEGIN:VCALENDAR
@@ -477,4 +478,25 @@ test('serveur personnel : l’adresse saisie donne toujours la bonne route OpenA
   assert.equal(sttEndpoint('http://100.64.0.7:8000/v1'), 'http://100.64.0.7:8000/v1/audio/transcriptions');
   assert.equal(sttEndpoint('https://stt.exemple.fr/v1/audio/transcriptions'), 'https://stt.exemple.fr/v1/audio/transcriptions');
   assert.equal(sttEndpoint(), 'https://api.groq.com/openai/v1/audio/transcriptions');
+});
+
+test('mode de transcription : en ligne (Groq) ou hors ligne (serveur), chacun garde ses réglages', () => {
+  // réglages d'avant le choix : le serveur configuré passait déjà en premier, il reste le mode actif
+  assert.equal(sttModeOf({ sttServerUrl: 'https://asgard.ts.net:8454' }), 'server');
+  assert.equal(sttModeOf({ sttServerUrl: '  ' }), 'cloud');
+  assert.equal(sttModeOf({ sttServerUrl: '' }), 'cloud');
+  // le choix explicite l'emporte, même avec l'adresse du serveur enregistrée
+  assert.equal(sttModeOf({ sttMode: 'cloud', sttServerUrl: 'https://asgard.ts.net:8454' }), 'cloud');
+  assert.equal(sttModeOf({ sttMode: 'server', sttServerUrl: '' }), 'server');
+
+  const server = { sttMode: 'server' as const, sttServerUrl: 'https://asgard.ts.net:8454', privacyMode: false };
+  const cloud = { ...server, sttMode: 'cloud' as const };
+  // hors ligne : l'adresse suffit, la clé Groq n'est pas demandée
+  assert.equal(sttMissing(server, false), null);
+  assert.match(sttMissing({ ...server, sttServerUrl: '' }, true) ?? '', /serveur/);
+  // en ligne : la clé Groq est demandée, l'adresse du serveur ne sert pas
+  assert.equal(sttMissing(cloud, true), null);
+  assert.match(sttMissing(cloud, false) ?? '', /Groq/);
+  // mode confidentiel : ni l'un ni l'autre
+  assert.equal(sttMissing({ ...cloud, privacyMode: true }, false), null);
 });

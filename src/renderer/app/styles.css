@@ -3174,3 +3174,13 @@ kbd {
 .agenda > :first-child .agenda-day {
   margin-top: 4px;
 }
+
+/* réglages de transcription : le panneau du mode choisi (en ligne / hors ligne) apparaît en fondu */
+.stt-panel {
+  animation: fade 0.2s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .stt-panel {
+    animation: none;
+  }
+}

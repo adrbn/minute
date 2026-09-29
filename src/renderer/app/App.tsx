@@ -11,6 +11,7 @@ import { UpdatePrompt, useWidth } from './components/ui';
 import { BugReport } from './components/BugReport';
 import { PanelLeft } from 'lucide-react';
 import { t } from '../../shared/i18n';
+import { sttMissing } from '../../shared/stt';
 
 export function App() {
   const info = useInfo();
@@ -178,7 +179,7 @@ export function App() {
           settings={settings}
           update={update}
           info={info}
-          hasGroq={secrets.groq}
+          sttMissing={sttMissing(settings, secrets.groq)}
           onStarted={(id) => setSelected(id)}
           onOpenSettings={(section) => setShowSettings(section ?? 'general')}
         />

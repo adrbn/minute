@@ -183,7 +183,9 @@ export interface Settings {
   onboarded: boolean;
   language: string;
   sttModel: string;
-  /** serveur de transcription personnel compatible OpenAI (ex. sur Asgard) : utilisé en premier, Groq en relais */
+  /** en ligne (Groq) ou hors ligne (serveur personnel) ; absent : déduit des réglages (cf. sttModeOf) */
+  sttMode?: 'cloud' | 'server';
+  /** serveur de transcription personnel compatible OpenAI (ex. sur Asgard) : le mode hors ligne */
   sttServerUrl: string;
   /** identifiant de modèle attendu par ce serveur (facultatif) */
   sttServerModel: string;

@@ -48,6 +48,7 @@ import { installNetworkGuard, participantNotice, setPrivacy } from './privacy';
 import { checkForUpdates, initUpdater, installUpdate, updateState } from './updater';
 import { diagLog, diagnostics } from './diag';
 import { locale, resolveLang, setLang, t } from '../shared/i18n';
+import { sttModeOf } from '../shared/stt';
 import { newId, store } from './store';
 import { pcm16ToWav } from './wav';
 import {
@@ -402,8 +403,11 @@ function wireIpc() {
   handle('settings:get', () => settings().get());
   handle('settings:set', (_e, patch: Partial<Settings>) => {
     const before = settings().get();
-    // nouvelle adresse de serveur personnel : on le réessaie tout de suite
-    if (patch.sttServerUrl !== undefined && patch.sttServerUrl !== before.sttServerUrl) setImmediate(() => recorder.unblock());
+    // nouvelle adresse de serveur personnel, ou autre mode de transcription : les phrases en attente repartent tout de suite
+    const sttChanged =
+      (patch.sttServerUrl !== undefined && patch.sttServerUrl !== before.sttServerUrl) ||
+      (patch.sttMode !== undefined && patch.sttMode !== sttModeOf(before));
+    if (sttChanged) setImmediate(() => recorder.unblock());
     if (patch.storageDir && patch.storageDir !== before.storageDir && (recorder.state.meetingId || recorder.busyTranscribing)) {
       throw new Error(t('Impossible de changer de dossier pendant un enregistrement ou une transcription en cours.'));
     }
@@ -446,7 +450,7 @@ function wireIpc() {
     const st = localStatus();
     const context = {
       'Langue des réunions': cfg.language,
-      Transcription: cfg.privacyMode ? `locale (${cfg.localModel})` : cfg.sttModel,
+      Transcription: cfg.privacyMode ? `locale (${cfg.localModel})` : sttModeOf(cfg) === 'server' ? `hors ligne (serveur ${cfg.sttServerModel || 'par défaut'})` : `en ligne (${cfg.sttModel})`,
       IA: cfg.privacyMode ? 'locale' : cfg.llmProvider,
       'Mode confidentiel': cfg.privacyMode,
       'Qui parle': cfg.voices,

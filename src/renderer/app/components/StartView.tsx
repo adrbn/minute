@@ -1,7 +1,8 @@
-import { CalendarDays, KeyRound, Link2, Users } from 'lucide-react';
+import { CalendarDays, KeyRound, Link2, Server, Users } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { AppInfo, CalendarEvent, CalendarState, Settings } from '../../../shared/types';
 import { locale, t } from '../../../shared/i18n';
+import { sttModeOf } from '../../../shared/stt';
 import { minute, shortcutLabel } from '../api';
 import { ListenCard } from './ListenCard';
 import type { SettingsSection } from './SettingsSheet';
@@ -27,14 +28,15 @@ export function StartView({
   settings,
   update,
   info,
-  hasGroq,
+  sttMissing,
   onStarted,
   onOpenSettings,
 }: {
   settings: Settings;
   update: (p: Partial<Settings>) => Promise<void>;
   info: AppInfo;
-  hasGroq: boolean;
+  /** ce qui manque au mode de transcription choisi (null : prêt) */
+  sttMissing: string | null;
   onStarted: (id: string) => void;
   onOpenSettings: (section?: SettingsSection) => void;
 }) {
@@ -65,14 +67,14 @@ export function StartView({
     <div className="content">
       <div className="titlebar drag" />
       <div className="start">
-        {!hasGroq && (
+        {sttMissing && (
           <button className="callout warn" onClick={() => onOpenSettings('transcription')}>
-            <KeyRound />
-            <span>{t('Ajoutez votre clé Groq pour activer la transcription')}</span>
+            {sttModeOf(settings) === 'server' ? <Server /> : <KeyRound />}
+            <span>{sttMissing}</span>
           </button>
         )}
 
-        <button className="rec-button" onClick={() => void start(current)} disabled={busy || !hasGroq} aria-label={t('Démarrer la transcription')}>
+        <button className="rec-button" onClick={() => void start(current)} disabled={busy || !!sttMissing} aria-label={t('Démarrer la transcription')}>
           <i />
         </button>
         <div className="start-title">
@@ -127,7 +129,7 @@ export function StartView({
                         )}
                       </span>
                     </div>
-                    <button className={`btn small ${live ? 'primary' : ''}`} onClick={() => void start(ev)} disabled={busy || !hasGroq}>
+                    <button className={`btn small ${live ? 'primary' : ''}`} onClick={() => void start(ev)} disabled={busy || !!sttMissing}>
                       {t('Transcrire')}
                     </button>
                   </div>

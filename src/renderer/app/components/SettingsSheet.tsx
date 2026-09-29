@@ -24,6 +24,7 @@ import type { AppInfo, CalendarState, LlmProvider, LocalStatus, NativelyInfo, Se
 import { minute, relativeTime, shortcutLabel } from '../api';
 import { AppIcon, Switch, useAudioInputs, useToast } from './ui';
 import { t } from '../../../shared/i18n';
+import { sttModeOf } from '../../../shared/stt';
 
 const PROVIDERS: { id: LlmProvider; label: string; hint: string; url: string }[] = [
   { id: 'groq', label: 'Groq', hint: 'La même clé que la transcription. Gratuit et rapide.', url: 'https://console.groq.com/keys' },
@@ -612,7 +613,35 @@ function General({ settings, update }: P) {
 }
 
 // ------------------------------------------------------------------ Transcription
-/** Serveur de transcription personnel (compatible OpenAI, ex. sur Asgard) : utilisé avant Groq. */
+/** En ligne (Groq) ou hors ligne (serveur personnel) : un seul actif ; les réglages et la clé de l'autre restent enregistrés. */
+function SttModeSwitch({ settings, update }: Pick<P, 'settings' | 'update'>) {
+  const mode = sttModeOf(settings);
+  const foot = settings.privacyMode
+    ? t('Mode confidentiel activé : la transcription se fait sur cet ordinateur. Ce choix reprendra quand vous le désactiverez.')
+    : mode === 'server'
+      ? t('Votre propre serveur transcrit : l’audio ne passe par aucun service en ligne.')
+      : t('Whisper large-v3 turbo, via Groq : rapide, excellent en français, gratuit jusqu’à environ 2 h d’audio par heure.');
+  return (
+    <Group foot={foot}>
+      <Row label={t('Mode')}>
+        <div className="segmented" aria-label={t('Mode de transcription')}>
+          {(
+            [
+              ['cloud', 'En ligne'],
+              ['server', 'Hors ligne'],
+            ] as const
+          ).map(([v, l]) => (
+            <button key={v} className={mode === v ? 'active' : ''} aria-pressed={mode === v} onClick={() => mode !== v && void update({ sttMode: v })}>
+              {t(l)}
+            </button>
+          ))}
+        </div>
+      </Row>
+    </Group>
+  );
+}
+
+/** Serveur de transcription personnel (compatible OpenAI, ex. sur Asgard) : le mode hors ligne. */
 function PersonalServer({ settings, update }: Pick<P, 'settings' | 'update'>) {
   const [url, setUrl] = useState(settings.sttServerUrl);
   const [model, setModel] = useState(settings.sttServerModel);
@@ -631,31 +660,33 @@ function PersonalServer({ settings, update }: Pick<P, 'settings' | 'update'>) {
   return (
     <Group
       title={t('Serveur personnel')}
-      foot={t('Facultatif. Un serveur de transcription compatible OpenAI chez vous (ex. Asgard) : utilisé en premier, sans quota. S’il ne répond pas, Groq prend le relais.')}
+      foot={t('Un serveur de transcription compatible OpenAI chez vous (ex. Asgard), sans quota. S’il ne répond pas, les phrases attendent son retour : rien n’est perdu, rien ne part en ligne.')}
     >
       <Row label={t('Adresse')} col>
-        <div className="row">
-          <input
-            className="field"
-            placeholder="http://asgard:8000"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            onBlur={saveUrl}
-            onKeyDown={(e) => e.key === 'Enter' && saveUrl()}
-            spellCheck={false}
-          />
-          {!!url.trim() && (
-            <button className="btn" onClick={() => void test()} disabled={state.busy}>
-              {t('Tester')}
-            </button>
+        <div className="stack-6">
+          <div className="row">
+            <input
+              className="field"
+              placeholder="http://asgard:8000"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              onBlur={saveUrl}
+              onKeyDown={(e) => e.key === 'Enter' && saveUrl()}
+              spellCheck={false}
+            />
+            {!!url.trim() && (
+              <button className="btn" onClick={() => void test()} disabled={state.busy}>
+                {t('Tester')}
+              </button>
+            )}
+          </div>
+          {state.busy && (
+            <span className="test-msg faint">
+              <Loader2 size={12} className="spin" style={{ verticalAlign: -2 }} /> {t('Vérification…')}
+            </span>
           )}
+          {!state.busy && state.msg && <span className={`test-msg ${state.ok ? 'ok' : 'ko'}`}>{state.msg}</span>}
         </div>
-        {state.busy && (
-          <span className="test-msg faint">
-            <Loader2 size={12} className="spin" style={{ verticalAlign: -2 }} /> {t('Vérification…')}
-          </span>
-        )}
-        {!state.busy && state.msg && <span className={`test-msg ${state.ok ? 'ok' : 'ko'}`}>{state.msg}</span>}
       </Row>
       {!!settings.sttServerUrl && (
         <>
@@ -670,7 +701,7 @@ function PersonalServer({ settings, update }: Pick<P, 'settings' | 'update'>) {
               spellCheck={false}
             />
           </Row>
-          <Row label={t('Clé du serveur')} col>
+          <Row label={t('Clé du serveur')} hint={t('Laissez vide si le serveur n’en demande pas (ex. via Tailscale).')} col>
             <KeyField name="sttServer" />
           </Row>
         </>
@@ -680,6 +711,7 @@ function PersonalServer({ settings, update }: Pick<P, 'settings' | 'update'>) {
 }
 
 function Transcription({ settings, update }: P) {
+  const mode = sttModeOf(settings);
   const [sugg, setSugg] = useState<{ term: string; count: number; meetings: number }[] | null>(null);
   const [vocab, setVocab] = useState(settings.vocabulary);
   useEffect(() => setVocab(settings.vocabulary), [settings.vocabulary]);
@@ -693,19 +725,25 @@ function Transcription({ settings, update }: P) {
   };
   return (
     <>
-      <Group
-        foot={
-          <>
-            {t('Whisper large-v3 turbo, via Groq : rapide, excellent en français, gratuit jusqu’à environ 2 h d’audio par heure.')}{' '}
-            {link('https://console.groq.com/keys', t('Obtenir une clé'))}
-          </>
-        }
-      >
-        <Row label={t('Clé {provider}', { provider: 'Groq' })} col>
-          <KeyField name="groq" />
-        </Row>
-      </Group>
-      <PersonalServer settings={settings} update={update} />
+      <SttModeSwitch settings={settings} update={update} />
+      {/* seul le mode actif est affiché ; la clé : le nouveau panneau apparaît en fondu */}
+      <div key={mode} className="stt-panel">
+        {mode === 'server' ? (
+          <PersonalServer settings={settings} update={update} />
+        ) : (
+          <Group title="Groq" foot={link('https://console.groq.com/keys', t('Obtenir une clé'))}>
+            <Row label={t('Clé {provider}', { provider: 'Groq' })} col>
+              <KeyField name="groq" />
+            </Row>
+            <Row label={t('Modèle')} hint={t('Turbo suffit presque toujours ; Large v3 est un peu plus précis. Chacun a son propre quota gratuit : quand l’un est épuisé, Minute passe à l’autre.')}>
+              <select className="field" value={settings.sttModel} onChange={(e) => void update({ sttModel: e.target.value })}>
+                <option value="whisper-large-v3-turbo">Large v3 turbo</option>
+                <option value="whisper-large-v3">Large v3</option>
+              </select>
+            </Row>
+          </Group>
+        )}
+      </div>
       <Group>
         <Row
           label={t('Langue des réunions')}
@@ -763,13 +801,10 @@ function Transcription({ settings, update }: P) {
             </div>
           </Row>
         )}
-        <Row label={t('Modèle')} hint={t('Turbo suffit presque toujours ; Large v3 est un peu plus précis. Chacun a son propre quota gratuit : quand l’un est épuisé, Minute passe à l’autre.')}>
-          <select className="field" value={settings.sttModel} onChange={(e) => void update({ sttModel: e.target.value })}>
-            <option value="whisper-large-v3-turbo">Large v3 turbo</option>
-            <option value="whisper-large-v3">Large v3</option>
-          </select>
-        </Row>
-        <Row label={t('Texte pendant que l’on parle')} hint={t('Affiche un aperçu avant la fin de la phrase (un peu plus de quota Groq).')}>
+        <Row
+          label={t('Texte pendant que l’on parle')}
+          hint={mode === 'server' ? t('Affiche un aperçu avant la fin de la phrase.') : t('Affiche un aperçu avant la fin de la phrase (un peu plus de quota Groq).')}
+        >
           <Switch on={settings.livePreview} onChange={(v) => void update({ livePreview: v })} />
         </Row>
         <Row
