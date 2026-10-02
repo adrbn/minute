@@ -1,11 +1,12 @@
 // Mises à jour : Minute regarde les versions publiées sur GitHub au démarrage, puis toutes les 6 h.
 // - Windows : la nouvelle version se télécharge en arrière-plan ; on propose de redémarrer pour
 //   l'installer (jamais pendant une réunion), sinon elle s'installe d'elle-même à la fermeture.
-// - macOS : sans notarisation Apple, l'installation automatique est impossible : on propose
-//   de télécharger la nouvelle version.
+// - macOS : pareil si l'app est signée « Developer ID » (Squirrel refuse les apps signées ad hoc) ;
+//   sinon, on propose de télécharger la nouvelle version.
 // - Mode confidentiel : aucune connexion vers l'extérieur, donc pas de vérification.
 import { app } from 'electron';
 import { autoUpdater, type UpdateInfo } from 'electron-updater';
+import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { UpdateState } from '../shared/types';
@@ -13,7 +14,14 @@ import { diagLog } from './diag';
 import { t } from '../shared/i18n';
 
 const RELEASES = 'https://github.com/adrbn/minute/releases/latest';
-const canInstall = process.platform === 'win32';
+let canInstall = process.platform === 'win32';
+
+/** macOS : l'app installée porte-t-elle une signature Developer ID ? (codesign écrit sur stderr) */
+function macSignedForUpdates(): boolean {
+  const bundle = join(process.execPath, '..', '..', '..');
+  const r = spawnSync('/usr/bin/codesign', ['-dvv', bundle], { encoding: 'utf8', timeout: 5000 });
+  return /Authority=Developer ID Application/.test(r.stderr ?? '');
+}
 
 let state: UpdateState = { status: 'idle', current: app.getVersion(), canInstall, url: RELEASES };
 /** Version de développement, ou compilée sans canal de mise à jour : jamais de vérification. */
@@ -72,6 +80,11 @@ export function initUpdater(opts: { notify: (s: UpdateState) => void; enabled: (
     return set({ status: 'disabled', reason: t('Cette version ne reçoit pas les mises à jour automatiques') });
   }
 
+  if (process.platform === 'darwin' && macSignedForUpdates()) {
+    canInstall = true;
+    set({ canInstall });
+  }
+
   autoUpdater.logger = null;
   autoUpdater.autoDownload = canInstall;
   autoUpdater.autoInstallOnAppQuit = canInstall;
@@ -109,7 +122,7 @@ export async function checkForUpdates(manual = true): Promise<UpdateState> {
   return state;
 }
 
-/** Windows : ferme Minute, installe la nouvelle version et la relance. */
+/** Windows, Mac signé : ferme Minute, installe la nouvelle version et la relance. */
 export function installUpdate() {
   if (state.status !== 'ready' || !canInstall) return;
   setImmediate(() => autoUpdater.quitAndInstall(true, true));
