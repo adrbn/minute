@@ -37,7 +37,7 @@ export function Sidebar({
   onHide,
   privacy = false,
 }: {
-  /** Windows : masquer la barre latérale (la fenêtre rétrécit d'autant) */
+  /** Windows et Mac : masquer la barre latérale (la fenêtre rétrécit d'autant) */
   onHide?: () => void;
   meetings: MeetingMeta[];
   selected: string | null;

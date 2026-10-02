@@ -89,14 +89,16 @@ export function allUiWindows(): BrowserWindow[] {
 
 export function createMain(): BrowserWindow {
   if (getMain()) return main!;
-  // « mainBounds2 » : les tailles mémorisées avant la v0.3 (trop grandes par défaut) sont ignorées
-  const bounds = settings().appState<{ x: number; y: number; width: number; height: number }>('mainBounds2');
-  // taille par défaut : Mac ≈ 900 × 650 ; Windows, une colonne haute sans barre latérale (660 × 860,
-  // bornée à l'écran), la barre latérale élargit la fenêtre à la demande
+  // tailles mémorisées ignorées : avant la v0.3 (« mainBounds2 », trop grandes par défaut) ; sur Mac,
+  // avant la v0.6.9 (« mainBounds3 », fenêtre 900 × 650 avec barre latérale)
+  const boundsKey = isMac ? 'mainBounds3' : 'mainBounds2';
+  const bounds = settings().appState<{ x: number; y: number; width: number; height: number }>(boundsKey);
+  // taille par défaut : une colonne haute sans barre latérale (660 × 860, bornée à l'écran),
+  // la barre latérale élargit la fenêtre à la demande
   const area = screen.getPrimaryDisplay().workAreaSize;
   main = new BrowserWindow({
-    width: bounds?.width ?? (isMac ? 900 : 660),
-    height: bounds?.height ?? (isMac ? 650 : Math.min(860, area.height - 40)),
+    width: bounds?.width ?? 660,
+    height: bounds?.height ?? Math.min(860, area.height - 40),
     x: process.env.MINUTE_OFFSCREEN ? -4000 : bounds?.x,
     y: process.env.MINUTE_OFFSCREEN ? 40 : bounds?.y,
     skipTaskbar: !!process.env.MINUTE_OFFSCREEN,
@@ -137,7 +139,7 @@ export function createMain(): BrowserWindow {
     if (!atLogin) main?.show();
   });
   const saveBounds = () => {
-    if (main && !main.isMinimized() && !main.isMaximized()) settings().appState('mainBounds2', main.getBounds());
+    if (main && !main.isMinimized() && !main.isMaximized()) settings().appState(boundsKey, main.getBounds());
   };
   main.on('resized', saveBounds);
   main.on('moved', saveBounds);
@@ -166,13 +168,13 @@ export function createMain(): BrowserWindow {
 }
 
 /**
- * Windows : afficher la barre latérale élargit la fenêtre vers la gauche (le contenu ne bouge pas),
+ * Windows et Mac : afficher la barre latérale élargit la fenêtre vers la gauche (le contenu ne bouge pas),
  * la masquer la rétrécit d'autant. Faux si c'est impossible (fenêtre maximisée, écran trop petit) :
  * la barre latérale passe alors par-dessus le contenu, comme avant.
  */
 export function resizeForSidebar(show: boolean): boolean {
   const w = getMain();
-  if (!isWin || !w || w.isMaximized() || w.isFullScreen()) return false;
+  if (!(isWin || isMac) || !w || w.isMaximized() || w.isFullScreen()) return false;
   const b = w.getBounds();
   const wa = screen.getDisplayMatching(b).workArea;
   // largeur de la barre latérale : 280 px au-delà de 1 100 px de fenêtre, 248 px en dessous (styles.css)

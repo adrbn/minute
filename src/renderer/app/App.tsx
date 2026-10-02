@@ -37,10 +37,11 @@ export function App() {
   const narrow = width < 820;
   const [sidebar, setSidebar] = useState(() => window.innerWidth >= 820);
   useEffect(() => setSidebar(!narrow), [narrow]);
-  // Windows : la barre latérale élargit la fenêtre (le contenu visible ne bouge pas) ; ailleurs, ou si la
-  // fenêtre ne peut pas grandir (maximisée, écran trop petit), elle se pose par-dessus comme avant
+  // Windows et Mac : la barre latérale élargit la fenêtre (le contenu visible ne bouge pas) ; ailleurs, ou si
+  // la fenêtre ne peut pas grandir (maximisée, écran trop petit), elle se pose par-dessus comme avant
+  const resizes = info?.platform === 'win32' || info?.platform === 'darwin';
   const toggleSidebar = async (show: boolean) => {
-    if (info?.platform !== 'win32') return setSidebar(show);
+    if (!resizes) return setSidebar(show);
     if (!show) setSidebar(false);
     await minute.windows.sidebar(show).catch(() => false);
     setSidebar(show);
@@ -138,7 +139,7 @@ export function App() {
     <div className={`app ${sidebar ? '' : 'no-sidebar'} ${narrow ? 'narrow' : ''}`}>
       {narrow && sidebar && <div className="sidebar-scrim" onClick={() => setSidebar(false)} />}
       <Sidebar
-        onHide={!narrow && info?.platform === 'win32' ? () => void toggleSidebar(false) : undefined}
+        onHide={!narrow && resizes ? () => void toggleSidebar(false) : undefined}
         meetings={meetings}
         privacy={!!settings?.privacyMode}
         selected={query ? null : selected}
