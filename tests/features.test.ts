@@ -10,6 +10,7 @@ import { retrieve } from '../src/main/retrieval';
 import { Voices, type VoiceStore } from '../src/main/voices';
 import { packWavs, splitPacked } from '../src/main/pack';
 import { Budget, parseGroqDuration, sttEndpoint } from '../src/main/groq';
+import { planLongSummary } from '../src/main/ai';
 import { pcm16ToWav } from '../src/main/wav';
 import { toTurns, voiceLabel } from '../src/shared/transcript';
 import { applyCorrections, learnFromEdit, mentions, suggestTerms } from '../src/main/vocabulary';
@@ -499,4 +500,22 @@ test('mode de transcription : en ligne (Groq) ou hors ligne (serveur), chacun ga
   assert.match(sttMissing(cloud, false) ?? '', /Groq/);
   // mode confidentiel : ni l'un ni l'autre
   assert.equal(sttMissing({ ...cloud, privacyMode: true }, false), null);
+});
+
+test('compte-rendu d’une longue réunion : chaque requête, synthèse comprise, tient dans le débit du modèle', () => {
+  const OVERHEAD = 900;
+  // Groq gratuit (8 000 tokens/min, marge de 15 %) : réunions de 30 min à 4 h
+  for (const perRequest of [6_800, 14_000]) {
+    for (const total of [5_000, 21_000, 60_000, 120_000]) {
+      const p = planLongSummary(total, perRequest);
+      assert.equal(p.parts, Math.ceil(total / p.chunkTokens));
+      // lecture d'une partie : le texte, ses notes et le raisonnement du modèle
+      assert.ok(p.chunkTokens + 400 + p.noteTokens + 700 <= perRequest || p.parts > 20, `lecture ${total}/${perRequest}`);
+      // synthèse : toutes les notes + le compte-rendu demandé (sauf réunions extrêmes, où les notes sont au plancher)
+      if (p.noteTokens > 150) assert.ok(p.parts * p.noteTokens + OVERHEAD + p.finalMax <= perRequest, `synthèse ${total}/${perRequest}`);
+    }
+  }
+  // la réunion d'1 h 12 qui échouait : 5 à 6 parties, des notes de plusieurs centaines de mots chacune
+  const real = planLongSummary(21_000, 6_800);
+  assert.ok(real.parts >= 5 && real.parts <= 6 && real.noteTokens >= 500);
 });

@@ -59,6 +59,21 @@ export function inputBudget(provider: LlmProvider, model = ''): number {
 
 export const estimateTokens = (s: string) => Math.ceil(s.length / 3.2);
 
+/**
+ * Taille maximale d'UNE requête (texte envoyé + réponse demandée), en tokens estimés. Groq gratuit compte
+ * les deux contre son débit par minute (8 000 tokens/min) : une requête plus grosse est refusée d'office.
+ */
+export function requestBudget(provider: LlmProvider, model = ''): number {
+  if (provider !== 'groq') return inputBudget(provider, model);
+  return Math.floor((groqTpm.get(model) ?? 8_000) * 0.85);
+}
+
+/** Groq : chaque modèle a son propre débit ; ce modèle voisin peut lire une partie de la réunion en parallèle. */
+export function siblingModel(provider: LlmProvider, model: string): string | null {
+  if (provider !== 'groq') return null;
+  return { 'openai/gpt-oss-120b': 'openai/gpt-oss-20b', 'openai/gpt-oss-20b': 'openai/gpt-oss-120b' }[model] ?? null;
+}
+
 export function activeProvider(): { provider: LlmProvider; model: string } | null {
   const cfg = settings().get();
   const ordered: LlmProvider[] = [cfg.llmProvider, 'groq', 'anthropic', 'gemini', 'openai'];

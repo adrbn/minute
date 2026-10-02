@@ -3,7 +3,7 @@
 import { langName, t } from '../shared/i18n';
 import { clock, dateLabel, durationLabel, speakerName, transcriptForAi } from '../shared/transcript';
 import type { AiEvent, AiRequest, MeetingMeta, Segment } from '../shared/types';
-import { activeProvider, chat, chatLocal, estimateTokens, findLocalLlm, inputBudget, LlmError, PROVIDER_LABEL } from './llm';
+import { activeProvider, chat, chatLocal, estimateTokens, findLocalLlm, inputBudget, LlmError, PROVIDER_LABEL, requestBudget, siblingModel } from './llm';
 import { retrieve } from './retrieval';
 import { settings } from './settings';
 import { newId, store } from './store';
@@ -75,15 +75,32 @@ async function withRetry<T>(fn: () => Promise<T>, onWait: (s: string) => void, s
     try {
       return await fn();
     } catch (e) {
-      if (e instanceof LlmError && e.kind === 'rate' && attempt < 4 && !signal.aborted) {
+      // débit par minute : attendre fait partie du fonctionnement normal sur une longue réunion
+      if (e instanceof LlmError && e.kind === 'rate' && attempt < 8 && !signal.aborted) {
         const wait = Math.min(65_000, e.retryAfterMs || 30_000);
-        onWait(t('Limite atteinte, reprise dans {s} s…', { s: Math.ceil(wait / 1000) }));
+        onWait(t('Débit par minute atteint : reprise automatique dans {s} s…', { s: Math.ceil(wait / 1000) }));
         await new Promise((r) => setTimeout(r, wait));
         continue;
       }
       throw e;
     }
   }
+}
+
+/**
+ * Réunion trop longue pour une seule requête : on prend des notes par parties, puis on rédige à partir des
+ * notes. Tout doit tenir dans `perRequest` (texte + réponse) : la taille des notes est donc répartie entre
+ * les parties pour que la synthèse finale passe elle aussi en une requête.
+ */
+export function planLongSummary(totalTokens: number, perRequest: number): { chunkTokens: number; parts: number; noteTokens: number; finalMax: number } {
+  const OVERHEAD = 900; // consignes, en-tête, format du compte-rendu, notes de l'utilisateur
+  const finalMax = Math.max(1_200, Math.min(3_500, Math.floor(perRequest * 0.32)));
+  const notesBudget = Math.max(1_500, perRequest - finalMax - OVERHEAD);
+  // une partie + ses notes (et le raisonnement du modèle) doivent tenir dans une requête
+  const chunkTokens = Math.max(1_500, Math.min(60_000, Math.floor(perRequest * 0.6)));
+  const parts = Math.max(1, Math.ceil(totalTokens / chunkTokens));
+  const noteTokens = Math.max(150, Math.min(1_500, Math.floor(notesBudget / parts)));
+  return { chunkTokens, parts, noteTokens, finalMax };
 }
 
 function chunkTranscript(text: string, maxTokens: number): string[] {
@@ -128,15 +145,17 @@ export async function runAi(req: AiRequest, emit: Emit): Promise<string> {
       if (!active) throw new Error(t('Ajoutez une clé d’IA (Groq suffit) dans les Réglages.'));
       const { provider, model } = active;
       const segments = store.segments(req.meetingId).filter((s) => s.text);
-      const call = (system: string, user: string, opts: { quick?: boolean; maxTokens: number; onText?: (t: string) => void }) =>
+      const callWith = (m: string, system: string, user: string, opts: { quick?: boolean; maxTokens: number; onText?: (t: string) => void }) =>
         withRetry(
           () =>
             local
               ? chatLocal(local.base, local.model, { system, user, ...opts, signal: ctrl.signal })
-              : chat(provider, model, { system, user, ...opts, signal: ctrl.signal }),
+              : chat(provider, m, { system, user, ...opts, signal: ctrl.signal }),
           (msg) => send('', false, { progress: msg }),
           ctrl.signal,
         );
+      const call = (system: string, user: string, opts: { quick?: boolean; maxTokens: number; onText?: (t: string) => void }) =>
+        callWith(model, system, user, opts);
 
       if (req.kind === 'catchup') {
         const minutes = req.minutes ?? 5;
@@ -180,20 +199,52 @@ export async function runAi(req: AiRequest, emit: Emit): Promise<string> {
       }
 
       // Réunion trop longue pour le modèle : notes détaillées par parties, puis synthèse.
+      let finalMax = 3500;
       if (req.kind !== 'followup' && estimateTokens(full) > budget) {
-        const chunks = chunkTranscript(full, Math.floor(budget * 0.85));
-        const notes: string[] = [];
-        for (let i = 0; i < chunks.length; i++) {
-          send('', false, { progress: t('Lecture de la réunion… partie {i}/{n}', { i: i + 1, n: chunks.length }) });
-          notes.push(
-            await call(
-              context(meta),
-              `${header(meta)}\n\nPartie ${i + 1}/${chunks.length} de la transcription :\n${chunks[i]}\n\nExtrais des notes détaillées et fidèles de cette partie, en puces horodatées [mm:ss] : faits, chiffres, noms, décisions, actions (qui / quoi / quand), questions. Pas d’introduction.`,
-              { quick: true, maxTokens: 1500 },
-            ),
-          );
-        }
-        material = notes.map((n, i) => `### Partie ${i + 1}\n${n}`).join('\n\n');
+        const per = local ? 14_000 : requestBudget(provider, model);
+        const plan = planLongSummary(estimateTokens(full), per);
+        finalMax = plan.finalMax;
+        const chunks = chunkTranscript(full, plan.chunkTokens);
+        const noteTokens = Math.max(150, Math.min(1_500, Math.floor((plan.noteTokens * plan.parts) / chunks.length)));
+        const words = Math.max(90, Math.floor(noteTokens * 0.6));
+        const notes: string[] = new Array(chunks.length).fill('');
+        // Groq : le modèle voisin a son propre débit par minute — deux lecteurs en parallèle, deux fois plus vite
+        const sibling = local ? null : siblingModel(provider, model);
+        const readers = sibling ? [model, sibling] : [model];
+        let next = 0;
+        let started = 0;
+        let siblingBroken = false;
+        const read = async (m: string) => {
+          for (;;) {
+            if (m !== model && siblingBroken) return;
+            const i = next++;
+            if (i >= chunks.length) return;
+            send('', false, { progress: t('Lecture de la réunion… partie {i}/{n}', { i: ++started, n: chunks.length }) });
+            const ask = (mm: string) =>
+              callWith(
+                mm,
+                context(meta),
+                `${header(meta)}\n\nPartie ${i + 1}/${chunks.length} de la transcription :\n${chunks[i]}\n\nExtrais des notes fidèles de cette partie, en puces horodatées [mm:ss] : faits, chiffres, noms, décisions, actions (qui / quoi / quand), questions. Va à l’essentiel : ${words} mots au plus. Pas d’introduction.`,
+                // marge pour le raisonnement interne du modèle, compté dans la réponse
+                { quick: true, maxTokens: noteTokens + 700 },
+              );
+            try {
+              notes[i] = await ask(m);
+            } catch (e) {
+              // le modèle voisin n'est pas disponible sur ce compte : le modèle choisi reprend sa part
+              if (m === model || (e as Error).name === 'AbortError') throw e;
+              siblingBroken = true;
+              notes[i] = await ask(model);
+            }
+          }
+        };
+        await Promise.all(readers.map((m) => read(m)));
+        // garde-fou : des notes plus longues que prévu sont raccourcies pour que la synthèse tienne en une requête
+        // (réunion de plusieurs heures : la part de chaque partie rétrécit, la synthèse passe toujours)
+        const cap = Math.floor(Math.max(80, Math.min(noteTokens, (per - plan.finalMax - 900) / chunks.length)) * 3.2);
+        material = notes
+          .map((n, i) => `### Partie ${i + 1}\n${n.length > cap ? n.slice(0, n.lastIndexOf('\n', cap) > cap * 0.6 ? n.lastIndexOf('\n', cap) : cap) : n}`)
+          .join('\n\n');
         materialLabel = 'Notes détaillées de la réunion (issues de la transcription)';
         send('', false, { progress: t('Rédaction du compte-rendu…') });
       }
@@ -203,7 +254,7 @@ export async function runAi(req: AiRequest, emit: Emit): Promise<string> {
         const text = await call(
           context(meta),
           `${header(meta)}\n\n${ex ? ex + '\n\n' : ''}${materialLabel} :\n${material}\n\n${summaryFormat()}`,
-          { maxTokens: 3500, onText: (t) => send(t) },
+          { maxTokens: finalMax, onText: (t) => send(t) },
         );
         const { title, body } = splitTitle(text);
         const patch: Partial<MeetingMeta> = {
