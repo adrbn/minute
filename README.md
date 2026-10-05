@@ -220,12 +220,64 @@ Minute is free, open source and built in my spare time. If it saves you time,
   technical log (never any meeting content). Or [open an issue](https://github.com/adrbn/minute/issues/new/choose).
 - **An idea?** [Suggest it](https://github.com/adrbn/minute/issues/new?template=feature_request.yml).
 
+## Benchmark
+
+Measured with `npm run bench` ([scripts/bench.mjs](scripts/bench.mjs)), which runs the app's own code (transcription
+calls, prompt, filter, CAM++ voice prints, voice clustering) on four meetings of the AMI Meeting Corpus.
+**2026-10-05 · Apple M1, 16 GB · Minute 0.6.10.** Published as they came out.
+
+> **AMI is English. These numbers say nothing about French.**
+
+**Transcription** (4 meetings, 92 min of audio, 14,634 reference words)
+
+| Engine | WER | Real-time factor |
+|---|---|---|
+| whisper.cpp turbo (`ggml-large-v3-turbo-q5_0.bin`) | 34.2 % | 0.281 |
+| whisper.cpp small (`ggml-small-q5_1.bin`) | 36.5 % | 0.085 |
+| Groq `whisper-large-v3-turbo` | not measured | not measured |
+
+Per meeting (turbo / small): ES2004a 29.8 / 32.2 % · IS1009a 26.6 / 29.6 % · TS3003a 26.1 / 28.5 % ·
+EN2002a 40.5 / 42.5 %.
+
+- **Groq was not measured**: no `GROQ_API_KEY` in the environment for this run. Set it and rerun to add it.
+- **WER** = (substitutions + deletions + insertions) / reference words, pooled over the 4 meetings. Normalization:
+  lowercase, punctuation removed, whitespace collapsed. Nothing else, so fillers ("um", "uh"), overlapping speech the
+  engine doesn't write down, and numbers written as digits all count as errors.
+- **Audio**: the Mix-Headset track (all headset mics mixed into one), sent in pieces of at most 16 s cut between words
+  like the app's segmenter, with the app's prompt and filter, language `auto`.
+- **Real-time factor** = processing time / duration of the audio sent (lower is faster). Model loading excluded.
+- **whisper.cpp**: the app's local mode ships for Windows only (v1.9.2, CPU build). On this Mac the bench drives the
+  same `localStt.ts` code with Homebrew's `whisper-server` 1.9.4, which runs on the GPU (Metal). The speeds don't
+  carry over to a Windows PC.
+
+**Speakers** (CAM++ voice prints, then the app's `Voices` clustering with its real thresholds)
+
+| Meeting | Real speakers | Found | Speaking time attributed correctly |
+|---|---|---|---|
+| ES2004a | 4 | 4 | 80.8 % |
+| IS1009a | 4 | 4 | 78.2 % |
+| TS3003a | 4 | 5 | 84.3 % |
+| EN2002a | 4 | 3 | 60.7 % |
+
+- **Oracle segmentation**: the reference speaker turns are given. This measures how voices are grouped, not speech
+  detection. Each turn gives one voice print, passed to `assign`, then the end-of-meeting `refine` pass runs. The
+  in-meeting `consolidate` (every 2 minutes) is not replayed.
+- **Attribution** = share of speaking time given to the right person, after the best one-to-one match between found
+  groups and real speakers (every assignment is tried). Turns with overlapping speech are used as they are.
+
+**Data**: [AMI Meeting Corpus](https://groups.inf.ed.ac.uk/ami/corpus/), University of Edinburgh,
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Mix-Headset audio and manual annotations v1.6.2 (words and
+speaker segments) of the test-set meetings ES2004a, IS1009a, TS3003a and EN2002a, downloaded by the script into
+`bench-data/` (ignored by git, no audio in this repo). The official annotations give words and speaker turns from one
+source, so neither the Hugging Face copy nor separate RTTM files were needed.
+
 ## Build from source
 
 ```bash
 npm install
 npm start          # build and run
 npm test           # unit tests
+npm run bench      # benchmark (downloads ~200 MB of AMI audio + whisper.cpp models)
 npm run dist:win   # Windows installer → release/
 ```
 

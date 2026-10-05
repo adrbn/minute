@@ -227,12 +227,67 @@ Minute est gratuit, open source et fait sur mon temps libre. S’il vous fait ga
   avec un journal technique (jamais le contenu de vos réunions). Ou [ouvrez un ticket](https://github.com/adrbn/minute/issues/new/choose).
 - **Une idée ?** [Proposez-la](https://github.com/adrbn/minute/issues/new?template=feature_request.yml).
 
+## Banc d’essai
+
+Mesuré avec `npm run bench` ([scripts/bench.mjs](scripts/bench.mjs)), qui fait tourner le code de l’app
+(appels de transcription, invite, filtre, empreintes vocales CAM++, regroupement des voix) sur quatre réunions du
+corpus AMI. **5 octobre 2026 · Apple M1, 16 Go · Minute 0.6.10.** Chiffres publiés tels qu’ils sont sortis.
+
+> **AMI est en anglais : ces chiffres ne disent rien du français.**
+
+**Transcription** (4 réunions, 92 min d’audio, 14 634 mots de référence)
+
+| Moteur | WER | Facteur temps réel |
+|---|---|---|
+| whisper.cpp turbo (`ggml-large-v3-turbo-q5_0.bin`) | 34,2 % | 0,281 |
+| whisper.cpp small (`ggml-small-q5_1.bin`) | 36,5 % | 0,085 |
+| Groq `whisper-large-v3-turbo` | non mesuré | non mesuré |
+
+Par réunion (turbo / small) : ES2004a 29,8 / 32,2 % · IS1009a 26,6 / 29,6 % · TS3003a 26,1 / 28,5 % ·
+EN2002a 40,5 / 42,5 %.
+
+- **Groq n’a pas été mesuré** : pas de `GROQ_API_KEY` dans l’environnement pour ce passage. Ajoutez-la et relancez.
+- **WER** (taux d’erreur sur les mots) = (substitutions + suppressions + insertions) / mots de référence, cumulé sur
+  les 4 réunions. Normalisation : minuscules, ponctuation retirée, espaces fusionnés. Rien d’autre : les hésitations
+  (« um », « uh »), la parole superposée que le moteur n’écrit pas et les nombres écrits en chiffres comptent comme
+  des erreurs.
+- **Audio** : la piste Mix-Headset (tous les micros-casques mélangés), envoyée par morceaux de 16 s au plus, coupés
+  entre deux mots comme le fait le découpage de l’app, avec l’invite et le filtre de l’app, langue `auto`.
+- **Facteur temps réel** = temps de traitement / durée de l’audio envoyé (plus bas = plus rapide). Chargement du
+  modèle exclu.
+- **whisper.cpp** : le mode local de l’app n’existe que sous Windows (v1.9.2, version processeur). Sur ce Mac, le
+  banc pilote le même code `localStt.ts` avec le `whisper-server` 1.9.4 de Homebrew, qui calcule sur la puce
+  graphique (Metal). Les vitesses ne valent pas pour un PC Windows.
+
+**Locuteurs** (empreintes CAM++, puis le regroupement `Voices` de l’app avec ses vrais seuils)
+
+| Réunion | Locuteurs réels | Trouvés | Temps de parole bien attribué |
+|---|---|---|---|
+| ES2004a | 4 | 4 | 80,8 % |
+| IS1009a | 4 | 4 | 78,2 % |
+| TS3003a | 4 | 5 | 84,3 % |
+| EN2002a | 4 | 3 | 60,7 % |
+
+- **Segmentation de référence (oracle)** : les tours de parole annotés sont fournis. On mesure le regroupement des
+  voix, pas la détection de la parole. Chaque tour donne une empreinte, passée à `assign`, puis la passe de fin de
+  réunion `refine`. La consolidation en cours de réunion (`consolidate`, toutes les 2 minutes) n’est pas rejouée.
+- **Attribution** = part du temps de parole donnée à la bonne personne, après la meilleure correspondance un à un
+  entre groupes trouvés et locuteurs réels (toutes les affectations sont essayées). Les tours où plusieurs personnes
+  parlent en même temps sont pris tels quels.
+
+**Données** : [AMI Meeting Corpus](https://groups.inf.ed.ac.uk/ami/corpus/), Université d’Édimbourg,
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.fr). Audio Mix-Headset et annotations manuelles v1.6.2
+(mots et tours de parole) des réunions de test ES2004a, IS1009a, TS3003a et EN2002a, téléchargés par le script dans
+`bench-data/` (ignoré par git, aucun audio dans ce dépôt). Les annotations officielles donnent les mots et les tours
+de parole d’une seule source : ni la copie Hugging Face ni des fichiers RTTM séparés n’ont été nécessaires.
+
 ## Compiler depuis les sources
 
 ```bash
 npm install
 npm start          # compile et lance
 npm test           # tests unitaires
+npm run bench      # banc d’essai (télécharge ~200 Mo d’audio AMI + modèles whisper.cpp)
 npm run dist:win   # installateur Windows → release/
 ```
 
