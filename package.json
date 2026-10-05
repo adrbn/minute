@@ -18,6 +18,7 @@
     "build": "node scripts/build.mjs",
     "start": "node scripts/build.mjs && electron .",
     "test": "node scripts/test.mjs",
+    "bench": "node scripts/bench.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "icons": "python scripts/make-icons.py",
     "dist:win": "node scripts/build.mjs && electron-builder --win --x64 --publish never",

@@ -5,6 +5,8 @@ import { buildPrompt, cleanResult, isEcho, stripHallucinations } from '../src/ma
 import { Segmenter, FRAME, FRAME_MS, type SegmentOut } from '../src/renderer/engine/segmenter';
 import { toTurns, transcriptToText, normalize } from '../src/shared/transcript';
 import type { MeetingMeta, Segment } from '../src/shared/types';
+// @ts-expect-error script JS du banc d'essai, sans types
+import { attribution, wer } from '../scripts/bench.mjs';
 
 const r = (text: string, noSpeech = 0.02, avgLogprob = -0.2, compression = 1.2) => ({ text, noSpeech, avgLogprob, compression });
 
@@ -100,4 +102,16 @@ test('découpage : les aperçus en direct arrivent pendant la parole', () => {
   const out = run([...frames(300, 0.02), ...frames(8000, 0.9), ...frames(1500, 0.02)], true);
   assert.ok(out.filter((o) => o.interim).length >= 1);
   assert.equal(out.filter((o) => !o.interim).length, 1);
+});
+
+test('banc : WER normalisé (casse, ponctuation) et distance d\'édition', () => {
+  assert.equal(wer('Hello, World!', 'hello   world'), 0);
+  assert.equal(wer('a b c', 'a b x c'), 1 / 3); // une insertion
+  assert.equal(wer('a b c d', 'a x d'), 0.5); // une substitution + une suppression
+});
+
+test('banc : correspondance groupe → locuteur, un groupe ne compte que pour un locuteur', () => {
+  const s = (ref: string, hyp: string | undefined, dur: number) => ({ ref, hyp, dur });
+  assert.equal(attribution([s('A', 'g1', 10), s('B', 'g1', 5), s('B', 'g2', 5), s('C', undefined, 2)]), 15 / 22);
+  assert.equal(attribution([s('A', 'g1', 3), s('B', 'g1', 1)]), 3 / 4);
 });

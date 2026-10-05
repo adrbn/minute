@@ -2,5 +2,6 @@ node_modules/
 dist/
 release/
 resources/mac/audiotee
+bench-data/
 *.log
 .DS_Store

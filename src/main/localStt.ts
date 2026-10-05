@@ -12,7 +12,7 @@ import type { LocalStatus } from '../shared/types';
 import { t } from '../shared/i18n';
 import { SttError, type SttResult } from './groq';
 
-const WHISPER_VERSION = 'v1.9.2';
+export const WHISPER_VERSION = 'v1.9.2';
 const ENGINE_URL = `https://github.com/ggml-org/whisper.cpp/releases/download/${WHISPER_VERSION}/whisper-blas-bin-x64.zip`;
 
 export type LocalModel = 'turbo' | 'small';
