@@ -28,6 +28,7 @@ const api: MinuteAPI = {
     merge: (a, b) => invoke('meetings:merge', a, b),
     split: (id, segId) => invoke('meetings:split', id, segId),
     editSegment: (id, segId, text) => invoke('meetings:editSegment', id, segId, text),
+    reassign: (id, from, to, target) => invoke('meetings:reassign', id, from, to, target),
     deleteSegment: (id, segId) => invoke('meetings:deleteSegment', id, segId),
     reveal: (id) => invoke('meetings:reveal', id),
     exportTo: (id, format) => invoke('meetings:export', id, format),

@@ -193,14 +193,17 @@ export class Voices {
     const mine = st.clusters.filter((c) => c.ch === 'me').sort((a, b) => b.ms - a.ms)[0];
     const segments = this.io.segments(id);
     const order: string[] = [];
+    // un intervenant choisi à la main n'est pas remis en cause (ni sa voix, même sans empreinte)
+    const chosen = (s: Segment) => (s.manual ? resolve(s.spk) : (spkOf.get(s.id) ?? resolve(s.spk)));
+    const manualKeys = new Set(segments.filter((s) => s.manual).map((s) => resolve(s.spk)));
     for (const s of segments) {
-      const k = spkOf.get(s.id) ?? resolve(s.spk);
+      const k = chosen(s);
       if (k && !order.includes(k)) order.push(k);
     }
     let n = 0;
     const next: Record<string, Voice> = {};
     for (const k of order) {
-      if (!st.clusters.some((c) => c.key === k)) continue;
+      if (!st.clusters.some((c) => c.key === k) && !(manualKeys.has(k) && voices[k])) continue;
       const owner = k === mine?.key;
       next[k] = { ...(voices[k]?.name ? { name: voices[k].name } : {}), n: owner ? 0 : ++n, ...(owner ? { owner: true } : {}) };
     }
@@ -208,7 +211,7 @@ export class Voices {
 
     const changed: Segment[] = [];
     for (const s of segments) {
-      const k = spkOf.get(s.id) ?? resolve(s.spk);
+      const k = chosen(s);
       const spk = k && next[k] ? k : undefined;
       if (spk !== s.spk) {
         const seg = { ...s, spk };

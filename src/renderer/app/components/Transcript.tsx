@@ -1,4 +1,4 @@
-import { ArrowDown, Check, Copy, LoaderCircle, Play, Scissors, Sparkles, Square, Star, Trash2, X } from 'lucide-react';
+import { ArrowDown, Check, Copy, LoaderCircle, Plus, Play, Scissors, Sparkles, Square, Star, Trash2, X } from 'lucide-react';
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { t } from '../../../shared/i18n';
 import {
@@ -224,6 +224,84 @@ function VoiceName({ meta, turn }: { meta: MeetingMeta; turn: Turn }) {
   );
 }
 
+type Picked = { from: { segId: string; offset: number }; to: { segId: string; offset: number }; x: number; y: number; below: boolean; ch: Channel; spk?: string };
+
+/** Sélection de texte à l'intérieur d'un bloc → ses deux bouts (extrait + position) et l'endroit où afficher la barre. */
+function pickSelection(root: HTMLElement, segments: Segment[]): Picked | null {
+  const sel = window.getSelection();
+  if (!sel || sel.isCollapsed || !sel.rangeCount || !sel.toString().trim()) return null;
+  const range = sel.getRangeAt(0);
+  if (!root.contains(range.commonAncestorContainer)) return null;
+  const hit = [...root.querySelectorAll<HTMLElement>('.seg[data-seg]')].filter((el) => range.intersectsNode(el));
+  if (!hit.length) return null;
+  const first = hit[0];
+  const last = hit[hit.length - 1];
+  // un seul bloc : au-delà, on ne sait plus quel intervenant l'utilisateur veut corriger
+  const turn = first.closest('.turn');
+  if (!turn || last.closest('.turn') !== turn) return null;
+  const offsetIn = (el: HTMLElement, node: Node, off: number, fallback: number) => {
+    if (!el.contains(node)) return fallback;
+    const r = document.createRange();
+    r.selectNodeContents(el);
+    r.setEnd(node, off);
+    return r.toString().length;
+  };
+  const seg = segments.find((s) => s.id === first.dataset.seg);
+  if (!seg) return null;
+  const rect = range.getBoundingClientRect();
+  const below = rect.top < 96;
+  return {
+    from: { segId: first.dataset.seg!, offset: offsetIn(first, range.startContainer, range.startOffset, 0) },
+    to: { segId: last.dataset.seg!, offset: offsetIn(last, range.endContainer, range.endOffset, (last.textContent ?? '').length) },
+    x: Math.max(150, Math.min(window.innerWidth - 150, rect.left + rect.width / 2)),
+    y: below ? rect.bottom + 8 : rect.top - 8,
+    below,
+    ch: seg.ch,
+    spk: seg.spk,
+  };
+}
+
+/**
+ * « Dit par… » : du texte sélectionné dans un bloc peut être rendu à la personne qui l'a vraiment dit
+ * (changement de voix non détecté). Le bloc est coupé à la sélection.
+ */
+function SayPicker({ meta, picked, onDone }: { meta: MeetingMeta; picked: Picked; onDone: () => void }) {
+  const voices = Object.entries(meta.voices ?? {}).sort(([, a], [, b]) => a.n - b.n);
+  // la voix actuelle du passage n'est pas proposée
+  const current = picked.spk ?? (picked.ch === 'me' ? voices.find(([, v]) => v.owner)?.[0] : undefined);
+  const assign = async (target: string) => {
+    await minute.meetings.reassign(meta.id, picked.from, picked.to, target);
+    window.getSelection()?.removeAllRanges();
+    onDone();
+  };
+  return (
+    <div
+      className={`say-picker ${picked.below ? 'below' : ''}`}
+      style={{ left: picked.x, top: picked.y }}
+      role="toolbar"
+      aria-label={t('Attribuer ce passage à une autre voix')}
+      // la sélection doit survivre au clic sur la barre
+      onMouseDown={(e) => e.preventDefault()}
+    >
+      <span className="say-label">{t('Dit par')}</span>
+      {voices
+        .filter(([k]) => k !== current)
+        .map(([k, v]) => (
+          <button key={k} className={`say-chip who ${voiceClass(meta, k)}`} onClick={() => void assign(k)} title={voiceLabel(meta, v.owner ? 'me' : 'them', k)}>
+            {v.owner ? (
+              <span className="vbadge named me">{speakerName(meta, 'me')}</span>
+            ) : (
+              <span className={`vbadge ${v.name ? 'named' : ''}`}>{v.name ?? voiceLetter(v.n)}</span>
+            )}
+          </button>
+        ))}
+      <button className="say-chip new" onClick={() => void assign('new')} title={t('Une personne qui n’est pas encore dans la liste')}>
+        <Plus size={13} /> {t('Nouvelle voix')}
+      </button>
+    </div>
+  );
+}
+
 // Lecture audio : un seul lecteur pour toute l'app.
 const player = new Audio();
 let playlist: string[] = [];
@@ -257,9 +335,36 @@ export function Transcript({
   const scroller = useRef<HTMLDivElement>(null);
   const [stick, setStick] = useState(true);
   const [editing, setEditing] = useState<string | null>(null);
+  const editingRef = useRef(editing);
+  editingRef.current = editing;
   const [playing, setPlaying] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
   const toast = useToast();
+  // texte sélectionné dans un bloc → barre « Dit par… »
+  const [picked, setPicked] = useState<Picked | null>(null);
+  const segsRef = useRef(segments);
+  segsRef.current = segments;
+  useEffect(() => {
+    const root = scroller.current;
+    if (!root) return;
+    const read = () => setPicked(editingRef.current ? null : pickSelection(root, segsRef.current));
+    const onUp = () => window.setTimeout(read, 0); // après la mise à jour de la sélection par le navigateur
+    const onDown = (e: MouseEvent) => !(e.target as HTMLElement).closest?.('.say-picker') && setPicked(null);
+    const onKey = (e: KeyboardEvent) => (e.key === 'Escape' ? setPicked(null) : e.shiftKey && read());
+    const hide = () => setPicked(null);
+    document.addEventListener('mouseup', onUp);
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keyup', onKey);
+    root.addEventListener('scroll', hide, { passive: true });
+    window.addEventListener('resize', hide);
+    return () => {
+      document.removeEventListener('mouseup', onUp);
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keyup', onKey);
+      root.removeEventListener('scroll', hide);
+      window.removeEventListener('resize', hide);
+    };
+  }, []);
   const speaking = useSpeaking(live);
   const handledFocus = useRef<number | null>(null);
   const turns = useMemo(() => toTurns(segments), [segments]);
@@ -371,6 +476,7 @@ export function Transcript({
 
   return (
     <div className="transcript-wrap">
+      {picked && <SayPicker meta={meta} picked={picked} onDone={() => setPicked(null)} />}
       <div className="transcript" ref={scroller} onScroll={onScroll} onWheel={onWheel}>
         <div className="transcript-inner">
           {!live && <VoiceNamer meta={meta} />}
@@ -420,6 +526,7 @@ export function Transcript({
                       ) : (
                         <span
                           key={s.id}
+                          data-seg={s.pending ? undefined : s.id}
                           className={`seg ${s.pending ? 'pending' : ''} ${q && normalize(s.text).includes(q) ? 'hit' : ''} ${
                             s.ch === 'them' && nameRe && nameRe.test(normalize(s.text)) ? 'mention' : ''
                           }`}

@@ -534,6 +534,10 @@ function Compact() {
             >
               <Square fill="currentColor" />
             </button>
+            {/* toute l'app, pas seulement le panneau de sous-titres */}
+            <button className="hud-btn" title={t('Ouvrir la fenêtre Minute')} aria-label={t('Ouvrir la fenêtre Minute')} onClick={openMain}>
+              <AppWindow />
+            </button>
           </span>
           <button
             className="hud-btn"

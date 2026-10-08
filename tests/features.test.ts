@@ -11,6 +11,7 @@ import { Voices, type VoiceStore } from '../src/main/voices';
 import { packWavs, splitPacked } from '../src/main/pack';
 import { Budget, parseGroqDuration, sttEndpoint } from '../src/main/groq';
 import { planLongSummary } from '../src/main/ai';
+import { planReassign } from '../src/main/reassign';
 import { pcm16ToWav } from '../src/main/wav';
 import { toTurns, voiceLabel } from '../src/shared/transcript';
 import { applyCorrections, learnFromEdit, mentions, suggestTerms } from '../src/main/vocabulary';
@@ -518,4 +519,85 @@ test('compte-rendu d’une longue réunion : chaque requête, synthèse comprise
   // la réunion d'1 h 12 qui échouait : 5 à 6 parties, des notes de plusieurs centaines de mots chacune
   const real = planLongSummary(21_000, 6_800);
   assert.ok(real.parts >= 5 && real.parts <= 6 && real.noteTokens >= 500);
+});
+
+test('« dit par quelqu’un d’autre » : le passage sélectionné est coupé aux mots entiers et change de voix', () => {
+  let n = 0;
+  const newId = () => `n${++n}`;
+  const voices: Record<string, Voice> = { me1: { n: 0, owner: true }, them1: { n: 1, name: 'Camille' } };
+  const segs: Segment[] = [
+    { id: 'a', ch: 'me', t0: 0, t1: 9_000, text: 'On lance la campagne lundi. Oui, je suis d’accord ! Et le budget ?', spk: 'me1', audio: 'a.wav' },
+    { id: 'b', ch: 'them', t0: 4_000, t1: 6_000, text: 'Parfait.', spk: 'them1' },
+    { id: 'c', ch: 'me', t0: 9_500, t1: 12_000, text: 'Je regarde ça demain.', spk: 'me1' },
+  ];
+  // sélection au milieu d'un mot, à l'envers : « Oui, je suis d’accord ! » passe à Camille
+  const text = segs[0].text;
+  const plan = planReassign(segs, voices, { segId: 'a', offset: text.indexOf('accord') + 3 }, { segId: 'a', offset: text.indexOf('Oui') + 1 }, 'them1', newId)!;
+  assert.deepEqual(
+    plan.put.map((s) => [s.id, s.text, s.spk, !!s.manual]),
+    [
+      ['a', 'On lance la campagne lundi.', 'me1', false],
+      ['n1', 'Oui, je suis d’accord !', 'them1', true],
+      ['n2', 'Et le budget ?', 'me1', false],
+    ],
+  );
+  assert.equal(plan.spk, 'them1');
+  assert.equal(plan.voices, undefined);
+  // les temps restent dans l'extrait d'origine, dans l'ordre, et l'audio suit chaque morceau
+  const [h, m, tl] = plan.put;
+  assert.ok(h.t0 === 0 && h.t1 === m.t0 && m.t1 === tl.t0 && tl.t1 === 9_000 && h.t1 > 0 && m.t1 > m.t0);
+  assert.ok(plan.put.every((s) => s.audio === 'a.wav' && s.ch === 'me'));
+  // l'affichage suit : trois tours au lieu d'un pour ce bloc
+  const after = [...segs.filter((s) => s.id !== 'a'), ...plan.put].sort((x, y) => x.t0 - y.t0);
+  assert.deepEqual(toTurns(after).map((t) => t.spk), ['me1', 'them1', 'them1', 'me1']); // la fin du bloc rejoint la phrase suivante de la même voix
+
+  // « nouvelle voix » : de la fin d'un extrait au début du suivant du même canal, l'extrait de l'autre canal ne bouge pas
+  const p2 = planReassign(segs, voices, { segId: 'a', offset: text.indexOf('Et le') }, { segId: 'c', offset: 'Je regarde'.length }, 'new', newId)!;
+  assert.equal(p2.spk, 'me2');
+  assert.deepEqual(p2.voices!.me2, { n: 2 });
+  assert.deepEqual(
+    p2.put.map((s) => [s.id, s.text, s.spk]),
+    [
+      ['a', 'On lance la campagne lundi. Oui, je suis d’accord !', 'me1'],
+      ['n3', 'Et le budget ?', 'me2'],
+      ['c', 'Je regarde', 'me2'],
+      ['n4', 'ça demain.', 'me1'],
+    ],
+  );
+  // extrait entier : il garde son identifiant, seule la voix change ; sélection vide ou voix inconnue : rien
+  const p3 = planReassign(segs, voices, { segId: 'c', offset: 0 }, { segId: 'c', offset: 99 }, 'them1', newId)!;
+  assert.deepEqual(p3.put.map((s) => [s.id, s.text, s.spk, s.manual]), [['c', 'Je regarde ça demain.', 'them1', true]]);
+  assert.equal(planReassign(segs, voices, { segId: 'c', offset: 3 }, { segId: 'c', offset: 3 }, 'them1', newId), null); // sélection vide
+  assert.equal(planReassign(segs, voices, { segId: 'c', offset: 0 }, { segId: 'c', offset: 5 }, 'inconnue', newId), null);
+  assert.equal(planReassign(segs, voices, { segId: 'zzz', offset: 0 }, { segId: 'c', offset: 5 }, 'them1', newId), null);
+});
+
+test('voix : un intervenant choisi à la main n’est pas remis en cause en fin de réunion', () => {
+  let seed = 31;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647) * 2 - 1;
+  const a = Array.from({ length: 64 }, rnd);
+  const meta = { id: 'm', speakers: { me: 'Moi', them: 'Participants' }, voices: {} as Record<string, Voice> } as MeetingMeta;
+  const segs: Segment[] = [];
+  const v = new Voices({
+    dir: () => null,
+    meta: () => meta,
+    segments: () => segs,
+    setVoices: (_id, x) => (meta.voices = x),
+    putSegment: (_id, seg) => {
+      const i = segs.findIndex((x) => x.id === seg.id);
+      if (i >= 0) segs[i] = seg;
+    },
+  });
+  for (let i = 0; i < 8; i++) {
+    const seg: Segment = { id: `s${i}`, ch: 'them', t0: i * 10_000, t1: i * 10_000 + 5_000, text: 't' };
+    seg.spk = v.assign('m', seg, a.map((x) => x + 0.25 * rnd()));
+    segs.push(seg);
+  }
+  // l'utilisateur dit : l'extrait 3 est une autre personne (voix créée à la main, sans empreinte)
+  meta.voices = { ...meta.voices!, them9: { n: 2, name: 'Giorgia' } };
+  segs[3] = { ...segs[3], spk: 'them9', manual: true };
+  v.refine('m');
+  assert.equal(segs[3].spk, 'them9');
+  assert.equal(meta.voices!.them9?.name, 'Giorgia');
+  assert.equal(new Set(segs.filter((s) => !s.manual).map((s) => s.spk)).size, 1);
 });

@@ -16,6 +16,8 @@ export interface Segment {
   edited?: boolean;
   /** intervenant reconnu à sa voix (clé de MeetingMeta.voices) */
   spk?: string;
+  /** intervenant choisi à la main : le regroupement automatique des voix n'y touche plus */
+  manual?: boolean;
 }
 
 /** Un intervenant distingué à sa voix. */
@@ -334,6 +336,8 @@ export interface MinuteAPI {
     /** coupe la réunion avant cette phrase ; renvoie l'id de la nouvelle réunion (la suite) */
     split(id: string, segId: string): Promise<string>;
     editSegment(id: string, segId: string, text: string): Promise<void>;
+    /** passage sélectionné (d'un point du texte à un autre) attribué à une voix : sa clé, ou « new » */
+    reassign(id: string, from: { segId: string; offset: number }, to: { segId: string; offset: number }, target: string): Promise<boolean>;
     deleteSegment(id: string, segId: string): Promise<void>;
     reveal(id: string): Promise<void>;
     exportTo(id: string, format: 'md' | 'txt' | 'docx'): Promise<string | null>;

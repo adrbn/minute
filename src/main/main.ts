@@ -42,6 +42,7 @@ import { detectNatively, importNatively } from './natively';
 import { Recorder } from './recorder';
 import { settings } from './settings';
 import { planMerge, planSplit } from './merge';
+import { planReassign, type TextPoint } from './reassign';
 import { installLocal, localStatus, onLocalStatus, removeLocalModel, stopLocal, type LocalModel } from './localStt';
 import { findLocalLlm } from './llm';
 import { installNetworkGuard, participantNotice, setPrivacy } from './privacy';
@@ -670,6 +671,20 @@ function wireIpc() {
       toast(t('Appris : « {from} » → « {to} »', { from: learned[0].from, to: learned[0].to }), 'success');
     }
     broadcast('live', { type: 'segment', meetingId: id, segment: next });
+  });
+  // « ce passage a été dit par quelqu'un d'autre » : le bloc est coupé à la sélection, le passage change de voix
+  handle('meetings:reassign', (_e, id: string, from: TextPoint, to: TextPoint, target: string) => {
+    const meta = store.meta(id);
+    if (!meta) return false;
+    const plan = planReassign(store.segments(id), meta.voices ?? {}, from, to, target, newId);
+    if (!plan) return false;
+    if (plan.voices) store.update(id, { voices: plan.voices });
+    for (const seg of plan.put) {
+      store.putSegment(id, seg);
+      broadcast('live', { type: 'segment', meetingId: id, segment: seg });
+    }
+    broadcast('meetings');
+    return true;
   });
   handle('meetings:deleteSegment', (_e, id: string, segId: string) => {
     store.removeSegment(id, segId);

@@ -3184,3 +3184,73 @@ kbd {
     animation: none;
   }
 }
+
+/* ================================================================== « Dit par… » : texte sélectionné → autre voix */
+.say-picker {
+  position: fixed;
+  z-index: 40;
+  transform: translate(-50%, -100%);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  max-width: min(560px, calc(100vw - 24px));
+  padding: 4px 6px 4px 10px;
+  border-radius: 12px;
+  background: var(--content);
+  box-shadow:
+    0 0 0 1px var(--sep),
+    0 6px 20px rgba(0, 0, 0, 0.16);
+  font-size: 12px;
+  overflow-x: auto;
+  animation: say-in 0.14s var(--ease);
+}
+.say-picker.below {
+  transform: translate(-50%, 0);
+}
+@keyframes say-in {
+  from {
+    opacity: 0;
+    margin-top: 4px;
+  }
+}
+.say-label {
+  color: var(--text-3);
+  font-weight: 600;
+  white-space: nowrap;
+  margin-right: 4px;
+}
+.say-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 5px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-2);
+  white-space: nowrap;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.say-chip:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.say-chip:active {
+  transform: scale(0.96);
+}
+.say-chip.new {
+  padding: 0 8px 0 6px;
+  font-weight: 500;
+}
+.say-chip .vbadge.named {
+  max-width: 140px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .say-picker {
+    animation: none;
+  }
+}

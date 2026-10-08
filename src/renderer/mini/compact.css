@@ -713,7 +713,7 @@ html.mini body {
 .shape:hover .pill-content .reveal,
 .shape.hover .pill-content .reveal,
 .pill-content .reveal:has(.marked, .done, .confirm) {
-  max-width: 100px;
+  max-width: 134px; /* 4 boutons : marquer, copier, terminer, ouvrir l'app */
 }
 
 /* ------------------------------------------------------------------ onglets du panneau */
