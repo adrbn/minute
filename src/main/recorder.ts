@@ -427,6 +427,8 @@ export class Recorder {
       if (Object.keys(store.meta(id)?.voices ?? {}).length !== known) this.hooks.meetingsChanged();
     }
     store.putSegment(id, seg);
+    // durée à jour pendant la réunion : une copie en cours n'affiche plus « < 1 min »
+    store.update(id, { durationMs: Math.round(this.elapsed()) });
     this.hooks.live({ type: 'segment', meetingId: id, segment: seg });
     this.queue.push({ meetingId: id, segId, ch: s.ch, file: path, tries: 0, at: Date.now(), spk: seg.spk });
     this.pump();

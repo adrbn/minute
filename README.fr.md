@@ -268,6 +268,23 @@ EN2002a 40,5 / 42,5 %.
 | TS3003a | 4 | 5 | 84,3 % |
 | EN2002a | 4 | 3 | 60,7 % |
 
+**Avec la vraie découpe de l’app** (22 octobre 2026, Silero VAD puis le segmenteur, comme en réunion)
+
+| Réunion | Avant | Avec coupe au changement de voix | Extraits |
+|---|---|---|---|
+| ES2004a | 59,0 % | 62,8 % | 126 → 160 |
+| IS1009a | 68,3 % | 74,2 % | 86 → 125 |
+| TS3003a | 62,0 % | 62,6 % | 250 → 260 |
+| EN2002a | 52,1 % | 58,4 % | 280 → 510 |
+
+- Quand deux personnes se répondent sans pause, un extrait contenait deux voix et allait en entier à une seule.
+  `voiceCuts` compare les empreintes de deux fenêtres de 1,5 s collées, tous les 0,75 s, et coupe là où elles ne
+  se ressemblent plus (seuil 0,2 ; 0,3 à 0,5 donnent le même score avec plus d’extraits).
+- Coût : les empreintes passent de ×0,025 à ×0,08 du temps réel (un fil, M1). Plus d’extraits ne coûte pas de
+  quota Groq en plus quand il se resserre : les phrases courtes partent alors groupées.
+- L’écart restant avec l’oracle vient en partie de la parole sans voix attribuée (15 % sur ES2004a : parole non
+  détectée, ou extraits trop courts pour une empreinte).
+
 - **Segmentation de référence (oracle)** : les tours de parole annotés sont fournis. On mesure le regroupement des
   voix, pas la détection de la parole. Chaque tour donne une empreinte, passée à `assign`, puis la passe de fin de
   réunion `refine`. La consolidation en cours de réunion (`consolidate`, toutes les 2 minutes) n’est pas rejouée.

@@ -241,35 +241,112 @@ async function transcription(app, refs, pcms) {
   return rows;
 }
 
-async function speakers(app, refs, pcms) {
+/** Part du temps de parole de référence donnée au bon groupe, quand les extraits ne suivent pas les tours de parole. */
+export function overlapAttribution(turns, segs) {
+  const pieces = [];
+  for (const t of turns) {
+    let covered = 0;
+    for (const s of segs) {
+      const d = Math.min(t.t1, s.t1) - Math.max(t.t0, s.t0);
+      if (d <= 0) continue;
+      pieces.push({ ref: t.spk, hyp: s.spk, dur: d });
+      covered += d;
+    }
+    if (t.t1 - t.t0 > covered) pieces.push({ ref: t.spk, hyp: undefined, dur: t.t1 - t.t0 - covered });
+  }
+  return attribution(pieces);
+}
+
+/** Part du temps de parole de référence couverte par un extrait qui a reçu une voix. */
+export function coverage(turns, segs) {
+  let total = 0;
+  let covered = 0;
+  for (const t of turns) {
+    total += t.t1 - t.t0;
+    for (const s of segs) if (s.spk !== undefined) covered += Math.max(0, Math.min(t.t1, s.t1) - Math.max(t.t0, s.t0));
+  }
+  return total ? covered / total : 0;
+}
+
+/** Extraits tels que l'app les envoie : Silero VAD puis le segmenteur, trame par trame (ms). */
+async function vadSegments(app, vad, pcm) {
+  vad.reset();
+  const out = [];
+  const seg = new app.Segmenter((s) => !s.interim && out.push({ t0: s.t0, t1: s.t1 }), false);
+  const f = float(pcm);
+  for (let i = 0; i + app.FRAME <= f.length; i += app.FRAME) {
+    const frame = f.subarray(i, i + app.FRAME);
+    seg.push(frame, await vad.prob(frame), (i / SR) * 1000);
+  }
+  seg.flush();
+  return out;
+}
+
+const loadModel = (rel) => {
+  const b = readFileSync(join(ROOT, rel));
+  return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
+};
+
+/**
+ * Regroupement des voix, trois découpes : `oracle` (un extrait par tour de parole AMI), `vad` (la découpe
+ * de l'app) et `split` (la découpe de l'app, puis coupe quand la voix change : voiceCuts).
+ * Temps des empreintes CAM++ mesuré (facteur temps réel, un seul fil comme dans l'app).
+ */
+async function speakers(app, refs, pcms, modes = ['oracle', 'vad', 'split'], threshold = undefined) {
   app.ort.env.wasm.numThreads = 1; // comme le moteur de l'app
-  const model = readFileSync(join(ROOT, 'src/renderer/public/models/campplus_voxceleb.onnx'));
-  const print = await app.VoicePrint.create(app.ort, model.buffer.slice(model.byteOffset, model.byteOffset + model.byteLength));
+  const print = await app.VoicePrint.create(app.ort, loadModel('src/renderer/public/models/campplus_voxceleb.onnx'));
+  const vad = modes.some((x) => x !== 'oracle') && (await app.SileroVad.create(app.ort, loadModel('src/renderer/public/models/silero_vad.onnx')));
   const rows = [];
   for (const m of MEETINGS) {
-    // segmentation de référence (oracle) : un extrait par tour de parole AMI, tous sur le même micro
-    let segs = refs[m].turns.map((t, i) => ({ id: `${m}-${i}`, ch: 'me', t0: Math.round(t.t0 * 1000), t1: Math.round(t.t1 * 1000), text: '', ref: t.spk }));
-    let voices = {};
-    const voicesOf = new app.Voices({
-      dir: () => null,
-      meta: () => ({ voices }),
-      segments: () => segs,
-      setVoices: (_id, v) => (voices = v),
-      putSegment: (_id, seg) => (segs = segs.map((s) => (s.id === seg.id ? seg : s))),
-    });
-    for (const s of segs) {
-      const spk = voicesOf.assign(m, s, await print.embed(float(slice(pcms[m], s.t0 / 1000, s.t1 / 1000))));
-      segs = segs.map((x) => (x.id === s.id ? { ...x, spk } : x));
+    const f = float(pcms[m]);
+    const cut = (t0, t1) => f.subarray(Math.round((t0 / 1000) * SR), Math.round((t1 / 1000) * SR));
+    const turns = refs[m].turns.map((t) => ({ spk: t.spk, t0: t.t0 * 1000, t1: t.t1 * 1000 }));
+    const vadSegs = vad && (await vadSegments(app, vad, pcms[m]));
+    for (const mode of modes) {
+      let ms = 0;
+      const timed = async (fn) => {
+        const t = performance.now();
+        const r = await fn();
+        ms += performance.now() - t;
+        return r;
+      };
+      let spans = mode === 'oracle' ? turns.map((t) => ({ t0: Math.round(t.t0), t1: Math.round(t.t1), ref: t.spk })) : vadSegs;
+      if (mode === 'split') {
+        const parts = [];
+        for (const s of spans) {
+          const at = await timed(() => app.voiceCuts(cut(s.t0, s.t1), (p) => print.embed(p), threshold));
+          const edges = [0, ...at.map((a) => Math.round((a / SR) * 1000)), s.t1 - s.t0];
+          for (let i = 0; i + 1 < edges.length; i++) parts.push({ t0: s.t0 + edges[i], t1: s.t0 + edges[i + 1] });
+        }
+        spans = parts;
+      }
+      let segs = spans.map((s, i) => ({ ...s, id: `${m}-${i}`, ch: 'me', text: '' }));
+      let voices = {};
+      const voicesOf = new app.Voices({
+        dir: () => null,
+        meta: () => ({ voices }),
+        segments: () => segs,
+        setVoices: (_id, v) => (voices = v),
+        putSegment: (_id, seg) => (segs = segs.map((s) => (s.id === seg.id ? seg : s))),
+      });
+      for (const s of segs) {
+        const spk = voicesOf.assign(m, s, await timed(() => print.embed(cut(s.t0, s.t1))));
+        segs = segs.map((x) => (x.id === s.id ? { ...x, spk } : x));
+      }
+      voicesOf.refine(m); // passe de fin de réunion
+      const row = {
+        meeting: m,
+        mode,
+        real: new Set(turns.map((t) => t.spk)).size,
+        found: Object.keys(voices).length,
+        extracts: segs.length,
+        accuracy: mode === 'oracle' ? attribution(segs.map((s) => ({ ref: s.ref, hyp: s.spk, dur: s.t1 - s.t0 }))) : overlapAttribution(turns, segs),
+        covered: mode === 'oracle' ? 1 : coverage(turns, segs), // oracle : tours qui se chevauchent, tout est couvert
+        rtf: ms / (pcms[m].length / 2 / SR) / 1000,
+      };
+      console.log(`voix · ${m} · ${mode} : ${row.real} réels, ${row.found} trouvés, ${row.extracts} extraits, ${(100 * row.accuracy).toFixed(1)} % du temps bien attribué, ${(100 * row.covered).toFixed(1)} % couvert, empreintes ×${row.rtf.toFixed(3)}`);
+      rows.push(row);
     }
-    voicesOf.refine(m); // passe de fin de réunion
-    const row = {
-      meeting: m,
-      real: new Set(segs.map((s) => s.ref)).size,
-      found: Object.keys(voices).length,
-      accuracy: attribution(segs.map((s) => ({ ref: s.ref, hyp: s.spk, dur: s.t1 - s.t0 }))),
-    };
-    console.log(`voix · ${m} : ${row.real} réels, ${row.found} trouvés, ${(100 * row.accuracy).toFixed(1)} % du temps bien attribué`);
-    rows.push(row);
   }
   return rows;
 }
@@ -286,7 +363,9 @@ async function main() {
       contents: [
         "export * as ort from 'onnxruntime-web/wasm';",
         "export { Voices } from './src/main/voices';",
-        "export { VoicePrint } from './src/renderer/engine/voice';",
+        "export { VoicePrint, voiceCuts } from './src/renderer/engine/voice';",
+        "export { SileroVad } from './src/renderer/engine/vad';",
+        "export { Segmenter, FRAME } from './src/renderer/engine/segmenter';",
         "export { transcribe, Budget } from './src/main/groq';",
         "export { transcribeLocal, startLocal, stopLocal, LOCAL_MODELS, WHISPER_VERSION } from './src/main/localStt';",
         "export { cleanResult, buildPrompt } from './src/main/filters';",
@@ -321,7 +400,8 @@ async function main() {
 
   // un calcul lourd à la fois : transcription, puis voix
   const stt = want('stt') ? await transcription(app, refs, pcms) : [];
-  const voices = want('voices') ? await speakers(app, refs, pcms) : [];
+  const sweep = process.env.CHANGE ? Number(process.env.CHANGE) : undefined; // seuil de voiceCuts à essayer
+  const voices = want('voices') ? await speakers(app, refs, pcms, process.env.MODES?.split(','), sweep) : [];
   const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
   const result = { date: new Date().toISOString().slice(0, 10), machine: `${cpus()[0].model}, ${Math.round(totalmem() / 2 ** 30)} GB`, version: pkg.version, stt, voices };
   writeFileSync(join(DATA, `results.${parts.join('-') || 'all'}.json`), JSON.stringify(result, null, 1));
@@ -333,8 +413,8 @@ async function main() {
     for (const r of stt) console.log(`| ${r.engine} | ${pct(r.wer)} | ${r.rtf.toFixed(3)} |`);
   }
   if (voices.length) {
-    console.log('\n| Meeting | Real speakers | Found | Speaking time attributed correctly |\n|---|---|---|---|');
-    for (const r of voices) console.log(`| ${r.meeting} | ${r.real} | ${r.found} | ${pct(r.accuracy)} |`);
+    console.log('\n| Meeting | Extracts | Real speakers | Found | Speaking time attributed correctly | Voice prints, real-time factor |\n|---|---|---|---|---|---|');
+    for (const r of voices) console.log(`| ${r.meeting} | ${r.mode} | ${r.real} | ${r.found} | ${pct(r.accuracy)} | ${r.rtf.toFixed(3)} |`);
   }
 }
 

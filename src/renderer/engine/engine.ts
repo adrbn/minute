@@ -4,7 +4,7 @@ import * as ort from 'onnxruntime-web/wasm';
 import type { Channel, EngineBridge, EngineStartOptions } from '../../shared/types';
 import { FRAME, FRAME_MS, rms, Segmenter, toInt16 } from './segmenter';
 import { SileroVad } from './vad';
-import { VoicePrint } from './voice';
+import { VoicePrint, voiceCuts } from './voice';
 
 declare global {
   interface Window {
@@ -148,15 +148,23 @@ async function makePipe(ch: Channel, livePreview: boolean, voices: boolean): Pro
     const base = { ch, t0: s.t0, t1: s.t1, pcm: toInt16(s.pcm), interim: s.interim };
     if (!voices) return bridge.segment(base);
     out.chain = out.chain.then(async () => {
-      let voice: number[] | undefined;
-      if (!s.interim) {
-        try {
-          voice = await (await voiceModel())?.embed(s.pcm);
-        } catch (e) {
-          bridge.log(`empreinte ${ch}: ${(e as Error).message}`);
+      if (s.interim) return bridge.segment(base);
+      // deux personnes qui se répondent sans pause : un morceau par voix, chacun transcrit à part
+      const parts: { t0: number; t1: number; pcm: Float32Array; voice?: number[] }[] = [];
+      try {
+        const vp = await voiceModel();
+        const cuts = vp ? await voiceCuts(s.pcm, (p) => vp.embed(p)) : [];
+        const edges = [0, ...cuts, s.pcm.length];
+        for (let i = 0; i + 1 < edges.length; i++) {
+          const pcm = s.pcm.subarray(edges[i], edges[i + 1]);
+          parts.push({ t0: s.t0 + edges[i] / 16, t1: s.t0 + edges[i + 1] / 16, pcm, voice: await vp?.embed(pcm) });
         }
+      } catch (e) {
+        bridge.log(`empreinte ${ch}: ${(e as Error).message}`);
+        parts.length = 0; // morceaux incomplets : l'extrait part entier, sans empreinte
       }
-      bridge.segment({ ...base, voice });
+      if (parts.length < 2) return bridge.segment({ ...base, voice: parts[0]?.voice });
+      for (const p of parts) bridge.segment({ ch, t0: p.t0, t1: p.t1, pcm: toInt16(p.pcm), interim: false, voice: p.voice });
     });
   }, livePreview);
   return new Pipe(ch, vad, seg, out);

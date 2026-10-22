@@ -6,7 +6,8 @@ import { Segmenter, FRAME, FRAME_MS, type SegmentOut } from '../src/renderer/eng
 import { toTurns, transcriptToText, normalize } from '../src/shared/transcript';
 import type { MeetingMeta, Segment } from '../src/shared/types';
 // @ts-expect-error script JS du banc d'essai, sans types
-import { attribution, wer } from '../scripts/bench.mjs';
+import { attribution, overlapAttribution, wer } from '../scripts/bench.mjs';
+import { voiceCuts } from '../src/renderer/engine/voice';
 
 const r = (text: string, noSpeech = 0.02, avgLogprob = -0.2, compression = 1.2) => ({ text, noSpeech, avgLogprob, compression });
 
@@ -114,4 +115,36 @@ test('banc : correspondance groupe → locuteur, un groupe ne compte que pour un
   const s = (ref: string, hyp: string | undefined, dur: number) => ({ ref, hyp, dur });
   assert.equal(attribution([s('A', 'g1', 10), s('B', 'g1', 5), s('B', 'g2', 5), s('C', undefined, 2)]), 15 / 22);
   assert.equal(attribution([s('A', 'g1', 3), s('B', 'g1', 1)]), 3 / 4);
+});
+
+test('banc : attribution par chevauchement quand les extraits ne suivent pas les tours', () => {
+  const turns = [{ spk: 'A', t0: 0, t1: 10 }, { spk: 'B', t0: 10, t1: 20 }];
+  // un extrait à cheval sur A et B, tout donné au groupe de A ; 2 s de B jamais couvertes
+  assert.equal(overlapAttribution(turns, [{ t0: 0, t1: 13, spk: 'g1' }, { t0: 13, t1: 18, spk: 'g2' }]), 15 / 20);
+});
+
+// fausse empreinte : la part de « voix B » (échantillons à 0,5) dans la fenêtre
+const SR = 16000;
+const voices = (...parts: [number, number][]) => {
+  const pcm = new Float32Array(parts.reduce((n, [s]) => n + s * SR, 0));
+  let at = 0;
+  for (const [sec, v] of parts) pcm.fill(v, at, (at += sec * SR));
+  return pcm;
+};
+const fakeEmbed = async (p: Float32Array) => {
+  const b = p.filter((x) => x > 0.3).length / p.length;
+  return [1 - b, b];
+};
+
+test('voix : un extrait est coupé là où la voix change, à 0,75 s près', async () => {
+  const cuts = await voiceCuts(voices([6, 0.1], [6, 0.5]), fakeEmbed);
+  assert.equal(cuts.length, 1);
+  assert.ok(Math.abs(cuts[0] - 6 * SR) <= 0.75 * SR, `coupe à ${cuts[0] / SR} s`);
+  const three = await voiceCuts(voices([3, 0.1], [3, 0.5], [3, 0.1]), fakeEmbed);
+  assert.equal(three.length, 2);
+});
+
+test('voix : une seule voix, ou moins de 3 s, jamais coupé', async () => {
+  assert.deepEqual(await voiceCuts(voices([12, 0.1]), fakeEmbed), []);
+  assert.deepEqual(await voiceCuts(voices([1.4, 0.1], [1.4, 0.5]), fakeEmbed), []);
 });

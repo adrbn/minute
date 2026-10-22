@@ -259,6 +259,23 @@ EN2002a 40.5 / 42.5 %.
 | TS3003a | 4 | 5 | 84.3 % |
 | EN2002a | 4 | 3 | 60.7 % |
 
+**With the app's real segmentation** (October 22, 2026, Silero VAD then the segmenter, as in a meeting)
+
+| Meeting | Before | With a cut when the voice changes | Extracts |
+|---|---|---|---|
+| ES2004a | 59.0 % | 62.8 % | 126 → 160 |
+| IS1009a | 68.3 % | 74.2 % | 86 → 125 |
+| TS3003a | 62.0 % | 62.6 % | 250 → 260 |
+| EN2002a | 52.1 % | 58.4 % | 280 → 510 |
+
+- When two people answer each other without a pause, one extract held two voices and went entirely to one of them.
+  `voiceCuts` compares the voice prints of two adjacent 1.5 s windows every 0.75 s and cuts where they stop matching
+  (threshold 0.2; 0.3 to 0.5 score the same with more extracts).
+- Cost: voice prints go from 0.025× to 0.08× real time (one thread, M1). More extracts cost no extra Groq quota when
+  it gets tight: short sentences are then sent grouped.
+- Part of the remaining gap to the oracle is speech left without a voice (15 % on ES2004a: speech not detected, or
+  extracts too short for a voice print).
+
 - **Oracle segmentation**: the reference speaker turns are given. This measures how voices are grouped, not speech
   detection. Each turn gives one voice print, passed to `assign`, then the end-of-meeting `refine` pass runs. The
   in-meeting `consolidate` (every 2 minutes) is not replayed.
