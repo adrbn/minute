@@ -1,7 +1,12 @@
-// Banc d'essai : npm run bench (ou node scripts/bench.mjs stt | voices)
-// Transcription (WER, facteur temps réel) et regroupement des voix sur 4 réunions du corpus AMI
-// (CC BY 4.0), avec le code de l'app : transcribe / transcribeLocal, cleanResult, VoicePrint (CAM++)
-// et Voices. Tout est téléchargé dans bench-data/ (ignoré par git).
+// Banc d'essai : npm run bench (ou node scripts/bench.mjs stt | voices | stt-fr | load)
+// Transcription (WER, facteur temps réel, charge processeur) et regroupement des voix sur 4 réunions du
+// corpus AMI (CC BY 4.0), avec le code de l'app : transcribe / transcribeLocal, cleanResult, VoicePrint
+// (CAM++) et Voices. Tout est téléchargé dans bench-data/ (ignoré par git).
+//   stt-fr : WER en français sur des phrases FLEURS (CC BY 4.0), 349 Mo à télécharger (FR_N = nombre de phrases)
+//   load   : rejoue des réunions en temps réel (STREAMS flux, MINUTES minutes) et mesure retard et charge :
+//            la machine suit-elle le rythme sans s'essouffler ? Lancer MINUTES=20 pour juger la chauffe.
+// Variables : ENGINES=parakeet,small (limiter les moteurs), THREADS (fils de Parakeet), LANGUAGE (défaut auto).
+// Parakeet : npm i --no-save sherpa-onnx-node@1.13.8 (le modèle int8, 487 Mo, est téléchargé tout seul).
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -65,7 +70,7 @@ const SR = 16000;
 /** au plus 16 s par envoi, comme le segmenteur de l'app (MAX_MS) */
 const CHUNK = 16;
 /** réglage par défaut de l'app : chaque phrase dans sa langue */
-const LANGUAGE = 'auto';
+const LANGUAGE = process.env.LANGUAGE ?? 'auto';
 const GROQ_MODEL = 'whisper-large-v3-turbo';
 
 function download(url, dest) {
@@ -129,17 +134,23 @@ function chunks(ref) {
   return { list, hard };
 }
 
-/** PCM 16 bits mono 16 kHz d'un fichier WAV. */
+/** PCM 16 bits mono 16 kHz d'un fichier WAV (les WAV FLEURS, en flottants 32 bits, sont convertis). */
 function readWav(file) {
   const b = readFileSync(file);
   let fmt;
   for (let o = 12; o + 8 <= b.length; ) {
     const id = b.toString('ascii', o, o + 4);
     const size = b.readUInt32LE(o + 4);
-    if (id === 'fmt ') fmt = { ch: b.readUInt16LE(o + 10), rate: b.readUInt32LE(o + 12), bits: b.readUInt16LE(o + 22) };
+    if (id === 'fmt ') fmt = { tag: b.readUInt16LE(o + 8), ch: b.readUInt16LE(o + 10), rate: b.readUInt32LE(o + 12), bits: b.readUInt16LE(o + 22) };
     if (id === 'data') {
+      const data = b.subarray(o + 8, Math.min(b.length, o + 8 + size));
+      if (fmt?.ch === 1 && fmt.rate === SR && fmt.tag === 3 && fmt.bits === 32) {
+        const out = Buffer.alloc(data.length / 2);
+        for (let i = 0; i < data.length / 4; i++) out.writeInt16LE(Math.round(Math.max(-1, Math.min(1, data.readFloatLE(4 * i))) * 32767), 2 * i);
+        return out;
+      }
       if (fmt?.ch !== 1 || fmt.rate !== SR || fmt.bits !== 16) throw new Error(`${file} : attendu 16 kHz mono 16 bits`);
-      return b.subarray(o + 8, Math.min(b.length, o + 8 + size));
+      return data;
     }
     o += 8 + size + (size & 1);
   }
@@ -149,8 +160,108 @@ const slice = (pcm, t0, t1) => pcm.subarray(Math.max(0, Math.round(t0 * SR)) * 2
 const float = (pcm) => Float32Array.from({ length: pcm.length >> 1 }, (_, i) => pcm.readInt16LE(2 * i) / 32768);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/** Temps processeur cumulé de toute la machine (ms) : `busy` travaillé, `all` total. */
+const cpuTimes = () =>
+  cpus().reduce((a, { times: t }) => ({ busy: a.busy + t.user + t.nice + t.sys + t.irq, all: a.all + t.user + t.nice + t.sys + t.irq + t.idle }), { busy: 0, all: 0 });
+
+/** Bridage thermique du processeur sur Mac (100 = aucun) ; null ailleurs ou si rien n'est enregistré. */
+function speedLimit() {
+  if (process.platform !== 'darwin') return null;
+  try {
+    return Number(execFileSync('pmset', ['-g', 'therm'], { encoding: 'utf8' }).match(/CPU_Speed_Limit\s*=\s*(\d+)/)?.[1]) || null;
+  } catch {
+    return null;
+  }
+}
+
+const PARAKEET = 'sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8';
+
+/** Parakeet TDT v3 (int8) par sherpa-onnx-node, dans ce processus. Renvoie null si le paquet n'est pas installé. */
+function parakeetEngine() {
+  let sherpa;
+  try {
+    sherpa = createRequire(import.meta.url)('sherpa-onnx-node');
+  } catch {
+    console.log('sherpa-onnx-node absent (npm i --no-save sherpa-onnx-node@1.13.8) : Parakeet non mesuré.');
+    return null;
+  }
+  const dir = join(DATA, 'parakeet', PARAKEET);
+  let recognizer;
+  return {
+    id: 'parakeet',
+    name: 'Parakeet TDT v3 int8 (sherpa-onnx)',
+    start: () => {
+      if (!existsSync(dir)) {
+        const tar = join(DATA, 'parakeet', `${PARAKEET}.tar.bz2`);
+        mkdirSync(dirname(tar), { recursive: true });
+        download(`https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/${PARAKEET}.tar.bz2`, tar);
+        execFileSync('tar', ['xjf', tar, '-C', dirname(tar)]);
+      }
+      recognizer = new sherpa.OfflineRecognizer({
+        featConfig: { sampleRate: SR, featureDim: 80 },
+        modelConfig: {
+          transducer: { encoder: join(dir, 'encoder.int8.onnx'), decoder: join(dir, 'decoder.int8.onnx'), joiner: join(dir, 'joiner.int8.onnx') },
+          tokens: join(dir, 'tokens.txt'),
+          numThreads: Number(process.env.THREADS) || Math.max(2, Math.min(8, cpus().length - 1)), // même règle que localStt
+          provider: 'cpu',
+          debug: 0,
+          modelType: 'nemo_transducer',
+        },
+      });
+    },
+    stop: () => (recognizer = undefined),
+    run: async (wav) => {
+      const stream = recognizer.createStream();
+      stream.acceptWaveform({ sampleRate: SR, samples: float(wav.subarray(44)) }); // 44 : en-tête WAV de pcm16ToWav
+      const t = performance.now();
+      await recognizer.decodeAsync(stream);
+      return { r: { text: recognizer.getResult(stream).text, noSpeech: 0, avgLogprob: 0, compression: 0 }, ms: performance.now() - t };
+    },
+  };
+}
+
+/** Phrases de test FLEURS en français (≤ 16 s, une par texte) : un « ensemble » prêt pour transcription(). */
+function fleursFr() {
+  const n = Number(process.env.FR_N ?? 100);
+  const dir = join(DATA, 'fleurs-fr');
+  mkdirSync(dir, { recursive: true });
+  const base = 'https://huggingface.co/datasets/google/fleurs/resolve/main/data/fr_fr';
+  download(`${base}/test.tsv`, join(dir, 'test.tsv'));
+  // colonnes : id, fichier, texte brut, texte normalisé, phonèmes, nombre d'échantillons, genre
+  const seen = new Set();
+  const rows = readFileSync(join(dir, 'test.tsv'), 'utf8')
+    .split('\n')
+    .map((l) => l.split('\t'))
+    .filter((c) => c.length > 5 && Number(c[5]) <= CHUNK * SR && !seen.has(c[3]) && seen.add(c[3]))
+    .slice(0, n);
+  const missing = rows.filter((c) => !existsSync(join(dir, 'test', c[1]))).map((c) => `test/${c[1]}`);
+  if (missing.length) {
+    const tar = join(dir, 'test.tar.gz');
+    download(`${base}/audio/test.tar.gz`, tar);
+    execFileSync('tar', ['xzf', tar, '-C', dir, ...missing], { stdio: 'inherit' });
+  }
+  const pieces = rows.map((c) => {
+    const pcm = readWav(join(dir, 'test', c[1]));
+    return { pcm, sec: pcm.length / 2 / SR };
+  });
+  return { id: 'FLEURS-fr', pieces, ref: rows.map((c) => c[3]).join(' ') };
+}
+
+/** Réunions AMI découpées comme l'app envoie l'audio : un ensemble par réunion. */
+const amiSets = (refs, pcms) =>
+  MEETINGS.map((m) => ({
+    id: m,
+    pieces: refs[m].chunks.list.map(([a, b]) => ({ pcm: slice(pcms[m], a, b), sec: b - a })),
+    ref: refs[m].words.map((w) => w.text).join(' '),
+  }));
+
 /** Moteurs disponibles. `run` renvoie le résultat et le temps passé dans l'appel (attentes de quota exclues). */
 function engines(app) {
+  const only = process.env.ENGINES?.split(',');
+  return allEngines(app).filter((e) => !only || only.includes(e.id));
+}
+
+function allEngines(app) {
   const list = [];
   const key = process.env.GROQ_API_KEY;
   if (key) {
@@ -177,6 +288,9 @@ function engines(app) {
       },
     });
   } else console.log('GROQ_API_KEY absente : Groq non mesuré.');
+
+  const parakeet = parakeetEngine();
+  if (parakeet) list.push(parakeet);
 
   let server = '';
   try {
@@ -209,7 +323,7 @@ function engines(app) {
   return list;
 }
 
-async function transcription(app, refs, pcms) {
+async function transcription(app, sets) {
   const rows = [];
   for (const e of engines(app)) {
     await e.start?.();
@@ -217,26 +331,95 @@ async function transcription(app, refs, pcms) {
     let n = 0;
     let ms = 0;
     let audio = 0;
+    let busy = 0;
+    let all = 0;
     const per = {};
-    for (const m of MEETINGS) {
+    for (const set of sets) {
       const hyp = [];
-      for (const [a, b] of refs[m].chunks.list) {
-        const { r, ms: t } = await e.run(app.pcm16ToWav(slice(pcms[m], a, b)), app.buildPrompt('', hyp.join(' ')));
+      for (const { pcm, sec } of set.pieces) {
+        const c0 = cpuTimes();
+        const { r, ms: t } = await e.run(app.pcm16ToWav(pcm), app.buildPrompt('', hyp.join(' ')));
+        const c1 = cpuTimes();
+        busy += c1.busy - c0.busy;
+        all += c1.all - c0.all;
         hyp.push(app.cleanResult(r));
         process.stderr.write('.');
         ms += t;
-        audio += b - a;
+        audio += sec;
       }
-      writeFileSync(join(DATA, `hyp.${e.id}.${m}.txt`), hyp.join('\n'));
-      const ref = tokens(refs[m].words.map((w) => w.text).join(' '));
+      writeFileSync(join(DATA, `hyp.${e.id}.${set.id}.txt`), hyp.join('\n'));
+      const ref = tokens(set.ref);
       const err = editDistance(ref, tokens(hyp.join(' ')));
-      per[m] = err / ref.length;
+      per[set.id] = err / ref.length;
       errors += err;
       n += ref.length;
-      console.log(`${e.name} · ${m} : WER ${(100 * per[m]).toFixed(1)} %`);
+      console.log(`${e.name} · ${set.id} : WER ${(100 * per[set.id]).toFixed(1)} %`);
     }
     e.stop?.();
-    rows.push({ engine: e.name, wer: errors / n, rtf: ms / 1000 / audio, audio, per });
+    // cpu : part de la machine entière occupée pendant les appels ; cpuSec : secondes de processeur par seconde d'audio
+    rows.push({ engine: e.name, wer: errors / n, rtf: ms / 1000 / audio, cpu: all ? busy / all : 0, cpuSec: busy / 1000 / audio, audio, per });
+  }
+  return rows;
+}
+
+const quantile = (xs, q) => [...xs].sort((a, b) => a - b)[Math.floor(q * (xs.length - 1))];
+
+/**
+ * Rejoue en temps réel STREAMS flux (réunions AMI différentes : micro + son système) pendant MINUTES minutes
+ * et mesure le retard de chaque envoi (fin de la phrase → texte rendu), la charge de toute la machine et le
+ * bridage thermique (Mac). Sans Groq : il ne mesure que le réseau.
+ */
+async function load(app, refs, pcms) {
+  const minutes = Number(process.env.MINUTES ?? 5);
+  const streams = Math.min(MEETINGS.length, Number(process.env.STREAMS ?? 2));
+  const rows = [];
+  for (const e of engines(app).filter((x) => x.id !== 'groq')) {
+    await e.start?.();
+    const lags = [];
+    const samples = [];
+    const own = []; // part de la machine prise par ce processus seul (Parakeet tourne dedans ; whisper-server non)
+    let ownLast = process.cpuUsage();
+    const limit0 = speedLimit();
+    let last = cpuTimes();
+    const timer = setInterval(() => {
+      const now = cpuTimes();
+      samples.push((now.busy - last.busy) / (now.all - last.all));
+      const u = process.cpuUsage(ownLast);
+      own.push((u.user + u.system) / 1000 / ((now.all - last.all) / cpus().length));
+      ownLast = process.cpuUsage();
+      last = now;
+    }, 2000);
+    const t0 = performance.now();
+    await Promise.all(
+      MEETINGS.slice(0, streams).map(async (m) => {
+        for (const [a, b] of refs[m].chunks.list) {
+          if (b > minutes * 60) break;
+          const ready = t0 + b * 1000; // la phrase est finie : on peut l'envoyer
+          if (ready > performance.now()) await sleep(ready - performance.now());
+          await e.run(app.pcm16ToWav(slice(pcms[m], a, b)), app.buildPrompt('', ''));
+          lags.push((performance.now() - ready) / 1000);
+        }
+      }),
+    );
+    clearInterval(timer);
+    e.stop?.();
+    const p95 = quantile(lags, 0.95);
+    const row = {
+      engine: e.name,
+      streams,
+      minutes,
+      sends: lags.length,
+      lagP50: quantile(lags, 0.5),
+      lagP95: p95,
+      lagMax: Math.max(...lags),
+      cpuAvg: samples.reduce((a, x) => a + x, 0) / (samples.length || 1),
+      cpuMax: Math.max(0, ...samples),
+      ownAvg: own.reduce((a, x) => a + x, 0) / (own.length || 1),
+      speedLimit: [limit0, speedLimit()],
+      verdict: p95 <= 5 ? 'suit' : p95 <= 15 ? 'à la limite' : 'décroche',
+    };
+    console.log(`charge · ${row.engine} : retard p95 ${p95.toFixed(1)} s (max ${row.lagMax.toFixed(1)} s), machine ${(100 * row.cpuAvg).toFixed(0)} % en moyenne (pic ${(100 * row.cpuMax).toFixed(0)} %, dont ce processus ${(100 * row.ownAvg).toFixed(0)} %) → ${row.verdict}`);
+    rows.push(row);
   }
   return rows;
 }
@@ -353,7 +536,8 @@ async function speakers(app, refs, pcms, modes = ['oracle', 'vad', 'split'], thr
 
 async function main() {
   const parts = process.argv.slice(2);
-  const want = (p) => !parts.length || parts.includes(p);
+  // sans argument : stt et voices (comme avant) ; stt-fr (349 Mo) et load (plusieurs minutes) seulement sur demande
+  const want = (p) => parts.includes(p) || (!parts.length && p !== 'stt-fr' && p !== 'load');
   mkdirSync(DATA, { recursive: true });
   process.env.MINUTE_USERDATA = DATA; // dossier de l'app (stub electron) : moteur et modèles whisper.cpp
   const { build } = createRequire(import.meta.url)('esbuild');
@@ -385,32 +569,45 @@ async function main() {
   const app = await import(pathToFileURL(out).href);
   process.on('exit', () => app.stopLocal());
 
-  download(`https://groups.inf.ed.ac.uk/ami/AMICorpusAnnotations/${ANNOTATIONS}`, join(DATA, ANNOTATIONS));
   const refs = {};
   const pcms = {};
-  for (const m of MEETINGS) {
-    const wav = join(DATA, `${m}.Mix-Headset.wav`);
-    download(`https://groups.inf.ed.ac.uk/ami/AMICorpusMirror/amicorpus/${m}/audio/${m}.Mix-Headset.wav`, wav);
-    const ref = reference(m);
-    refs[m] = { ...ref, chunks: chunks(ref) };
-    pcms[m] = readWav(wav);
-    const c = refs[m].chunks;
-    console.log(`${m} : ${(pcms[m].length / 2 / SR / 60).toFixed(1)} min, ${ref.words.length} mots, ${ref.turns.length} tours, ${c.list.length} envois (${c.hard} coupes franches)`);
+  if (['stt', 'voices', 'load'].some(want)) {
+    download(`https://groups.inf.ed.ac.uk/ami/AMICorpusAnnotations/${ANNOTATIONS}`, join(DATA, ANNOTATIONS));
+    for (const m of MEETINGS) {
+      const wav = join(DATA, `${m}.Mix-Headset.wav`);
+      download(`https://groups.inf.ed.ac.uk/ami/AMICorpusMirror/amicorpus/${m}/audio/${m}.Mix-Headset.wav`, wav);
+      const ref = reference(m);
+      refs[m] = { ...ref, chunks: chunks(ref) };
+      pcms[m] = readWav(wav);
+      const c = refs[m].chunks;
+      console.log(`${m} : ${(pcms[m].length / 2 / SR / 60).toFixed(1)} min, ${ref.words.length} mots, ${ref.turns.length} tours, ${c.list.length} envois (${c.hard} coupes franches)`);
+    }
+
   }
 
   // un calcul lourd à la fois : transcription, puis voix
-  const stt = want('stt') ? await transcription(app, refs, pcms) : [];
+  const stt = want('stt') ? await transcription(app, amiSets(refs, pcms)) : [];
+  const sttFr = want('stt-fr') ? await transcription(app, [fleursFr()]) : [];
+  const loaded = want('load') ? await load(app, refs, pcms) : [];
   const sweep = process.env.CHANGE ? Number(process.env.CHANGE) : undefined; // seuil de voiceCuts à essayer
   const voices = want('voices') ? await speakers(app, refs, pcms, process.env.MODES?.split(','), sweep) : [];
   const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
-  const result = { date: new Date().toISOString().slice(0, 10), machine: `${cpus()[0].model}, ${Math.round(totalmem() / 2 ** 30)} GB`, version: pkg.version, stt, voices };
+  const result = { date: new Date().toISOString().slice(0, 10), machine: `${cpus()[0].model}, ${Math.round(totalmem() / 2 ** 30)} GB`, version: pkg.version, stt, sttFr, load: loaded, voices };
   writeFileSync(join(DATA, `results.${parts.join('-') || 'all'}.json`), JSON.stringify(result, null, 1));
 
   const pct = (x) => `${(100 * x).toFixed(1)} %`;
   console.log(`\n${result.date} · ${result.machine} · Minute ${result.version}\n`);
-  if (stt.length) {
-    console.log('| Engine | WER | Real-time factor |\n|---|---|---|');
-    for (const r of stt) console.log(`| ${r.engine} | ${pct(r.wer)} | ${r.rtf.toFixed(3)} |`);
+  for (const [title, rows] of [['', stt], ['\nFrançais (FLEURS)\n', sttFr]]) {
+    if (!rows.length) continue;
+    console.log(`${title}| Engine | WER | Real-time factor | CPU (whole machine) | CPU-seconds per audio-second |\n|---|---|---|---|---|`);
+    for (const r of rows) console.log(`| ${r.engine} | ${pct(r.wer)} | ${r.rtf.toFixed(3)} | ${pct(r.cpu)} | ${r.cpuSec.toFixed(3)} |`);
+  }
+  if (loaded.length) {
+    console.log('\n| Engine | Flux | Minutes | Retard p50 | Retard p95 | Retard max | Machine (moy. / pic) | Ce processus (moy.) | Bridage CPU (début → fin) | Verdict |\n|---|---|---|---|---|---|---|---|---|---|');
+    for (const r of loaded) {
+      const lim = r.speedLimit.map((x) => (x ? `${x} %` : 'aucun')).join(' → ');
+      console.log(`| ${r.engine} | ${r.streams} | ${r.minutes} | ${r.lagP50.toFixed(1)} s | ${r.lagP95.toFixed(1)} s | ${r.lagMax.toFixed(1)} s | ${pct(r.cpuAvg)} / ${pct(r.cpuMax)} | ${pct(r.ownAvg)} | ${lim} | ${r.verdict} |`);
+    }
   }
   if (voices.length) {
     console.log('\n| Meeting | Extracts | Real speakers | Found | Speaking time attributed correctly | Voice prints, real-time factor |\n|---|---|---|---|---|---|');
