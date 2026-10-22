@@ -86,8 +86,8 @@ const unxml = (s) => s.replace(/&apos;/g, "'").replace(/&quot;/g, '"').replace(/
 /** Mots (horodatés, par locuteur) et tours de parole de référence d'une réunion, depuis les annotations AMI. */
 function reference(m) {
   const zip = join(DATA, ANNOTATIONS);
-  const files = execFileSync('unzip', ['-Z1', zip], { encoding: 'utf8', maxBuffer: 64e6 }).split('\n');
-  const read = (f) => execFileSync('unzip', ['-p', zip, f], { maxBuffer: 64e6 }).toString('latin1');
+  const files = execFileSync('tar', ['-tf', zip], { encoding: 'utf8', maxBuffer: 64e6 }).split(/\r?\n/);
+  const read = (f) => execFileSync('tar', ['-xOf', zip, f], { maxBuffer: 64e6 }).toString('latin1');
   const words = [];
   const turns = [];
   for (const f of files.filter((f) => f.startsWith(`words/${m}.`))) {
@@ -292,17 +292,20 @@ function allEngines(app) {
   const parakeet = parakeetEngine();
   if (parakeet) list.push(parakeet);
 
-  let server = '';
-  try {
-    server = execFileSync('which', ['whisper-server'], { encoding: 'utf8' }).trim();
-  } catch {
-    console.log('whisper-server introuvable (brew install whisper-cpp) : whisper.cpp non mesuré.');
-    return list;
+  // Windows : l'app télécharge elle-même son whisper-server.exe. Ailleurs : un relais vers le binaire de ce Mac
+  if (process.platform !== 'win32') {
+    let server = '';
+    try {
+      server = execFileSync('which', ['whisper-server'], { encoding: 'utf8' }).trim();
+    } catch {
+      console.log('whisper-server introuvable (brew install whisper-cpp) : whisper.cpp non mesuré.');
+      return list;
+    }
+    // localStt cherche whisper-server.exe (version Windows de l'app)
+    const dir = join(DATA, 'whisper', app.WHISPER_VERSION);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'whisper-server.exe'), `#!/bin/sh\nexec "${server}" "$@"\n`, { mode: 0o755 });
   }
-  // localStt cherche whisper-server.exe (version Windows de l'app) : un relais vers le binaire de ce Mac
-  const dir = join(DATA, 'whisper', app.WHISPER_VERSION);
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, 'whisper-server.exe'), `#!/bin/sh\nexec "${server}" "$@"\n`, { mode: 0o755 });
   for (const model of ['turbo', 'small']) {
     const { file } = app.LOCAL_MODELS[model];
     list.push({
