@@ -16,7 +16,7 @@ const bridge: EngineBridge = {
   segment: (s) => ipcRenderer.send('engine:segment', s),
   levels: (l) => ipcRenderer.send('engine:levels', l),
   status: (ch, ok, error) => ipcRenderer.send('engine:status', ch, ok, error),
-  stopped: () => ipcRenderer.send('engine:stopped'),
+  stopped: (session) => ipcRenderer.send('engine:stopped', session),
   log: (msg) => ipcRenderer.send('engine:log', msg),
   requestLoopback: () => ipcRenderer.send('engine:loopback'),
 };

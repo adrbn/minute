@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const outdir = mkdtempSync(join(tmpdir(), 'minute-tests-'));
-const names = ['logic', 'features'];
+const names = ['logic', 'features', 'recorder'];
 await build({
   entryPoints: names.map((n) => join(root, 'tests', n + '.test.ts')),
   bundle: true,

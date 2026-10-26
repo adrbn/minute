@@ -3,4 +3,12 @@ export const shell = { openExternal: async () => undefined };
 export const app = { getPath: () => process.env.MINUTE_USERDATA || '.', isPackaged: false, on: () => undefined };
 export const session = { defaultSession: { webRequest: { onBeforeRequest: () => undefined } } };
 export const safeStorage = { isEncryptionAvailable: () => false };
-export default { shell, app, session, safeStorage };
+export class Notification {
+  static isSupported() {
+    return false;
+  }
+  on() {}
+  show() {}
+}
+export const systemPreferences = { getMediaAccessStatus: () => 'granted', askForMediaAccess: async () => true };
+export default { shell, app, session, safeStorage, Notification, systemPreferences };

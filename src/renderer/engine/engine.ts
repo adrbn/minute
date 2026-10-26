@@ -49,6 +49,8 @@ const clock = {
 
 class Pipe {
   level = 0;
+  /** trames reçues mais pas encore passées par la détection de parole (retard du moteur sur la parole) */
+  pending = 0;
   private chain: Promise<void> = Promise.resolve();
   private carry = new Float32Array(0);
   stream: MediaStream | null = null;
@@ -70,12 +72,15 @@ class Pipe {
     const lvl = levelOf(f);
     this.level = Math.max(this.level * 0.7, lvl);
     if (this.ch === 'them' && lvl > SYS_SOUND) sys.lastSound = performance.now();
+    this.pending++;
     this.chain = this.chain.then(async () => {
       try {
         const p = await this.vad.prob(f);
         this.seg.push(f, p, t);
       } catch (e) {
         bridge.log(`vad ${this.ch}: ${(e as Error).message}`);
+      } finally {
+        this.pending--;
       }
     });
   }
@@ -121,6 +126,8 @@ function levelOf(f: Float32Array) {
 
 let ctx: AudioContext | null = null;
 let pipes: Partial<Record<Channel, Pipe>> = {};
+/** réunion de la capture en cours (rappelée à l'arrêt) */
+let session: string | undefined;
 let paused = false;
 let stopped = true;
 let levelTimer: number | null = null;
@@ -137,15 +144,21 @@ const SYS_SOUND = 0.0003;
 let generation = 0;
 /** un modèle VAD par voix, créé une fois pour toute la vie de l'app */
 const vads: Partial<Record<Channel, SileroVad>> = {};
+/** modèles encore occupés à finir une réunion arrêtée : la suivante en prend un neuf (l'état du modèle est propre à un flux) */
+const drainingVads = new Set<SileroVad>();
+/** retard du moteur (s) au-delà duquel on l'écrit dans le journal, au plus une fois par minute */
+const LAG_LOG_SEC = 10;
+let lastLagLog = 0;
 
-async function makePipe(ch: Channel, livePreview: boolean, voices: boolean): Promise<Pipe> {
+async function makePipe(ch: Channel, livePreview: boolean, voices: boolean, session?: string): Promise<Pipe> {
   let vad = vads[ch];
   if (!vad) vad = vads[ch] = await SileroVad.create(ort, await model());
+  if (drainingVads.has(vad)) vad = await SileroVad.create(ort, await model());
   vad.reset();
   const out = { chain: Promise.resolve() };
   if (voices) void voiceModel(); // chargé pendant que la réunion démarre
   const seg = new Segmenter((s) => {
-    const base = { ch, t0: s.t0, t1: s.t1, pcm: toInt16(s.pcm), interim: s.interim };
+    const base = { ch, t0: s.t0, t1: s.t1, pcm: toInt16(s.pcm), interim: s.interim, session };
     if (!voices) return bridge.segment(base);
     out.chain = out.chain.then(async () => {
       if (s.interim) return bridge.segment(base);
@@ -164,7 +177,7 @@ async function makePipe(ch: Channel, livePreview: boolean, voices: boolean): Pro
         parts.length = 0; // morceaux incomplets : l'extrait part entier, sans empreinte
       }
       if (parts.length < 2) return bridge.segment({ ...base, voice: parts[0]?.voice });
-      for (const p of parts) bridge.segment({ ch, t0: p.t0, t1: p.t1, pcm: toInt16(p.pcm), interim: false, voice: p.voice });
+      for (const p of parts) bridge.segment({ ch, t0: p.t0, t1: p.t1, pcm: toInt16(p.pcm), interim: false, voice: p.voice, session });
     });
   }, livePreview);
   return new Pipe(ch, vad, seg, out);
@@ -276,21 +289,32 @@ async function start(o: EngineStartOptions): Promise<{ me: boolean; them: boolea
   // 3. chaîne audio + détection de parole
   stopped = false;
   paused = false;
+  session = o.session;
   clock.startedAt = o.startedAt;
   clock.pausedMs = o.pausedMs ?? 0;
   clock.pausedAt = 0;
-  ctx = new AudioContext({ sampleRate: 16000, latencyHint: 'playback' });
-  await ctx.audioWorklet.addModule('./worklets/pcm-tap.js');
-  if (ctx.state === 'suspended') await ctx.resume();
+  const audio = (ctx = new AudioContext({ sampleRate: 16000, latencyHint: 'playback' }));
+  await audio.audioWorklet.addModule('./worklets/pcm-tap.js');
+  if (audio.state === 'suspended') await audio.resume();
+  // Le système peut suspendre le son (veille, périphérique audio réinitialisé) : sans reprise, plus aucune
+  // trame n'arrive et la transcription s'arrête en silence alors que le chronomètre continue.
+  audio.onstatechange = () => {
+    if (stopped || gen !== generation || ctx !== audio) return;
+    const state = audio.state as string;
+    bridge.log(`son : AudioContext ${state}`);
+    if (state !== 'running' && state !== 'closed') {
+      audio.resume().catch((e) => bridge.log(`son : reprise impossible (${(e as Error).message})`));
+    }
+  };
   if (cancelled()) return result;
 
-  pipes.me = await makePipe('me', o.livePreview, o.voices);
+  pipes.me = await makePipe('me', o.livePreview, o.voices, o.session);
   if (mic) {
     await attachMic(pipes.me, mic);
     result.me = true;
   }
   if (o.captureSystem) {
-    pipes.them = await makePipe('them', o.livePreview, o.voices);
+    pipes.them = await makePipe('them', o.livePreview, o.voices, o.session);
     if (o.systemMode === 'display') {
       if (loopback) {
         await attachStream(pipes.them, loopback);
@@ -324,8 +348,31 @@ async function start(o: EngineStartOptions): Promise<{ me: boolean; them: boolea
     if (pipes.me) pipes.me.level *= 0.6;
     if (pipes.them) pipes.them.level *= 0.6;
     watchSystemSilence();
+    watchLag();
   }, 90);
   return result;
+}
+
+/** Retard de la détection de parole sur le son reçu, par voie (secondes). */
+function lagSec(): Partial<Record<Channel, number>> {
+  const out: Partial<Record<Channel, number>> = {};
+  for (const [ch, p] of Object.entries(pipes) as [Channel, Pipe][]) out[ch] = (p.pending * FRAME_MS) / 1000;
+  return out;
+}
+
+/**
+ * Ordinateur trop lent pour analyser le son en temps réel : le retard grandit pendant toute la réunion.
+ * Rien n'est perdu (le process principal attend la fin de l'analyse), mais on l'écrit dans le journal.
+ */
+function watchLag() {
+  const now = performance.now();
+  if (now - lastLagLog < 60_000) return;
+  const lag = lagSec();
+  const worst = Math.max(0, ...Object.values(lag));
+  if (worst < LAG_LOG_SEC) return;
+  lastLagLog = now;
+  const detail = (Object.entries(lag) as [Channel, number][]).map(([ch, s]) => `${ch} ${Math.round(s)} s`).join(', ');
+  bridge.log(`moteur en retard sur la parole : ${detail} (à ${Math.round(clock.now() / 60_000)} min)`);
 }
 
 function watchLoopbackEnd(stream: MediaStream, gen: number) {
@@ -394,14 +441,23 @@ async function stop(notify = true) {
   navigator.mediaDevices.ondevicechange = null;
   if (levelTimer) clearInterval(levelTimer);
   levelTimer = null;
+  // on détache tout de suite : une réunion démarrée pendant la fin de l'analyse a ses propres voies
   const all = Object.values(pipes) as Pipe[];
+  const audio = ctx;
+  const ended = session;
+  pipes = {};
+  ctx = null;
   all.forEach((p) => p.close());
+  const backlog = Math.max(0, ...all.map((p) => (p.pending * FRAME_MS) / 1000));
+  if (backlog >= 1) bridge.log(`arrêt : ${Math.round(backlog)} s de son encore à analyser`);
+  const t0 = performance.now();
+  for (const p of all) drainingVads.add(p.vad);
   // la VAD finit les trames déjà reçues, puis la dernière phrase part
   await Promise.all(all.map((p) => p.drain()));
-  pipes = {};
-  await ctx?.close().catch(() => undefined);
-  ctx = null;
-  if (notify) bridge.stopped();
+  for (const p of all) drainingVads.delete(p.vad);
+  if (backlog >= 1) bridge.log(`arrêt : fin de l'analyse en ${Math.round((performance.now() - t0) / 1000)} s`);
+  await audio?.close().catch(() => undefined);
+  if (notify) bridge.stopped(ended);
 }
 
 window.__minuteStart = start;

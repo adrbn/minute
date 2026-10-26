@@ -8,6 +8,8 @@ import {
   nativeTheme,
   net,
   Notification,
+  powerMonitor,
+  powerSaveBlocker,
   protocol,
   session,
   shell,
@@ -121,11 +123,30 @@ function notify(title: string, body = '') {
   if (Notification.isSupported()) new Notification({ title, body, silent: true }).show();
 }
 
+/**
+ * Pendant une réunion (et tant que sa fin est en cours d'analyse), Windows / macOS ne doivent pas mettre
+ * l'app en veille : sans appel vidéo ouvert sur l'ordinateur, rien d'autre ne l'en empêche, et la capture
+ * s'arrêterait au délai de mise en veille du système.
+ */
+let sleepBlocker: number | null = null;
+function keepAwake(on: boolean) {
+  if (on && sleepBlocker === null) {
+    sleepBlocker = powerSaveBlocker.start('prevent-app-suspension');
+    diagLog('veille', 'mise en veille bloquée pendant la réunion');
+  } else if (!on && sleepBlocker !== null) {
+    powerSaveBlocker.stop(sleepBlocker);
+    sleepBlocker = null;
+    diagLog('veille', 'mise en veille de nouveau permise');
+  }
+}
+
 const recorder = new Recorder({
   live: (e) => broadcast('live', e),
   state: (s) => {
     broadcast('state', s);
     refreshTray();
+    // `recorder` existe déjà quand le premier état arrive
+    keepAwake(s.status !== 'idle' || recorder.drainingCount > 0);
   },
   levels: (l) => broadcast('levels', l),
   meetingsChanged: () => broadcast('meetings'),
@@ -830,7 +851,7 @@ function wireIpc() {
   ipcMain.on('engine:segment', (e, s: EngineSegment) => fromEngine(e) && recorder.onEngineSegment(s));
   ipcMain.on('engine:levels', (e, l: Levels) => fromEngine(e) && recorder.levels(l));
   ipcMain.on('engine:status', (e, ch, ok, error) => fromEngine(e) && recorder.channelStatus(ch, ok, error));
-  ipcMain.on('engine:stopped', (e) => fromEngine(e) && recorder.engineStopped());
+  ipcMain.on('engine:stopped', (e, session?: string) => fromEngine(e) && recorder.engineStopped(typeof session === 'string' ? session : undefined));
   ipcMain.on('engine:loopback', (e) => {
     if (!fromEngine(e)) return;
     void engineRefreshLoopback()
@@ -940,6 +961,10 @@ app.whenReady().then(() => {
   setPrivacy(cfg.privacyMode);
   purgeExpired();
   setInterval(purgeExpired, 6 * 3600_000);
+  // veille / réveil dans le journal : une transcription qui s'arrête net s'explique souvent ainsi
+  powerMonitor.on('suspend', () => diagLog('veille', `mise en veille du système${recorder.state.meetingId ? ' PENDANT une réunion' : ''}`));
+  powerMonitor.on('resume', () => diagLog('veille', 'réveil du système'));
+  diagLog('démarrage', `Minute ${app.getVersion()}`);
   onLocalStatus((s) => broadcast('localStatus', s));
   initUpdater({
     notify: (s) => broadcast('update', s),
