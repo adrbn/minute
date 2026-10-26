@@ -126,6 +126,13 @@ export class Recorder {
   private voiceTimer: NodeJS.Timeout | null = null;
   private stoppedResolve: (() => void) | null = null;
   private finishedPending = new Set<string>();
+  /**
+   * Réunions arrêtées dont le moteur n'a pas fini d'analyser le son : sur un ordinateur lent, la détection
+   * de parole prend du retard et les dernières phrases arrivent bien après « Terminer ». Elles sont gardées
+   * jusqu'à ce que le moteur confirme son arrêt (au plus DRAIN_MAX_MS), et la réunion n'est déclarée
+   * terminée (compte-rendu automatique) qu'après.
+   */
+  private draining = new Map<string, { timer: NodeJS.Timeout; late: number; since: number }>();
 
   constructor(private hooks: RecorderHooks) {}
 
@@ -253,6 +260,7 @@ export class Recorder {
       systemMode,
       livePreview: cfg.livePreview,
       voices: cfg.voices,
+      session: meetingId,
     });
     if (this.state.meetingId !== meetingId) return;
     if (systemMode === 'pcm' && this.hooks.systemAudio) {
@@ -265,6 +273,8 @@ export class Recorder {
 
   /** Le moteur audio (fenêtre cachée) a planté : on le relance sans perdre la réunion. */
   async onEngineCrash() {
+    // le son pas encore analysé des réunions arrêtées est parti avec le moteur
+    for (const d of [...this.draining.keys()]) this.endDrain(d, 'moteur planté');
     const id = this.state.meetingId;
     if (!id || this.state.status === 'stopping' || this.state.status === 'idle') return;
     this.hooks.systemAudio?.stop();
@@ -306,13 +316,19 @@ export class Recorder {
     const duration = this.elapsed();
     this.state = { ...this.state, status: 'stopping' };
     this.emitState();
-    // le moteur envoie ses derniers extraits puis confirme
-    await new Promise<void>((resolve) => {
-      this.stoppedResolve = resolve;
+    // le moteur envoie ses derniers extraits puis confirme ; s'il est en retard, la fin continue d'arriver après
+    const confirmed = await new Promise<boolean>((resolve) => {
+      this.stoppedResolve = () => resolve(true);
       this.hooks.engineSend('engine:stop');
-      setTimeout(resolve, 3500);
+      setTimeout(() => resolve(false), 3500);
     });
     this.stoppedResolve = null;
+    if (!confirmed) {
+      const timer = setTimeout(() => this.endDrain(id, 'délai dépassé'), DRAIN_MAX_MS);
+      this.draining.set(id, { timer, late: 0, since: Date.now() });
+      diagLog('arrêt', 'le moteur analyse encore la fin de la réunion : ses extraits restent attendus');
+      this.hooks.toast(t('La fin de la réunion est encore en cours d’analyse : gardez Minute ouvert, rien n’est perdu.'), 'info');
+    }
     this.hooks.systemAudio?.stop();
     if (this.silenceTimer) clearInterval(this.silenceTimer);
     this.silenceTimer = null;
@@ -335,8 +351,36 @@ export class Recorder {
     this.maybeFinished(id);
   }
 
-  engineStopped() {
-    this.stoppedResolve?.();
+  /** Le moteur a fini d'analyser la capture de `session` (absent : ancien moteur, on ne sait pas laquelle). */
+  engineStopped(session?: string) {
+    if (session && this.draining.has(session)) return this.endDrain(session, 'moteur arrêté');
+    if (this.stoppedResolve) return this.stoppedResolve();
+    if (!session) for (const id of [...this.draining.keys()]) this.endDrain(id, 'moteur arrêté');
+  }
+
+  /** Le moteur a fini (ou on cesse d'attendre) : la réunion peut être close pour de bon. */
+  private endDrain(id: string, why: string) {
+    const d = this.draining.get(id);
+    if (!d) return;
+    clearTimeout(d.timer);
+    this.draining.delete(id);
+    diagLog('arrêt', `fin de l'analyse (${why}) : ${d.late} extraits arrivés après « Terminer », en ${Math.round((Date.now() - d.since) / 1000)} s`);
+    if (d.late && store.has(id)) {
+      try {
+        for (const seg of voices.refine(id)) this.hooks.live({ type: 'segment', meetingId: id, segment: seg });
+      } catch (e) {
+        console.error('voix', e);
+      }
+      store.refreshStats(id);
+      this.hooks.meetingsChanged();
+    }
+    this.emitState();
+    this.maybeFinished(id);
+  }
+
+  /** Une réunion arrêtée attend encore la fin de l'analyse du son. */
+  get drainingCount(): number {
+    return this.draining.size;
   }
 
   bookmark(label?: string) {
@@ -403,12 +447,20 @@ export class Recorder {
 
   // ---------------------------------------------------------------- extraits audio
   onEngineSegment(s: EngineSegment) {
-    const id = this.state.meetingId;
+    // l'extrait dit de quelle réunion il vient : une réunion arrêtée peut encore recevoir sa fin
+    const id = s.session ?? this.state.meetingId;
     if (!id) return;
-    if (s.interim) {
-      void this.onInterim(id, s);
+    const live = id === this.state.meetingId;
+    const drain = this.draining.get(id);
+    if (!live && !drain) {
+      if (!s.interim) diagLog('moteur', `extrait ignoré : réunion ${s.session ? 'déjà close' : 'inconnue'}`);
       return;
     }
+    if (s.interim) {
+      if (live) void this.onInterim(id, s);
+      return;
+    }
+    if (drain) drain.late++;
     const segId = newId();
     const file = `${segId}.wav`;
     const path = store.audioFile(id, file);
@@ -428,7 +480,7 @@ export class Recorder {
     }
     store.putSegment(id, seg);
     // durée à jour pendant la réunion : une copie en cours n'affiche plus « < 1 min »
-    store.update(id, { durationMs: Math.round(this.elapsed()) });
+    if (live) store.update(id, { durationMs: Math.round(this.elapsed()) });
     this.hooks.live({ type: 'segment', meetingId: id, segment: seg });
     this.queue.push({ meetingId: id, segId, ch: s.ch, file: path, tries: 0, at: Date.now(), spk: seg.spk });
     this.pump();
@@ -698,6 +750,7 @@ export class Recorder {
   busyWith(meetingId: string): boolean {
     return (
       this.state.meetingId === meetingId ||
+      this.draining.has(meetingId) ||
       this.queue.some((j) => j.meetingId === meetingId) ||
       [...this.busy].some((k) => k.startsWith(meetingId))
     );
@@ -706,6 +759,12 @@ export class Recorder {
   /** Abandonne ce qui reste à transcrire pour une réunion supprimée. */
   forget(meetingId: string) {
     this.queue = this.queue.filter((j) => j.meetingId !== meetingId);
+    const d = this.draining.get(meetingId);
+    if (d) {
+      clearTimeout(d.timer);
+      this.draining.delete(meetingId);
+      this.emitState();
+    }
   }
 
   private async run(job: Job, dur: number, route: Route) {
@@ -929,7 +988,7 @@ export class Recorder {
 
   private maybeFinished(meetingId: string) {
     if (!this.finishedPending.has(meetingId)) return;
-    if (this.state.meetingId === meetingId) return;
+    if (this.state.meetingId === meetingId || this.draining.has(meetingId)) return;
     const stillQueued = this.queue.some((j) => j.meetingId === meetingId);
     const stillPending = store.segments(meetingId).some((s) => s.pending);
     if (stillQueued || stillPending) return;
@@ -939,6 +998,9 @@ export class Recorder {
     this.hooks.finished(meetingId);
   }
 }
+
+/** Au-delà, on cesse d'attendre la fin de l'analyse d'une réunion arrêtée (moteur planté, app en veille…). */
+const DRAIN_MAX_MS = 3 * 3600_000;
 
 function fileDuration(file: string): number {
   try {

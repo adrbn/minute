@@ -442,6 +442,8 @@ export interface EngineStartOptions {
   livePreview: boolean;
   /** calculer l'empreinte de voix de chaque extrait (séparation des intervenants) */
   voices: boolean;
+  /** réunion à laquelle appartient cette capture : chaque extrait la rappelle (cf. EngineSegment.session) */
+  session?: string;
 }
 
 export interface EngineSegment {
@@ -453,6 +455,11 @@ export interface EngineSegment {
   interim: boolean;
   /** empreinte de la voix (512 valeurs), si la séparation des voix est active */
   voice?: number[];
+  /**
+   * Réunion d'origine (EngineStartOptions.session). Un moteur en retard sur la parole envoie encore des
+   * extraits après « Terminer », parfois pendant la réunion suivante : ils retrouvent ainsi la bonne.
+   */
+  session?: string;
 }
 
 export interface EngineBridge {
@@ -464,7 +471,8 @@ export interface EngineBridge {
   segment(s: EngineSegment): void;
   levels(l: Levels): void;
   status(ch: Channel, ok: boolean, error?: string): void;
-  stopped(): void;
+  /** fin de l'analyse de la capture `session` (EngineStartOptions.session) */
+  stopped(session?: string): void;
   log(msg: string): void;
   /** Windows : demander au process principal de rouvrir la capture du son de l'ordinateur */
   requestLoopback(): void;
