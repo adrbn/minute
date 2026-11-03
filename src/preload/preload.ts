@@ -32,6 +32,7 @@ const api: MinuteAPI = {
     deleteSegment: (id, segId) => invoke('meetings:deleteSegment', id, segId),
     reveal: (id) => invoke('meetings:reveal', id),
     exportTo: (id, format) => invoke('meetings:export', id, format),
+    importFiles: () => invoke('meetings:import'),
     copy: (id, opts) => invoke('meetings:copy', id, opts),
     search: (q) => invoke('meetings:search', q),
     retryPending: (id) => invoke('meetings:retry', id),

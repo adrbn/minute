@@ -182,3 +182,16 @@ export function relativeTime(ts: number): string {
   if (h < 24) return t('il y a {n} h', { n: h });
   return new Date(ts).toLocaleDateString(locale(), { day: 'numeric', month: 'short' });
 }
+
+/** Réunions venues d'un autre Minute (.minute ou export .md) : importe puis dit ce qui s'est passé. */
+export async function importMeetingFiles(toast: (text: string, kind?: 'info' | 'success' | 'warn' | 'error') => void) {
+  try {
+    const r = await minute.meetings.importFiles();
+    if (!r) return;
+    if (r.imported) toast(r.imported > 1 ? t('{n} réunions importées', { n: r.imported }) : t('Réunion importée'), 'success');
+    if (r.skipped) toast(r.skipped > 1 ? t('{n} réunions déjà dans l’historique', { n: r.skipped }) : t('Cette réunion est déjà dans l’historique'), 'info');
+    for (const e of r.errors) toast(t('Import impossible : {error}', { error: e }), 'error');
+  } catch (e) {
+    toast(t('Import impossible : {error}', { error: (e as Error).message }), 'error');
+  }
+}

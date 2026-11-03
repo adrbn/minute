@@ -177,6 +177,9 @@ install [LM Studio](https://lmstudio.ai) or [Ollama](https://ollama.com): Minute
 ## Your data
 
 - Meetings live **on your computer**, in `Documents/Minute`: one readable folder per meeting.
+- To move a meeting to another computer (Mac ↔ Windows): the meeting’s menu › **Export › For another Minute**
+  (a `.minute` file: everything but the audio), then the **Import** button at the bottom of the list on the other
+  computer. A Minute Markdown export (`.md`) can be imported too.
 - In standard mode, only the **audio of each sentence** goes to Groq to be transcribed (in offline mode: to your
   server, and nowhere else), and only the **text** goes to the AI you picked for summaries. Voice recognition runs on your computer.
 - No telemetry, no account, no Minute server.

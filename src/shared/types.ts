@@ -283,6 +283,19 @@ export interface NativelyInfo {
   alreadyImported: number;
 }
 
+/** 'minute' : la réunion entière, pour un autre Minute (sans l'audio) */
+export type ExportFormat = 'md' | 'txt' | 'docx' | 'minute';
+
+export interface ImportResult {
+  imported: number;
+  /** déjà dans l'historique */
+  skipped: number;
+  /** « fichier : raison » */
+  errors: string[];
+  /** réunion à afficher (la première importée, ou celle qui existait déjà) */
+  open?: string;
+}
+
 export interface AppInfo {
   platform: NodeJS.Platform;
   /** fond translucide natif (Mica / vibrancy) disponible */
@@ -340,7 +353,9 @@ export interface MinuteAPI {
     reassign(id: string, from: { segId: string; offset: number }, to: { segId: string; offset: number }, target: string): Promise<boolean>;
     deleteSegment(id: string, segId: string): Promise<void>;
     reveal(id: string): Promise<void>;
-    exportTo(id: string, format: 'md' | 'txt' | 'docx'): Promise<string | null>;
+    exportTo(id: string, format: ExportFormat): Promise<string | null>;
+    /** fichiers .minute ou .md venus d'un autre Minute ; null si l'utilisateur annule */
+    importFiles(): Promise<ImportResult | null>;
     copy(id: string, opts: CopyOptions): Promise<{ words: number }>;
     search(query: string): Promise<SearchHit[]>;
     retryPending(id: string): Promise<number>;

@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import type { AppInfo, CalendarState, LlmProvider, LocalStatus, NativelyInfo, SecretName, Settings, Shortcuts, UpdateState } from '../../../shared/types';
-import { minute, relativeTime, shortcutLabel } from '../api';
+import { importMeetingFiles, minute, relativeTime, shortcutLabel } from '../api';
 import { AppIcon, Switch, useAudioInputs, useToast } from './ui';
 import { t } from '../../../shared/i18n';
 import { sttModeOf } from '../../../shared/stt';
@@ -1264,6 +1264,14 @@ function Data({ settings, update }: P) {
         >
           <button className="btn" disabled={!natively?.found || importing || natively.meetings === natively.alreadyImported} onClick={() => void runImport()}>
             {importing ? <Loader2 className="spin" /> : <Import />} {t('Importer')}
+          </button>
+        </Row>
+        <Row
+          label={t('Réunion d’un autre Minute')}
+          hint={t('Fichier .minute (tout, sauf l’audio) ou export Markdown (.md). Pour l’envoyer : menu d’une réunion › Exporter › Pour un autre Minute.')}
+        >
+          <button className="btn" onClick={() => void importMeetingFiles(toast)}>
+            <Import /> {t('Choisir un fichier…')}
           </button>
         </Row>
       </Group>
