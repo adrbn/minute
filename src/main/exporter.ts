@@ -1,6 +1,6 @@
 import { app, clipboard, ClipboardItem, dialog, type BrowserWindow } from 'electron';
 import { writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { AlignmentType, Document, HeadingLevel, Packer, Paragraph, TextRun } from 'docx';
 import {
   clock,
@@ -15,8 +15,10 @@ import {
   wordCount,
 } from '../shared/transcript';
 import { t } from '../shared/i18n';
-import type { CopyOptions, MeetingMeta, Segment } from '../shared/types';
+import type { CopyOptions, ExportFormat, ImportResult, MeetingMeta, Segment } from '../shared/types';
+import { settings } from './settings';
 import { store } from './store';
+import { importMeetingFile, toBundle } from './transfer';
 
 function pick(meta: MeetingMeta, segments: Segment[], range: CopyOptions['range']): Segment[] {
   const done = segments.filter((s) => s.text.trim());
@@ -141,7 +143,7 @@ function safeName(s: string) {
   return s.replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim().slice(0, 80) || t('Réunion');
 }
 
-export async function exportMeeting(id: string, format: 'md' | 'txt' | 'docx', win: BrowserWindow | null): Promise<string | null> {
+export async function exportMeeting(id: string, format: ExportFormat, win: BrowserWindow | null): Promise<string | null> {
   const meta = store.meta(id);
   if (!meta) return null;
   const segments = store.segments(id);
@@ -149,12 +151,38 @@ export async function exportMeeting(id: string, format: 'md' | 'txt' | 'docx', w
   const base = `${d.toISOString().slice(0, 10)} ${safeName(meta.title)}.${format}`;
   const opts = {
     defaultPath: join(app.getPath('documents'), base),
-    filters: [{ name: format.toUpperCase(), extensions: [format] }],
+    filters: [{ name: format === 'minute' ? t('Réunion Minute') : format.toUpperCase(), extensions: [format] }],
   };
   const res = win ? await dialog.showSaveDialog(win, opts) : await dialog.showSaveDialog(opts);
   if (res.canceled || !res.filePath) return null;
   if (format === 'docx') writeFileSync(res.filePath, await meetingToDocx(meta, segments));
   else if (format === 'md') writeFileSync(res.filePath, meetingToMarkdown(meta, segments), 'utf8');
+  else if (format === 'minute') writeFileSync(res.filePath, JSON.stringify(toBundle(meta, segments, app.getVersion()), null, 1), 'utf8');
   else writeFileSync(res.filePath, transcriptToText(meta, segments, { timestamps: true }), 'utf8');
   return res.filePath;
+}
+
+/** Réunions venues d'un autre Minute : fichier .minute, ou export Markdown (.md). */
+export async function importMeetings(win: BrowserWindow | null): Promise<ImportResult | null> {
+  const opts: Electron.OpenDialogOptions = {
+    title: t('Importer une réunion'),
+    defaultPath: app.getPath('documents'),
+    properties: ['openFile', 'multiSelections'],
+    filters: [{ name: t('Réunion Minute (.minute, .md)'), extensions: ['minute', 'md'] }],
+  };
+  const res = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts);
+  if (res.canceled || !res.filePaths.length) return null;
+  const cfg = settings().get();
+  const out: ImportResult = { imported: 0, skipped: 0, errors: [] };
+  for (const file of res.filePaths) {
+    try {
+      const r = importMeetingFile(file, { meName: cfg.meName, themName: cfg.themName, language: cfg.language });
+      if (r.added) out.imported++;
+      else out.skipped++;
+      out.open ??= r.id;
+    } catch (e) {
+      out.errors.push(`${basename(file)} : ${(e as Error).message}`);
+    }
+  }
+  return out;
 }

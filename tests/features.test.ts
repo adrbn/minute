@@ -18,6 +18,8 @@ import { applyCorrections, learnFromEdit, mentions, suggestTerms } from '../src/
 import { migrateShortcuts } from '../src/main/settings';
 import { sttMissing, sttModeOf } from '../src/shared/stt';
 import type { MeetingMeta, Segment, Voice } from '../src/shared/types';
+import { meetingToMarkdown } from '../src/main/exporter';
+import { parseBundle, parseDurationLabel, parseMinuteMarkdown, toBundle } from '../src/main/transfer';
 
 const ics = `BEGIN:VCALENDAR
 VERSION:2.0
@@ -600,4 +602,70 @@ test('voix : un intervenant choisi à la main n’est pas remis en cause en fin 
   assert.equal(segs[3].spk, 'them9');
   assert.equal(meta.voices!.them9?.name, 'Giorgia');
   assert.equal(new Set(segs.filter((s) => !s.manual).map((s) => s.spk)).size, 1);
+});
+
+// --- échange d'une réunion entre deux Minute (Mac ↔ Windows)
+const xMeta = (): MeetingMeta => ({
+  id: 'x1',
+  title: 'Point budget',
+  titleIsAuto: false,
+  startedAt: new Date(2026, 10, 3, 15, 40).getTime(),
+  durationMs: 101 * 60_000,
+  status: 'done',
+  source: 'minute',
+  speakers: { me: 'Moi', them: 'Participants' },
+  notes: 'Relancer Capucine.',
+  bookmarks: [{ id: 'b1', t: 65_000, label: 'Budget' }],
+  summary: { markdown: '## En bref\nRéunion courte.\n\n## Points clés\n### Budget\n- moins de 35 000 €', generatedAt: 0, provider: 'groq', model: 'x' },
+  wordCount: 0,
+  preview: '',
+  hasAudio: true,
+  language: 'fr',
+  voices: { v1: { n: 1 }, v2: { n: 2, name: 'Marco' } },
+});
+const xSegs = (): Segment[] => [
+  { id: 'a', ch: 'me', t0: 0, t1: 4000, text: 'Bonjour à tous.' },
+  { id: 'b', ch: 'them', spk: 'v1', t0: 38_000, t1: 42_000, text: 'Tu peux te connecter ?' },
+  { id: 'c', ch: 'them', spk: 'v2', t0: 65_000, t1: 70_000, text: 'Le budget est serré.', audio: 'c.wav' },
+  { id: 'd', ch: 'me', t0: 3_700_000, t1: 3_705_000, text: 'On se revoit jeudi.' },
+];
+
+test('transfert : un export Markdown de Minute se réimporte (date, compte-rendu, notes, moments, voix)', () => {
+  const meta = xMeta();
+  const r = parseMinuteMarkdown(meetingToMarkdown(meta, xSegs()), { meName: 'Moi', themName: 'Participants', language: 'fr', fallbackStart: 0 });
+  assert.equal(r.meta.title, 'Point budget');
+  assert.equal(r.meta.startedAt, meta.startedAt);
+  assert.equal(r.meta.durationMs, meta.durationMs);
+  assert.equal(r.meta.summary?.markdown, meta.summary!.markdown);
+  assert.equal(r.meta.notes, meta.notes);
+  assert.deepEqual(r.meta.bookmarks.map((b) => [b.t, b.label]), [[65_000, 'Budget']]);
+  assert.deepEqual(
+    r.segments.map((s) => [s.ch, s.t0, s.text, voiceLabel(r.meta, s.ch, s.spk)]),
+    [
+      ['me', 0, 'Bonjour à tous.', 'Moi'],
+      ['them', 38_000, 'Tu peux te connecter ?', 'Participant A'],
+      ['them', 65_000, 'Le budget est serré.', 'Marco'],
+      ['me', 3_700_000, 'On se revoit jeudi.', 'Moi'],
+    ],
+  );
+  assert.ok(r.segments.every((s) => s.t1 >= s.t0));
+  assert.throws(() => parseMinuteMarkdown('Bonjour', { meName: '', themName: '', language: 'fr', fallbackStart: 0 }));
+  assert.equal(parseDurationLabel('1 h 41'), 101 * 60_000);
+  assert.equal(parseDurationLabel('2h'), 120 * 60_000);
+  assert.equal(parseDurationLabel('41 min'), 41 * 60_000);
+});
+
+test('transfert : un fichier .minute garde tout sauf l’audio', () => {
+  const pending: Segment = { id: 'p', ch: 'them', t0: 5000, t1: 6000, text: '', pending: true, audio: 'p.wav' };
+  const b = toBundle({ ...xMeta(), status: 'recording', deletedAt: 1 }, [...xSegs(), pending], '0.6.12');
+  const r = parseBundle(JSON.stringify(b));
+  assert.equal(r.meta.status, 'done');
+  assert.equal(r.meta.hasAudio, false);
+  assert.equal(r.meta.deletedAt, undefined);
+  assert.deepEqual(r.meta.voices, xMeta().voices);
+  assert.equal(r.meta.summary?.markdown, xMeta().summary!.markdown);
+  assert.deepEqual(r.segments.map((s) => s.id), ['a', 'b', 'c', 'd']);
+  assert.ok(r.segments.every((s) => !('audio' in s) && !('pending' in s)));
+  assert.throws(() => parseBundle('{"format":"autre"}'), /réunion Minute/);
+  assert.throws(() => parseBundle(JSON.stringify({ ...b, version: 99 })), /plus récente/);
 });

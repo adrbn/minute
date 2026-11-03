@@ -17,7 +17,7 @@ import {
 import { appendFileSync, existsSync, readFileSync, renameSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import type { AiRequest, CalendarEvent, EngineSegment, Levels, LlmProvider, SecretName, Segment, Settings } from '../shared/types';
+import type { AiRequest, CalendarEvent, EngineSegment, ExportFormat, Levels, LlmProvider, SecretName, Segment, Settings } from '../shared/types';
 import { cancelAi, runAi } from './ai';
 import { CalendarService, fetchCalendar } from './calendar';
 import { googleSignIn, revokeGoogle, type GoogleClient } from './google';
@@ -34,7 +34,7 @@ import {
   setShape as setCompactShape,
   toggleCompact,
 } from './compact';
-import { copyMeeting, exportMeeting } from './exporter';
+import { copyMeeting, exportMeeting, importMeetings } from './exporter';
 import { transcribe } from './groq';
 import { listModels } from './llm';
 import { createMacSystemAudio, openMacPrivacy } from './macAudio';
@@ -694,9 +694,15 @@ function wireIpc() {
     const d = store.dir(id);
     if (d) shell.showItemInFolder(`${d}/meeting.json`);
   });
-  handle('meetings:export', (e, id: string, format: 'md' | 'txt' | 'docx') =>
+  handle('meetings:export', (e, id: string, format: ExportFormat) =>
     exportMeeting(id, format, BrowserWindow.fromWebContents(e.sender)),
   );
+  handle('meetings:import', async (e) => {
+    const r = await importMeetings(BrowserWindow.fromWebContents(e.sender));
+    if (r?.imported) broadcast('meetings');
+    if (r?.open) broadcast('navigate', { meetingId: r.open });
+    return r;
+  });
   handle('meetings:copy', (_e, id: string, opts) => copyMeeting(id, opts, settings().get().copyWithTimestamps));
   handle('meetings:search', (_e, q: string) => store.search(q));
   handle('meetings:retry', (_e, id: string) => recorder.retryMeeting(id));

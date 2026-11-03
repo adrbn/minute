@@ -184,6 +184,9 @@ bloque toute connexion extérieure. Pour les comptes-rendus, installez [LM Studi
 ## Vos données
 
 - Les réunions restent **sur votre ordinateur**, dans `Documents/Minute` : un dossier lisible par réunion.
+- Pour passer une réunion d’un ordinateur à l’autre (Mac ↔ Windows) : menu de la réunion › **Exporter › Pour un autre
+  Minute** (fichier `.minute` : tout sauf l’audio), puis sur l’autre ordinateur le bouton **Importer** en bas de la liste.
+  Un export Markdown (`.md`) de Minute s’importe aussi.
 - En mode standard, seul **le son de chaque phrase** part chez Groq pour être transcrit (en mode hors ligne : vers votre
   serveur, et nulle part ailleurs), et seul **le texte** part vers l’IA choisie pour les comptes-rendus. La reconnaissance des voix se fait sur votre ordinateur.
 - Aucune télémétrie, aucun compte, aucun serveur Minute.

@@ -1,9 +1,9 @@
-import { Archive, ArchiveRestore, ChevronLeft, Clock, Download, FileText, FolderOpen, Hourglass, Lock, Merge, PanelLeft, RotateCcw, Pencil, Pin, PinOff, Search, Settings, SquarePen, Star, Trash2, X } from 'lucide-react';
+import { Archive, ArchiveRestore, ChevronLeft, Clock, Download, FileText, FolderOpen, Hourglass, Import, Lock, Merge, PanelLeft, RotateCcw, Pencil, Pin, PinOff, Search, Settings, SquarePen, Star, Trash2, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { clock, durationLabel } from '../../../shared/transcript';
 import type { LiveState, MeetingMeta } from '../../../shared/types';
 import { locale, t } from '../../../shared/i18n';
-import { minute, useElapsed } from '../api';
+import { importMeetingFiles, minute, useElapsed } from '../api';
 import { AppGlyph, IslandIcon, useMenu, useToast } from './ui';
 
 /** Nombre de jours calendaires écoulés depuis ts (0 = aujourd'hui, 1 = hier). */
@@ -162,6 +162,7 @@ export function Sidebar({
       { separator: true },
       { label: t('Exporter en Word'), icon: <FileText />, onClick: () => void exportAs(m.id, 'docx') },
       { label: t('Exporter en Markdown'), icon: <Download />, onClick: () => void exportAs(m.id, 'md') },
+      { label: t('Exporter pour un autre Minute'), icon: <Download />, onClick: () => void exportAs(m.id, 'minute') },
       { label: t('Afficher dans le dossier'), icon: <FolderOpen />, onClick: () => void minute.meetings.reveal(m.id) },
       ...(mergeItems.length ? [{ separator: true }, ...mergeItems] : []),
       { separator: true },
@@ -179,7 +180,7 @@ export function Sidebar({
     ]);
   };
 
-  const exportAs = async (id: string, f: 'md' | 'docx') => {
+  const exportAs = async (id: string, f: 'md' | 'docx' | 'minute') => {
     const path = await minute.meetings.exportTo(id, f);
     if (path) toast(t('Export enregistré'), 'success');
   };
@@ -330,6 +331,14 @@ export function Sidebar({
           aria-label={t('Passer en Dynamic Island')}
         >
           <IslandIcon />
+        </button>
+        <button
+          className="icon-btn"
+          onClick={() => void importMeetingFiles(toast)}
+          title={t('Importer une réunion (.minute, .md)')}
+          aria-label={t('Importer une réunion')}
+        >
+          <Import />
         </button>
         <span className="grow">
           {live && live.queue > 0 ? (

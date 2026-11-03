@@ -26,7 +26,7 @@ import {
 import { useEffect, useRef, useState } from 'react';
 import { t, locale } from '../../../shared/i18n';
 import { clock, dateLabel, durationLabel } from '../../../shared/transcript';
-import type { AppInfo, LiveState, Settings } from '../../../shared/types';
+import type { AppInfo, ExportFormat, LiveState, Settings } from '../../../shared/types';
 import { minute, shortcutLabel, useElapsed, useLevels, useMeeting } from '../api';
 import { SidePanel, type PanelTab } from './SidePanel';
 import { Transcript } from './Transcript';
@@ -137,6 +137,7 @@ export function MeetingView({
       { label: t('Document Word (.docx)'), icon: <FileText />, onClick: () => void exportAs('docx') },
       { label: 'Markdown (.md)', icon: <Download />, onClick: () => void exportAs('md') },
       { label: t('Texte brut (.txt)'), icon: <Download />, onClick: () => void exportAs('txt') },
+      { label: t('Pour un autre Minute (.minute)'), icon: <Download />, onClick: () => void exportAs('minute') },
       { separator: true },
       { label: t('Renommer les voix…'), icon: <Users />, onClick: renameSpeakers },
       { label: t('Afficher dans le dossier'), icon: <FolderOpen />, onClick: () => void minute.meetings.reveal(id) },
@@ -166,7 +167,7 @@ export function MeetingView({
       },
     ]);
 
-  const exportAs = async (f: 'md' | 'txt' | 'docx') => {
+  const exportAs = async (f: ExportFormat) => {
     const p = await minute.meetings.exportTo(id, f);
     if (p) toast(t('Export enregistré'), 'success');
   };
